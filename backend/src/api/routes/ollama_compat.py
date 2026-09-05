@@ -328,6 +328,7 @@ async def ollama_generate(
 
 @router.get("/api/tags")
 async def ollama_tags(
+    request: Request,
     auth: tuple[ServiceInstance | None, InstanceApiKey] = Depends(
         verify_bearer_token_any,
     ),
@@ -337,6 +338,11 @@ async def ollama_tags(
 
     Legacy keys: just the one bound instance. M:N keys: all instances
     reached via active ApiKeyGrant rows. Empty list is valid — no 401.
+
+    2026-09-05 spec §6:model 类服务只在其模型**已加载**时出现,口径与 `/v1/models`
+    完全一致(共用 `_readiness.service_is_ready`)。此前 Ollama 面把冷模型也列出来,
+    客户端(Open WebUI 等)选中即 503 —— 发现到的必须等于现在就能调的。
+    comfy_template / workflow / app 类照旧按授权列。
     """
     instance, api_key = auth
 
@@ -354,8 +360,13 @@ async def ollama_tags(
         )
         rows = (await session.execute(stmt)).scalars().all()
 
+    from src.api.routes._readiness import service_is_ready  # noqa: PLC0415
+    model_mgr = getattr(request.app.state, "model_manager", None)
+
     models = []
     for inst in rows:
+        if not service_is_ready(model_mgr, inst):
+            continue
         models.append({
             "name": inst.name,
             "model": inst.name,

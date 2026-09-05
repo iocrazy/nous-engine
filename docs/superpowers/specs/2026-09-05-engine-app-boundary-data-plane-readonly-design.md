@@ -18,7 +18,10 @@ nous-engine 对下游(nous-app、ComfyUI、任何持 InstanceApiKey 的调用方
 1. **数据面能唤醒模型**。`vllm_endpoint.py::ensure_vllm_base_url` 在 `/v1/chat/completions`
    等路径上按需 `load_model`。nous-app 的 worker(容器 `nous-worker`)调一次
    `qwen3-6-35b`,请求**阻塞 85–111 秒**(冷加载),然后 Qwen3.6 落到 `[0,2]` 那对 3090
-   ——正是 Qwen3.8 显式钉死的组。
+   ——正是 Qwen3.8 显式钉死的组。**更正(2026-09-05 复审)**:它落这组不是「自动选组」,
+   而是 `model_runtime_overrides` 里给 `qwen3_6_35b_fp8` 留着一行 `gpus=[0,2]`,
+   即显式硬约束。所以这条事故的成因是**覆盖表里的历史落卡 + 数据面能唤醒它**两者相乘,
+   不是自动选卡选错了组。
 2. **一旦被唤醒就永久占卡**。`startup_reconcile.py:44` 给每个已发布工作流的模型依赖
    登记进程级引用(`add_reference(dep["key"], str(wf.id))`),`check_idle_models`
    (`model_manager.py:1053`)见引用非空即 `continue`。一个叫「新工作流」的 3 节点
@@ -79,6 +82,11 @@ nous-engine 对下游(nous-app、ComfyUI、任何持 InstanceApiKey 的调用方
 (显式 `/load`)、`vllm_endpoint.py:82`(`ensure_vllm_base_url`)。前四处都是控制面;
 **第五处是数据面唯一的门**。画布工作流执行器(`llm_runner.py`)本来就用只读的
 `get_vllm_base_url`,`_load_wf_deps` 已于 2026-09-03 删除。
+
+**这条「只有一扇门」限定在上述五个 LLM 兼容模块**(2026-09-05 复审补正)。画布工作流的
+`POST /v1/services/{name}/predictions` 经 `nodes/llm.py`、图像路径经
+`get_or_load_image_adapter`,仍会在执行期按需加载模型——它们不在本不变式的射程内
+(见 §6 的范围界定),要不要一并收紧另开 spec。
 
 **落地**
 - 删除 `ensure_vllm_base_url`。六处调用(`openai_compat.py` ×3、`anthropic_compat.py`、
@@ -219,6 +227,14 @@ spec 的意义在于下游真的能按提供商语义用它,所以验收在真�
 - 3.8 是否补 `--enable-auto-tool-choice --tool-call-parser`(3.6 有、3.8 没有):
   目录能力问题,经 `params.vllm_args` 透传即可,单开。
 - `asr_sglang.py:92-93` 的 3090 UUID 默认回退与「绝不 Pro 6000」过时注释:死代码,单开。
+- **覆盖表可以无声取消 yaml 的 `resident`**:`model_runtime_overrides` 里一行
+  `resident=False` 就能让目录里的 `resident: true` 完全失效,且此前零日志(真机上
+  `qwen3_embedding_8b` 正是如此)。已在 `registry.py` 加不一致告警(resident → error、
+  落卡 → warning,本 PR)。**告警不是修复**:两处真相源(yaml 目录 / DB 覆盖)谁是权威
+  仍未收敛,要收敛得单开。
+- **画布工作流的 prediction 仍可唤醒模型**:`nodes/llm.py` / `get_or_load_image_adapter`
+  在执行期按需加载,§4 的「数据面只读」不覆盖这条路径。要把同一条不变式推到工作流执行器,
+  单开 spec(要先回答「工作流执行到底算控制面还是数据面」)。
 - CLAUDE.md 里「`/v1/*` 校验失败会退回 admin-session」的说法对
   `/v1/audio/transcriptions` 不成立(`_auth_transcriptions` 直连
   `verify_bearer_token_any`),需修正措辞。

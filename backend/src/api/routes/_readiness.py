@@ -10,7 +10,12 @@ from typing import Any, Iterable
 
 
 def engine_name_of(svc: Any) -> str:
-    """服务名 ↔ 引擎名的唯一写法(与 chat/embeddings 路由一致)。"""
+    """服务名 ↔ 引擎名:`source_name or str(source_id)`。
+
+    注意这**不是**唯一实现 —— 六处路由(chat / embeddings / anthropic / ollama /
+    responses / context_cache)仍各自内联同一个表达式。本函数是那份内联写法的镜像,
+    改口径时六处要一起改(2026-09-05 复审:原注释写"唯一写法"是不实的)。
+    """
     return svc.source_name or str(svc.source_id)
 
 

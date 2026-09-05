@@ -54,7 +54,10 @@ def test_resident_models_are_pinned_and_fit():
         # 整个测试变成空真(断言 0 <= 容量),这个 assert 就是防这个的。
         vram_gb = float(cfg.get("vram_gb") or 0)
         assert vram_gb > 0, f"常驻模型 {key} 没有显存声明(vram_mb),容量核算无从谈起"
-        share = vram_gb / len(gpus)  # tp 组按卡均分,与 topology.group_budget_gb 同口径
+        # tp 组按卡均分 —— 镜像的是 model_manager.py 的预留口径
+        # (`per_card = max(1, int(spec.vram_mb / len(explicit)))`),不是
+        # topology.group_budget_gb(那条算的是「组内最小卡的可用量」,另一回事)。
+        share = vram_gb / len(gpus)
         for g in gpus:
             used[g] += share
     assert used, "没有扫到任何常驻模型 —— 目录不该是空的,测试会失去意义"

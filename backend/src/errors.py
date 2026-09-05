@@ -158,3 +158,22 @@ class ModelNotReadyError(ServiceUnavailableError):
         if self.ready_models is not None:
             d["error"]["ready_models"] = list(self.ready_models)
         return d
+
+
+class EngineUnloadRefusedError(ConflictError):
+    """409 — unload 被拒,且拒绝理由带结构化的「谁在引用它」。
+
+    spec 2026-09-05 §8 要的是可编程的 `referenced_by`,不是只把引用者拼进 message
+    里让调用方去正则(2026-09-05 复审)。做法与 ModelNotReadyError 的 `ready_models`
+    同构:字段非 None 才出现在 error body 里,老调用方读 message 照旧不受影响。
+    """
+
+    def __init__(self, message: str, *, referenced_by: list[str] | None = None, **kw):
+        super().__init__(message, **kw)
+        self.referenced_by = referenced_by
+
+    def to_dict(self) -> dict:
+        d = super().to_dict()
+        if self.referenced_by is not None:
+            d["error"]["referenced_by"] = list(self.referenced_by)
+        return d

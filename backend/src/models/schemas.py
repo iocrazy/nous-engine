@@ -125,7 +125,9 @@ class EngineInfo(BaseModel):
     loaded_gpu: int | None = None
     loaded_gpus: list[int] | None = None
     # spec 2026-09-05 §9:当前持有该模型的活跃引用(正常为空,或只剩请求期的 `proxy-*`)。
-    # 「为什么它还在显存里」的答案只有两种:resident=True,或 held_by 非空。没有第三种。
+    # 「为什么它还在显存里 / 为什么卸不掉」要看两处:resident=True,或 held_by 非空。
+    # 注意 `in_use`(正在推理)是第三种「暂时走不了」的状态,与 resident / held_by 并列
+    # ——它不落在本字段里,由 unload 的 409 `engine_in_use` 表达(2026-09-05 复审)。
     held_by: list[str] = []
     # Image adapters expose how many LoRA weights they recognize for the
     # active load. Surfaced in /api/v1/engines so the frontend EngineCard
