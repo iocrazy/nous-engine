@@ -368,6 +368,25 @@ async def test_unload_referenced_engine_returns_409_with_reason(client):
     assert err["code"] == "engine_referenced"
     assert "308084173191516160" in err["message"]
     assert "force=true" in err["fix"]
+    # spec §8 要的是**结构化**的引用者清单,不是让调用方去正则解析 message(2026-09-05 复审)。
+    assert err["referenced_by"] == ["308084173191516160"]
+
+
+async def test_unload_resident_engine_returns_409_engine_resident(client, monkeypatch):
+    """常驻拒绝此前是裸 HTTPException(409) → 全局 handler 渲成 code="conflict",
+    跟同端点另外两条 409(engine_in_use / engine_referenced)不同构,调用方没法按 code 分流。
+    三条拒绝理由各有自己的 code + fix(2026-09-05 复审 E1)。"""
+    from src.api.routes import engines as engines_route
+
+    monkeypatch.setattr(engines_route, "scan_models", lambda: {
+        "res-model": {"name": "res-model", "type": "llm", "resident": True},
+    })
+
+    resp = await client.post("/api/v1/engines/res-model/unload")
+    assert resp.status_code == 409, resp.text
+    err = resp.json()["error"]
+    assert err["code"] == "engine_resident"
+    assert "force=true" in err["fix"]
 
 
 async def test_unload_in_use_engine_returns_409_and_force_does_not_help(client):

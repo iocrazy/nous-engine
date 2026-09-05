@@ -33,6 +33,9 @@ def test_data_plane_modules_have_no_load_capability():
         src = inspect.getsource(importlib.import_module(name))
         assert "ensure_vllm_base_url" not in src, f"{name} 仍引用懒加载 helper"
         assert ".load_model(" not in src, f"{name} 直接调 load_model —— 数据面不得改变放置"
+        # 另外两扇「按需加载」的门:两者都会在请求路径上把冷模型拉起来。
+        assert ".get_loaded_adapter(" not in src, f"{name} 引用 get_loaded_adapter —— 那是按需加载门"
+        assert "get_or_load" not in src, f"{name} 引用 get_or_load —— 那是按需加载门"
         assert "get_vllm_base_url" in src, f"{name} 应只经只读的 get_vllm_base_url 解析端点"
 
 
@@ -167,5 +170,29 @@ async def test_transcriptions_on_cold_moss_is_503_model_not_ready(
     err = r.json()["error"]
     assert err["type"] == "model_not_ready" and err["code"] == "model_not_ready"
     assert err["param"] == "model"
+    assert "/v1/models" in err["fix"]
+    mgr.load_model.assert_not_called()
+
+
+@pytest.mark.parametrize("path,body", [
+    ("/v1/responses", {"model": "qwen3.5", "input": "hi"}),
+    ("/v1/context/create",
+     {"model": "qwen3.5", "messages": [{"role": "system", "content": "hi"}]}),
+])
+@pytest.mark.asyncio
+async def test_cold_model_503_envelope_on_responses_and_context_cache(
+    api_client, bearer_headers, path, body,
+):
+    """spec §5:剩下两个兼容面的 503 也要是 model_not_ready 信封(2026-09-05 复审 E8)。
+
+    信封退化成 `type=api_error` / `code=null` 不会有任何测试发现,而下游正是按 code 分流的。
+    """
+    mgr = api_client.app.state.model_manager
+    mgr.get_adapter = MagicMock(return_value=None)          # 冷:没有 adapter
+
+    r = await api_client.post(path, json=body, headers=bearer_headers)
+    assert r.status_code == 503, r.text
+    err = r.json()["error"]
+    assert err["type"] == "model_not_ready" and err["code"] == "model_not_ready"
     assert "/v1/models" in err["fix"]
     mgr.load_model.assert_not_called()

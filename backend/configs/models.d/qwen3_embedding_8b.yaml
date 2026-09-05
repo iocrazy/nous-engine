@@ -5,7 +5,11 @@ id: qwen3_embedding_8b
 paths:
   main: text/embedding/Qwen3-Embedding-8B
 type: embedding
-vram_mb: 17500
+# 2026-09-05:17500 低报了实际占用。真实预留的优先级是
+#   overlay `vram_budget` > 本文件 `params.gpu_memory_utilization` > adapter 自动公式
+# (`llm_vllm.py` resolve_vram_utilization)。线上覆盖行钉的是绝对 22G,这里对齐它,
+# 让 tests/test_resident_capacity.py 的常驻账按真实占用算。
+vram_mb: 22000
 # 2026-09-05 spec §10:钉 Pro 6000 并常驻。此前无钉卡走自动选卡,反复落到 3090 又被
 # LRU 驱逐(gpu_monitor 日志 "Auto-evicted model qwen3_embedding_8b from GPU 2")。
 gpu: 1
@@ -14,4 +18,7 @@ ttl_seconds: 3600
 params:
   vllm_runner: pooling
   max_model_len: 8192
-  gpu_memory_utilization: 0.3
+  # 0.3 是按 24G 卡的直觉写的,在 96G 的 Pro 6000 上 = 28.8G,比预算大一截
+  # (跟 MOSS 的 mem_fraction_static 同一类 bug,见 PR #710)。0.22 × 96 ≈ 21G,
+  # 与覆盖行的绝对 22G 对齐 —— 覆盖行若被清掉,这条兜底也不会失真。
+  gpu_memory_utilization: 0.22

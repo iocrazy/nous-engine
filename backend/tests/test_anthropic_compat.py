@@ -203,6 +203,36 @@ async def test_anthropic_messages_accepts_bearer_too(
 
 
 @pytest.mark.asyncio
+async def test_anthropic_messages_on_cold_model_is_503_model_not_ready(
+    db_app_client, grant_key,
+):
+    """spec 2026-09-05 §5:Anthropic 面的未就绪拒绝也是 model_not_ready 信封,且绝不加载。
+
+    这条 503 此前一个断言都没有(2026-09-05 复审 E8):信封退化成 type=api_error /
+    code=null 也不会有人发现,而下游正是按 code 分流的。
+    """
+    app, db_client, _ = db_app_client
+    secret, _ = grant_key
+    app.state.model_manager.get_adapter = MagicMock(return_value=None)   # 冷:没有 adapter
+
+    r = await db_client.post(
+        "/v1/messages",
+        headers={"x-api-key": secret},
+        json={
+            "model": "qwen-svc",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 32,
+        },
+    )
+    assert r.status_code == 503, r.text
+    err = r.json()["error"]
+    assert err["type"] == "model_not_ready" and err["code"] == "model_not_ready"
+    assert err["param"] == "model"
+    assert "/v1/models" in err["fix"]
+    app.state.model_manager.load_model.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_anthropic_messages_rejects_no_auth(db_app_client):
     _, db_client, _ = db_app_client
     r = await db_client.post(

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src.api.deps_admin import require_admin
 from src.api.response_cache import cached, invalidate
-from src.errors import ConflictError
+from src.errors import ConflictError, EngineUnloadRefusedError
 from src.services.model_scanner import scan_models, _VLLM_ADAPTER
 from src.gpu.detector import gpu_summary
 from src.models.database import get_async_session
@@ -430,7 +430,14 @@ async def unload_engine(name: str, request: Request, force: bool = False):
 
     cfg = configs[name]
     if cfg.get("resident", False) and not force:
-        raise HTTPException(409, detail=f"Engine {name} is resident. Use force=true to unload.")
+        # 2026-09-05:裸 HTTPException(409) 只会被全局 handler 渲成 code="conflict",
+        # 与同一端点另外两条 409(engine_in_use / engine_referenced)不同构,
+        # 调用方没法按 code 分流。三条拒绝理由都给自己的 code + fix。
+        raise ConflictError(
+            f"Engine {name} is resident; not unloaded.",
+            code="engine_resident",
+            fix=f"POST /api/v1/engines/{name}/unload?force=true",
+        )
 
     model_mgr = request.app.state.model_manager
     ok = await model_mgr.unload_model(name, force=force)
@@ -450,10 +457,13 @@ async def unload_engine(name: str, request: Request, force: bool = False):
             )
         refs = sorted(model_mgr.get_references(name))
         if refs:
-            raise ConflictError(
+            # referenced_by 是结构化字段(spec §8),不是只把 refs 拼进 message ——
+            # 调用方要能直接读列表,而不是去正则解析一句话。
+            raise EngineUnloadRefusedError(
                 f"Engine {name} is referenced by {refs}; not unloaded.",
                 code="engine_referenced",
                 fix=f"POST /api/v1/engines/{name}/unload?force=true",
+                referenced_by=[str(r) for r in refs],
             )
         # 理论上到不了:unload_model 的拒绝分支只有 in_use / resident / refs 三条,
         # resident 在本函数开头已挡(force 过来的 resident 不会被拒)。真到了说明

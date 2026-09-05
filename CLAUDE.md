@@ -101,10 +101,15 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   MB),别一边用 torch 的 `gpu_summary()` 一边用 nvidia-smi。
 - `gpu`/`gpus` 优先级的唯一实现是 `topology.resolve_gpus(cfg_or_spec)`;
   API 响应里 **`gpu` 永远是主卡 int、`gpus` 是唯一的列表字段**(单卡为 None)。
-- **模型放置只能由控制面改变;数据面(`/v1/*` 全部兼容路由)对放置只读**(spec 2026-09-05
-  engine-app-boundary)。未加载的模型一律即刻 503 `model_not_ready`,不在请求路径上
-  加载;`/v1/models` 只列已加载的 model 类服务;`resident: true` 是**唯一**的常驻手段,
-  已发布工作流不再钉住模型。`tests/test_data_plane_readonly.py` 静态锁住五个路由模块。
+- **模型放置只能由控制面改变;数据面对放置只读**(spec 2026-09-05 engine-app-boundary)。
+  这里的「数据面」是**五个 LLM 兼容路由模块**:`openai_compat` / `anthropic_compat` /
+  `ollama_compat` / `responses` / `context_cache`。未加载的模型一律即刻 503
+  `model_not_ready`,不在请求路径上加载;`/v1/models` 与 Ollama 的 `/api/tags` 只列
+  已加载的 model 类服务(共用 `routes/_readiness.py`,发现到的 == 现在就能调的);
+  `resident: true` 是**唯一**的常驻手段,已发布工作流不再钉住模型。
+  `tests/test_data_plane_readonly.py` 静态锁住这五个路由模块。
+  **例外(不在本不变式内)**:画布工作流的 `predictions` 经 `nodes/llm.py`、图像路径经
+  `get_or_load_image_adapter`,仍会在执行期按需加载模型(待单开 spec)。
   常驻集合按落卡汇总必须放得进 `configs/hardware.yaml` 的容量减 `DEFAULT_RESERVED_GB`,
   由 `tests/test_resident_capacity.py` 在 CI 兜住(常驻不自洽合 PR 前就红,不等上线)。
 

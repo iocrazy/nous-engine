@@ -428,6 +428,43 @@ async def _seed_voice_preset_templates(sf) -> None:
                 logger.info("Migrated %d voice presets to workflow templates", len(presets))
 
 
+def _classify_orphan(healthy: bool, matched_spec: bool) -> str:
+    """开机扫到的 vLLM 孤儿该怎么处置 —— "adopt" | "kill" | "kill_unmatched"。
+
+    2026-09-05:此前只有「不健康 → 杀」「健康且能对上 spec → 接管」两条,健康但
+    **对不上任何 spec** 的那条是**默默放着不管**。3.6 退役后这条就有牙了:后端崩溃重启
+    (不是 `systemctl restart` —— 那会连子进程一起收)会留着 3.6 抱着 ~40G 在 GPU 0/2,
+    3.8 的常驻预加载过不了 `_assert_explicit_fits`,之后每个 LLM 请求都是 503,
+    而日志里一句话都没有。目录之外的 vLLM 没有任何人会来接管它 → 一律 error + 收掉。
+    """
+    if not healthy:
+        return "kill"
+    return "adopt" if matched_spec else "kill_unmatched"
+
+
+def _kill_orphan_vllm(pid: int) -> None:
+    """按 PID 收掉一个 vLLM 孤儿(不健康的、或目录里已没有对应 spec 的)。
+
+    safe_killpg 拒绝 pgid<=1(广播守卫)并在发信号前复核该 PID 仍是 vLLM
+    (扫描→击杀之间 PID 可能已死并被回收给 sshd/mihomo)。只有在组杀因**非广播**
+    理由被拒时才退回单 PID kill。绝不用 `pkill -f`。
+    """
+    import signal as _signal  # noqa: PLC0415
+    from src.services.safe_signal import (  # noqa: PLC0415
+        _proc_cmdline_contains, safe_kill, safe_killpg,
+    )
+
+    def _is_vllm(p: int) -> bool:
+        return _proc_cmdline_contains(p, "vllm")
+
+    try:
+        if not safe_killpg(pid, _signal.SIGKILL, verify=_is_vllm):
+            if _is_vllm(pid):
+                safe_kill(pid, _signal.SIGKILL)
+    except Exception as e:
+        logger.warning("Failed to kill orphan pid=%d: %s", pid, e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create database tables on startup."""
@@ -637,59 +674,54 @@ async def lifespan(app: FastAPI):
 
     # Auto-detect running vLLM instances BEFORE resident auto-load
     # (so we reconnect to orphans instead of spawning duplicates)
-    import signal as _signal
     from src.services.inference.vllm_scanner import scan_running_vllm
     running_vllm = scan_running_vllm()
     if running_vllm:
         logger.info("Found %d running vLLM process(es)", len(running_vllm))
     reconnected: set[str] = set()
     for vllm_info in running_vllm:
-        # Kill unhealthy orphans immediately
-        if not vllm_info["healthy"]:
+        matched_spec = next(
+            (sp for sp in registry.specs
+             if sp.model_type == "llm" and sp.paths.get("main")
+             and vllm_info["model_path"].rstrip("/").endswith(sp.paths["main"].rstrip("/"))),
+            None,
+        )
+        action = _classify_orphan(bool(vllm_info["healthy"]), matched_spec is not None)
+        if action == "kill":
             logger.warning(
                 "Killing unhealthy orphan vLLM (pid=%d, port=%d, model=%s)",
                 vllm_info["pid"], vllm_info["port"], vllm_info["model_path"],
             )
-            try:
-                pid = vllm_info["pid"]
-                # safe_killpg refuses pgid<=1 (broadcast guard) + re-verifies the
-                # scanned PID is still a vLLM (scan→kill window: PID may have died
-                # and been recycled to sshd/mihomo). Fall back to a single-PID kill
-                # only when the group kill was refused for a non-broadcast reason.
-                from src.services.safe_signal import safe_killpg, safe_kill, _proc_cmdline_contains
-                def _is_vllm(p: int) -> bool:
-                    return _proc_cmdline_contains(p, "vllm")
-                if not safe_killpg(pid, _signal.SIGKILL, verify=_is_vllm):
-                    if _is_vllm(pid):
-                        safe_kill(pid, _signal.SIGKILL)
-            except Exception as e:
-                logger.warning("Failed to kill orphan pid=%d: %s", vllm_info["pid"], e)
+            _kill_orphan_vllm(vllm_info["pid"])
+            continue
+        if action == "kill_unmatched":
+            logger.error(
+                "目录里已没有对应 spec 的 vLLM 还在跑（pid=%d, port=%d, model=%s）"
+                " —— 没人会接管它，它却抱着显存把常驻模型顶死，现在收掉",
+                vllm_info["pid"], vllm_info["port"], vllm_info["model_path"],
+            )
+            _kill_orphan_vllm(vllm_info["pid"])
             continue
 
-        # Reconnect healthy ones
-        for spec in registry.specs:
-            spec_main_path = spec.paths.get("main", "")
-            if spec.model_type != "llm" or not spec_main_path:
-                continue
-            if vllm_info["model_path"].rstrip("/").endswith(spec_main_path.rstrip("/")):
-                logger.info(
-                    "Reconnecting to running vLLM for %s (pid=%s, port=%s)",
-                    spec.id, vllm_info["pid"], vllm_info["port"],
-                )
-                try:
-                    def _factory(s, port=vllm_info["port"], pid=vllm_info["pid"]):
-                        from src.services.inference.llm_vllm import VLLMAdapter
-                        # gpus:重连的也可能是个跨卡(张量并行)实例 —— 带上组,
-                        # 否则 adapter 眼里它是单卡的,后续任何重启都会落错卡。
-                        from src.gpu.topology import resolve_gpus as _rg
-                        _g = _rg(s)
-                        return VLLMAdapter(paths=s.paths, vllm_port=port, adopt_pid=pid,
-                                           gpus=_g if len(_g) > 1 else None, **s.params)
-                    await model_mgr.load_model(spec.id, adapter_factory=_factory)
-                    reconnected.add(spec.id)
-                except Exception as e:
-                    logger.warning("Failed to reconnect %s: %s", spec.id, e)
-                break
+        # Reconnect healthy ones（action == "adopt"，matched_spec 必非 None）
+        spec = matched_spec
+        logger.info(
+            "Reconnecting to running vLLM for %s (pid=%s, port=%s)",
+            spec.id, vllm_info["pid"], vllm_info["port"],
+        )
+        try:
+            def _factory(s, port=vllm_info["port"], pid=vllm_info["pid"]):
+                from src.services.inference.llm_vllm import VLLMAdapter
+                # gpus:重连的也可能是个跨卡(张量并行)实例 —— 带上组,
+                # 否则 adapter 眼里它是单卡的,后续任何重启都会落错卡。
+                from src.gpu.topology import resolve_gpus as _rg
+                _g = _rg(s)
+                return VLLMAdapter(paths=s.paths, vllm_port=port, adopt_pid=pid,
+                                   gpus=_g if len(_g) > 1 else None, **s.params)
+            await model_mgr.load_model(spec.id, adapter_factory=_factory)
+            reconnected.add(spec.id)
+        except Exception as e:
+            logger.warning("Failed to reconnect %s: %s", spec.id, e)
 
     # 开机加载策略(2026-09-03 收敛,与 UI 语义对齐):
     #   * 只有 `resident: true` 的模型会被开机预加载(下面 preload_residents)。

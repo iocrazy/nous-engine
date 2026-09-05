@@ -12,6 +12,7 @@ import secrets as _secrets
 
 import bcrypt
 import pytest
+from unittest.mock import MagicMock
 
 from src.models.api_gateway import ApiKeyGrant
 from src.models.instance_api_key import InstanceApiKey
@@ -206,6 +207,57 @@ async def test_api_tags_mn_key_sees_only_granted(api_client, mock_vllm):
     assert resp.status_code == 200
     names = [m["name"] for m in resp.json()["models"]]
     assert names == ["only-this-one"]
+
+
+@pytest.mark.asyncio
+async def test_api_tags_hides_cold_model_service(
+    api_client, mock_vllm, bearer_headers,
+):
+    """spec 2026-09-05 §6:发现到的 == 现在就能调的,口径与 /v1/models 一致。
+
+    修前 Ollama 面把冷模型也列出来,Open WebUI 之类的客户端选中即 503。
+    """
+    api_client.app.state.model_manager.is_loaded = MagicMock(return_value=False)
+    resp = await api_client.get("/api/tags", headers=bearer_headers)
+    assert resp.status_code == 200
+    assert [m["name"] for m in resp.json()["models"]] == []
+
+
+@pytest.mark.asyncio
+async def test_api_tags_shows_loaded_model_service(
+    api_client, mock_vllm, bearer_headers,
+):
+    """同一把 key、同一个服务,模型已加载就必须出现 —— 反证上面那条不是"永远空"。"""
+    api_client.app.state.model_manager.is_loaded = MagicMock(
+        side_effect=lambda n: n == "qwen3.5",
+    )
+    resp = await api_client.get("/api/tags", headers=bearer_headers)
+    assert resp.status_code == 200
+    assert [m["name"] for m in resp.json()["models"]] == ["qwen3.5"]
+
+
+@pytest.mark.asyncio
+async def test_api_chat_on_cold_model_is_503_model_not_ready(
+    api_client, mock_vllm, bearer_headers,
+):
+    """spec §5:Ollama 面的未就绪拒绝也走 model_not_ready 信封,且绝不加载。"""
+    mgr = api_client.app.state.model_manager
+    mgr.get_adapter = MagicMock(return_value=None)      # 冷:没有 adapter
+
+    resp = await api_client.post(
+        "/api/chat",
+        json={
+            "model": "qwen3.5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+        },
+        headers=bearer_headers,
+    )
+    assert resp.status_code == 503, resp.text
+    err = resp.json()["error"]
+    assert err["type"] == "model_not_ready" and err["code"] == "model_not_ready"
+    assert "/v1/models" in err["fix"]
+    mgr.load_model.assert_not_called()
 
 
 # ---------- /api/show ----------
