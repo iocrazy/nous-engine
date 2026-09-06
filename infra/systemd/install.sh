@@ -15,18 +15,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET=/etc/systemd/system
 ENGINECTL_DST=/usr/local/bin/enginectl
 
-# 长驻服务(cloudflared 单独处理 —— 缺二进制/凭证时优雅跳过,不中止安装)。
+# 长驻服务。公网隧道 nous-engine-cloudflared 已于 2026-09-06 退役(用户决定:nous-engine
+# 只在本机/局域网/ZeroTier 可达,不再对外暴露);下面第 2 步会主动清掉旧单元并 mask。
 SERVICES=(nous-engine-backend.service nous-engine-status.service)
 TIMERS=(nous-engine-healthprobe.timer nous-engine-dbbackup.timer)
 TARGETS=(nous-engine.target)
-SUDOERS=(nous-engine-healthprobe nous-engine-deploy)
-# 全部拷进 /etc/systemd/system(含 cloudflared、oneshot probe/dbbackup、target、comfyui)。
-UNIT_FILES=(nous-engine-backend.service nous-engine-cloudflared.service nous-engine-status.service \
+SUDOERS=(nous-engine-deploy)
+# 全部拷进 /etc/systemd/system(含 oneshot probe/dbbackup、target、comfyui)。
+UNIT_FILES=(nous-engine-backend.service nous-engine-status.service \
             nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine.target)
 
 LOCAL_URL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
 ZT_URL="${NOUS_ZT_URL:-http://10.0.0.10:8000}"
-PUBLIC_URL="${NOUS_PUBLIC_URL:-https://api.iocrazy.com}"
 STATUS_URL="${NOUS_STATUS_URL:-http://127.0.0.1:8001}"
 
 # ── 样式 ──────────────────────────────────────────────────────────────────
@@ -66,16 +66,13 @@ case "${1:-install}" in
       else bad "$svc 启动失败 — 查 journalctl -u $svc -n 50"; fi
     done
 
-    # cloudflared:二进制 + 凭证齐才启;否则装单元但不启(公网隧道暂缓,不中止安装)。
-    CF_HOME="$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)"
-    if command -v cloudflared >/dev/null 2>&1 && [[ -f "$CF_HOME/.cloudflared/cert.pem" ]]; then
-      if systemctl enable --now nous-engine-cloudflared.service >/dev/null 2>&1; then ok "nous-engine-cloudflared(公网隧道)"
-      else bad "nous-engine-cloudflared 启动失败 — 查 journalctl -u nous-engine-cloudflared"; fi
-    else
-      systemctl disable nous-engine-cloudflared.service >/dev/null 2>&1 || true
-      warn "cloudflared 二进制/凭证未就位 → 跳过公网隧道(本机 + ZeroTier 不受影响)"
-      warn "  以后配好后: sudo systemctl enable --now nous-engine-cloudflared"
-    fi
+    # 公网隧道已退役(2026-09-06):把历史遗留的 nous-engine-cloudflared 清干净并 mask,
+    # 保证重装/迁移/任何 PartOf 联动都不会再把它拉起来;其免密重启 sudoers 一并删除。
+    systemctl disable --now nous-engine-cloudflared.service >/dev/null 2>&1 || true
+    rm -f "$TARGET/nous-engine-cloudflared.service" /etc/sudoers.d/nous-engine-healthprobe
+    systemctl daemon-reload
+    systemctl mask nous-engine-cloudflared.service >/dev/null 2>&1 || true
+    ok "nous-engine-cloudflared 已退役(单元移除 + mask,不再对外暴露)"
 
     # ComfyUI sidecar:不默认启用 —— 安装前须核对(见下面说明)。
     systemctl disable nous-engine-comfyui.service >/dev/null 2>&1 || true
@@ -121,15 +118,11 @@ case "${1:-install}" in
     fi
 
     zt="$(probe "$ZT_URL/healthz")";     [[ "$zt" == 200 ]] && ok "ZeroTier /healthz → 200" || warn "ZeroTier /healthz → $zt(10.0.0.10 未分配?)"
-    if svc_active nous-engine-cloudflared; then
-      pub="$(probe "$PUBLIC_URL/healthz" 10)"; [[ "$pub" == 200 ]] && ok "公网隧道 /healthz → 200" || warn "公网隧道 /healthz → $pub(隧道重连中?)"
-    fi
 
     # ── 访问地址 + 收尾 ─────────────────────────────────────────────────
     printf '\n%s╭─ 访问地址 ────────────────────────────────────────────────%s\n' "$B" "$RST"
     printf   '%s│%s  本机管理台   %s%s%s\n'   "$B" "$RST" "$CYN" "$LOCAL_URL"  "$RST"
     printf   '%s│%s  ZeroTier 内网 %s%s%s\n'  "$B" "$RST" "$CYN" "$ZT_URL"     "$RST"
-    printf   '%s│%s  公网(隧道)   %s%s%s %s\n' "$B" "$RST" "$CYN" "$PUBLIC_URL" "$RST" "$(svc_active nous-engine-cloudflared && echo '' || echo "${DIM}(cloudflared 暂未启用)${RST}")"
     printf   '%s│%s  独立状态页   %s%s%s\n'   "$B" "$RST" "$CYN" "$STATUS_URL" "$RST"
     printf   '%s╰──────────────────────────────────────────────────────────%s\n' "$B" "$RST"
 
@@ -143,7 +136,7 @@ case "${1:-install}" in
     printf '\n%s▸ 卸载 nous-engine systemd 栈%s\n' "$CYN" "$RST"
     for tgt in "${TARGETS[@]}"; do systemctl disable "$tgt" 2>/dev/null || true; rm -f "$TARGET/$tgt"; ok "移除 $tgt"; done
     for tmr in "${TIMERS[@]}"; do systemctl disable --now "$tmr" 2>/dev/null || true; rm -f "$TARGET/$tmr"; ok "移除 $tmr"; done
-    for svc in "${SERVICES[@]}" nous-engine-cloudflared.service; do systemctl disable --now "$svc" 2>/dev/null || true; rm -f "$TARGET/$svc"; ok "移除 $svc"; done
+    for svc in "${SERVICES[@]}"; do systemctl disable --now "$svc" 2>/dev/null || true; rm -f "$TARGET/$svc"; ok "移除 $svc"; done
     rm -f "$TARGET/nous-engine-healthprobe.service" "$TARGET/nous-engine-dbbackup.service"
     rm -f "$ENGINECTL_DST"
     for sd in "${SUDOERS[@]}"; do rm -f "/etc/sudoers.d/$sd"; done

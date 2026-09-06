@@ -4,13 +4,13 @@
 # 设计:docs/superpowers/specs/2026-06-23-fresh-format-bootstrap-design.md
 #
 # 它**不取代** infra/systemd/install.sh,而是在它之前补齐前置依赖(原生 PG /
-# Python·Node 依赖 / admin secret / cloudflared 凭证 / prod 检出),
+# Python·Node 依赖 / admin secret / prod 检出),
 # 最后调它。复用现有脚本,自己只做编排 + 体检。
 #
 # 阶段(每段幂等,已就位即跳过):
 #   preflight  OS/盘/驱动/CLI 体检(只读)
 #   db         原生 pg17 + role/库 + (可选)从备份 restore
-#   secrets    .env admin secret + cloudflared 凭证(缺则报缺指源,不伪造)
+#   secrets    .env admin secret(缺则报缺指源,不伪造)
 #   deps       后端 uv sync --extra inference
 #   build      前端 npm ci + npm run build
 #   checkout   (可选)派生 sibling 检出 + .nous-production 标记
@@ -27,7 +27,7 @@
 #    的检出);在别的检出跑会 provision 错对象,services 段会因 nous-prod 无 venv 而拒装。
 #
 # 全量 run 需 root(db/services 要 apt/systemd);deps/build 以真实用户跑(venv 不落 root)。
-# 机器特定 secret(cloudflared 凭证 / DATABASE_URL 密码)不伪造,缺则报缺指源。
+# 机器特定 secret(DATABASE_URL 密码等)不伪造,缺则报缺指源。
 
 set -uo pipefail
 
@@ -68,7 +68,7 @@ require_root() { [[ ${EUID} -eq 0 ]] || die "阶段 '$1' 需 root:sudo $0 --stag
 # 真实用户(sudo 场景取 SUDO_USER,否则当前)。venv / npm / git 必须以它跑,
 # 不能落 root 所有权。
 REAL_USER="${SUDO_USER:-$(id -un)}"
-# 真实用户家目录(sudo 下 $HOME=/root,但 cloudflared 凭证在用户家目录)。
+# 真实用户家目录(sudo 下 $HOME=/root,但 venv/检出属主要用真实用户)。
 USER_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"; USER_HOME="${USER_HOME:-$HOME}"
 as_user() {
   # 以 REAL_USER 跑一条命令(带登录环境,确保 uv/npm/node 在 PATH)。
@@ -124,9 +124,8 @@ check_preflight() {
   local cli; for cli in git curl openssl uv node npm; do
     if have "$cli"; then ok "CLI: $cli"; else miss "缺 CLI: $cli" "先装 $cli"; fi
   done
-  # pg 客户端 / cloudflared 在各自阶段细查,这里只提示
+  # pg 客户端在 db 阶段细查,这里只提示
   have psql        || warn "psql 未在 PATH(db 阶段需要 postgresql-client-17)"
-  have cloudflared || warn "cloudflared 未在 PATH(隧道需要)"
 }
 
 # ── db:原生 pg + 库可连 ─────────────────────────────────────────────────
@@ -163,9 +162,9 @@ check_db() {
   fi
 }
 
-# ── secrets:admin secret + cloudflared 凭证(不伪造)────────────────────
+# ── secrets:admin secret(不伪造)───────────────────────────────────────
 check_secrets() {
-  section "secrets — admin 凭证 + cloudflared 隧道凭证"
+  section "secrets — admin 凭证"
 
   if [[ -f "$ENV_FILE" ]]; then
     ok "$ENV_FILE 存在"
@@ -175,14 +174,6 @@ check_secrets() {
     grep -qE '^ADMIN_TOKEN=.+' "$ENV_FILE" || warn ".env 无 ADMIN_TOKEN(CLI bearer,可选;浏览器登录用 ADMIN_PASSWORD)"
   else
     miss "无 $ENV_FILE" "cp 一份或 ./infra/security/gen-admin-secrets.sh >> backend/.env(填 DATABASE_URL 等)"
-  fi
-
-  # cloudflared 凭证:机器特定 secret,无法 commit/伪造,只能检测 + 指源
-  local cfdir="$USER_HOME/.cloudflared"
-  if [[ -f "$cfdir/cert.pem" ]] && ls "$cfdir"/*.json >/dev/null 2>&1; then
-    ok "cloudflared 凭证在位($cfdir: cert.pem + tunnel json)"
-  else
-    manual "缺 cloudflared 隧道凭证($cfdir)" "从备份盘复制 ~/.cloudflared/,或 cloudflared tunnel login 重新授权"
   fi
 }
 
@@ -223,7 +214,7 @@ check_checkout() {
 # ── services:systemd 单元 + 健康 ──────────────────────────────────────
 check_services() {
   section "services — systemd 单元 + 健康"
-  local svc; for svc in nous-engine-backend nous-engine-cloudflared nous-engine-status; do
+  local svc; for svc in nous-engine-backend nous-engine-status; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then ok "$svc active"; else miss "$svc 未运行" "sudo ./infra/systemd/install.sh && sudo systemctl start $svc"; fi
   done
   local tmr; for tmr in nous-engine-healthprobe.timer nous-engine-dbbackup.timer; do
@@ -366,7 +357,7 @@ do_build() {
 ENV_FRESH=0   # do_secrets 新建 .env(含占位)时置 1 → 全量 run 在 db 前停下让人填
 
 do_secrets() {
-  section "secrets — admin 凭证 + cloudflared 凭证"
+  section "secrets — admin 凭证"
   # .env:缺则从 .env.example 起一份(机器特定值需人工填)
   if [[ ! -f "$ENV_FILE" ]]; then
     [[ -f "$BACKEND/.env.example" ]] || die "无 $ENV_FILE 且无 .env.example,无法生成"
@@ -390,12 +381,6 @@ do_secrets() {
     ok "已追加 admin secret: ${need[*]}"
   else
     ok "admin secret 已齐"
-  fi
-  # cloudflared:机器特定,无法伪造 → 缺则报「需人工」指源(非致命)
-  if [[ -f "$USER_HOME/.cloudflared/cert.pem" ]] && ls "$USER_HOME"/.cloudflared/*.json >/dev/null 2>&1; then
-    ok "cloudflared 凭证在位"
-  else
-    manual "缺 cloudflared 凭证($USER_HOME/.cloudflared)" "从备份盘复制 ~/.cloudflared/,或 cloudflared tunnel login"
   fi
 }
 
@@ -443,11 +428,6 @@ do_services() {
     sleep 3
   done
   (( hit )) && ok "本机 /healthz 200" || warn "本机 /healthz 暂不通(backend 还在起?journalctl -u nous-engine-backend -f)"
-  if curl -fsS --noproxy '*' -m 8 https://api.iocrazy.com/healthz >/dev/null 2>&1; then
-    ok "公网隧道 /healthz 200"
-  else
-    warn "公网隧道暂不通(起来需几秒,或 cloudflared 凭证缺)"
-  fi
 }
 
 usage() {

@@ -29,10 +29,10 @@ nous-engine 有**两套**独立的 admin 鉴权，并行存在：
 TOKEN="<ADMIN_TOKEN value>"
 
 # 重启 model registry（admin-only）
-curl -H "Authorization: Bearer $TOKEN" -X POST https://api.iocrazy.com/api/v1/engines/reload
+curl -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:8000/api/v1/engines/reload
 
 # 列 API keys
-curl -H "Authorization: Bearer $TOKEN" https://api.iocrazy.com/api/v1/keys
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/v1/keys
 ```
 
 注意：

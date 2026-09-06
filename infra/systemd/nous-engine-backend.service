@@ -48,7 +48,7 @@ StandardError=journal
 # Host is 125G RAM. The Ideogram-4 bf16 整装整模型(54G,from_pretrained + stream
 # pin)needs ~76G peak — the old 64G cap SIGKILL'd the whole backend mid-load
 # (2026-06-13 活机 e2e 坐实,见 [[project_ideogram4_integration]]). 96G fits that
-# peak and still leaves ~29G headroom on the 125G host for OS + cloudflared +
+# peak and still leaves ~29G headroom on the 125G host for OS +
 # vLLM host-side + ad-hoc tools. MemoryHigh=88G applies soft pressure first.
 MemoryHigh=88G
 MemoryMax=96G

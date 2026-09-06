@@ -19,7 +19,6 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
-PUBLIC="${NOUS_PUBLIC_URL:-https://api.iocrazy.com}"
 
 if [[ "${EUID}" -eq 0 ]]; then
   echo "ERROR: 别用 root/sudo 跑整个脚本(会在仓库造 root 属主文件)。直接 ./infra/deploy.sh,只有重启那步会自己提权。" >&2
@@ -76,7 +75,7 @@ dist_mtime=$(stat -c %Y "$REPO/frontend/dist/index.html" 2>/dev/null || echo 0)
 ok "dist 已更新($(date -d @"$dist_mtime" '+%H:%M:%S'))"
 cd "$REPO"
 
-# ---------- 3. 重启后端(sudo;cloudflared 经 PartOf 跟随)----------
+# ---------- 3. 重启后端(sudo)----------
 # --no-block:阻塞式 systemctl restart 客户端在本机会傻等 job-done 不返回(实测挂 48min,
 # 但 unit ~3s 就重启完、active)。入队即返回,下面第 4 步 poll 等新实例真就绪。
 #
@@ -103,8 +102,5 @@ for i in $(seq 1 90); do
   sleep 2
 done
 [[ $new_up -eq 1 ]] || die "新实例 180s 内未就绪(InvocationID=$inv prev=$prev_inv active=$act /healthz=$code)。查 journalctl -u nous-engine-backend -n 50。"
-pub=$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 12 "$PUBLIC/healthz" 2>/dev/null || echo 000)
-if [[ "$pub" == "200" ]]; then ok "公网隧道通(<public>/healthz 200)"
-else echo "⚠️  公网 <public>/healthz=$pub(隧道可能还在重连;巡检/隧道自愈会兜,过会儿再看)"; fi
 
 printf '\n\033[1;32m✅ 上线完成 — %s\033[0m\n' "$(git rev-parse --short HEAD)"

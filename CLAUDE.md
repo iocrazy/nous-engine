@@ -2,9 +2,11 @@
 
 Single-admin inference infra (推理算力层). Repo/product renamed **nous-center →
 nous-engine** (裸 `nous-` 前缀让给上层平台;systemd 单元全套 `nous-engine-*`,CLI
-`enginectl`). Production deploy = `backend serve frontend/dist` on `:8000`, fronted by
-cloudflared tunnel `api.iocrazy.com` (隧道名仍是 `nous-center`,Cloudflare 侧标识,未随
-仓库改名). vite dev (`:9999`) is **local-only** for frontend hot reload.
+`enginectl`). Production deploy = `backend serve frontend/dist` on `:8000`, reachable **only
+on this host / LAN / ZeroTier (10.0.0.10)** — the Cloudflare tunnel (`api.iocrazy.com`,
+`nous-engine-cloudflared`) was **retired 2026-09-06 by the user's decision**: 不要再给
+nous-engine 加任何对外暴露的入口(隧道/反代/端口映射),上层平台 nous-app 有自己的隧道,
+它只经内网调 nous-engine。vite dev (`:9999`) is **local-only** for frontend hot reload.
 
 ## API endpoint vs UI route — DON'T MIX
 
@@ -18,7 +20,7 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
 
 ## Operational
 
-- Backend + cloudflared: systemd services. `sudo ./infra/systemd/install.sh`,
+- Backend: systemd services. `sudo ./infra/systemd/install.sh`,
   then `journalctl -u nous-engine-backend -f` for logs. Don't `nohup ... & disown`.
   一键管控 `enginectl status|up|down|restart|logs`(装到 `/usr/local/bin/enginectl`)。
 - Admin secrets: `./infra/security/gen-admin-secrets.sh > /tmp/secrets && cat /tmp/secrets`

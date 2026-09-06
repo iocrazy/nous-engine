@@ -37,7 +37,7 @@ sudo ./infra/bootstrap.sh
 git -C "$ROOT/nous-prod" worktree add "$ROOT/nous-engine" master
 ```
 
-跑完 `--check` 应全 OK,公网 `https://api.iocrazy.com/healthz` 返回 200。
+跑完 `--check` 应全 OK,本机 `http://127.0.0.1:8000/healthz` 返回 200(公网隧道已退役,无公网入口)。
 
 ## OS 层(bootstrap 不代装,只 `--check` 报缺)
 
@@ -57,8 +57,6 @@ git -C "$ROOT/nous-prod" worktree add "$ROOT/nous-engine" master
 - **`backend/.env` 的 `DATABASE_URL` 密码** 等机器特定值 —— 从 `.env.example` 起后人工填。
   admin secret(`ADMIN_PASSWORD`/`ADMIN_SESSION_SECRET`)bootstrap 会用
   `gen-admin-secrets.sh` 自动补缺。
-- **cloudflared 隧道凭证**(`~/.cloudflared/cert.pem` + `<tunnel>.json` + `config.yml`)
-  —— 从备份盘复制,或 `cloudflared tunnel login` 重新授权。
 - **DB 数据** —— 靠最近一次 `nous-engine-dbbackup` 的 dump,`--restore <dump>` 恢复;不传则
   建空库,backend 首启 `create_all` 自建 schema(单管理员、无 alembic)。
 - **模型权重** —— 在大盘、不入 git。格式化若保留大盘则无需重下。
@@ -70,7 +68,7 @@ git -C "$ROOT/nous-prod" worktree add "$ROOT/nous-engine" master
 | 阶段 | 做什么 | 权限 |
 |---|---|---|
 | preflight | OS/盘/驱动/CLI 体检(只读) | 任意 |
-| secrets   | `.env`(模板+admin secret)+ 检测 cloudflared 凭证 | root |
+| secrets   | `.env`(模板+admin secret) | root |
 | db        | apt 装 pg17(自动加 PGDG 源)+ 建 role/库 + 可选 `--restore` | root |
 | deps      | 后端 `uv sync --extra inference` | 真实用户(非 root) |
 | build     | 前端 `npm ci` + `npm run build` | 真实用户 |
@@ -92,7 +90,7 @@ systemd 单元指向**专用 prod 检出** `…/nous-prod`(detached,deploy 独�
 
 ```bash
 ./infra/bootstrap.sh --check                       # 应全 OK
-systemctl is-active nous-engine-backend nous-engine-cloudflared nous-engine-status
-curl -s --noproxy '*' https://api.iocrazy.com/healthz   # {"status":"ok"}
+systemctl is-active nous-engine-backend nous-engine-status
+curl -s --noproxy '*' http://127.0.0.1:8000/healthz     # {"status":"ok"}
 enginectl status                                     # 全栈一览
 ```
