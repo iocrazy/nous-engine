@@ -63,12 +63,21 @@ export interface ProcessInfo {
   cpu_percent: number
   memory_mb: number
   command: string
+  // spec 2026-09-06 process-net-traffic:采集器不可用时为 null(不是 0)。
+  net_tx_bps: number | null
+  net_rx_bps: number | null
+}
+
+export interface NetProbeInfo {
+  available: boolean
+  age_s: number | null
 }
 
 interface MonitorStatsResponse {
   gpus: SysGpuResponse
   system: SystemStats
   processes: ProcessInfo[]
+  net_probe: NetProbeInfo
   uptime_seconds: number
 }
 
@@ -99,7 +108,10 @@ export function useSysStats() {
 
 export function useSysProcesses() {
   const q = useMonitorStats()
-  return { ...q, data: q.data ? { processes: q.data.processes } : undefined }
+  return {
+    ...q,
+    data: q.data ? { processes: q.data.processes, net_probe: q.data.net_probe } : undefined,
+  }
 }
 
 export interface UsageSummary {

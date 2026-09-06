@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Activity, AlertTriangle, BarChart3, ChevronRight, Cpu, X } from 'lucide-react'
 import {
   useSysGpus, useSysStats, useSysProcesses, useKillProcess,
@@ -13,6 +13,7 @@ import { useRuntimeMetrics, type RuntimeSnapshot } from '../../api/observability
 import { useVLLMMetrics, useUpdateLaunchParams } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { confirmDialog } from '../../stores/confirm'
+import { sortProcesses, formatRate, type ProcSortKey, type ProcSortDir } from './processSort'
 
 /**
  * m04 Dashboard — v3 layout.
@@ -480,6 +481,13 @@ function CollapsibleSystem({
   const { data: engines } = useEngines()
   const { data: sysStats } = useSysStats()
   const { data: procData } = useSysProcesses()
+  const [procSort, setProcSort] = useState<{ key: ProcSortKey; dir: ProcSortDir }>({ key: 'cpu', dir: 'desc' })
+  const toggleProcSort = (key: ProcSortKey) =>
+    setProcSort((s) => (s.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
+  const sortedProcs = procData ? sortProcesses(procData.processes, procSort.key, procSort.dir) : []
+  const netProbeOk = procData?.net_probe?.available ?? false
+  const sortMark = (key: ProcSortKey) => (procSort.key === key ? (procSort.dir === 'desc' ? ' ▼' : ' ▲') : '')
+  const thBtn: CSSProperties = { padding: '4px 8px', cursor: 'pointer', userSelect: 'none' }
   const killProcess = useKillProcess()
   const { data: runners } = useRunners()
   // image/tts adapter 真加载在 runner 子进程,主进程 engines 看不到 → 必须聚合
@@ -747,14 +755,21 @@ function CollapsibleSystem({
                 <thead>
                   <tr style={{ color: 'var(--muted)', textAlign: 'left' }}>
                     <th style={{ padding: '4px 8px' }}>PID</th>
-                    <th style={{ padding: '4px 8px' }}>CPU%</th>
-                    <th style={{ padding: '4px 8px' }}>MEM</th>
+                    <th style={thBtn} onClick={() => toggleProcSort('cpu')}>CPU%{sortMark('cpu')}</th>
+                    <th style={thBtn} onClick={() => toggleProcSort('mem')}>MEM{sortMark('mem')}</th>
+                    <th
+                      style={thBtn}
+                      onClick={() => toggleProcSort('net')}
+                      title={netProbeOk ? '每进程 TCP/UDP 收发速率(采集器 nous-engine-netprobe)' : '采集器未运行:sudo ./infra/systemd/install.sh'}
+                    >
+                      网络{sortMark('net')}
+                    </th>
                     <th style={{ padding: '4px 8px' }}>NAME</th>
                     <th style={{ padding: '4px 8px' }}>COMMAND</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {procData.processes.slice(0, 15).map((p) => (
+                  {sortedProcs.slice(0, 15).map((p) => (
                     <tr key={p.pid} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>{p.pid}</td>
                       <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>
@@ -762,6 +777,9 @@ function CollapsibleSystem({
                       </td>
                       <td style={{ padding: '3px 8px', color: 'var(--warn, #f59e0b)' }}>
                         {p.memory_mb}M
+                      </td>
+                      <td style={{ padding: '3px 8px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {p.net_tx_bps === null ? '—' : `▲ ${formatRate(p.net_tx_bps)} ▼ ${formatRate(p.net_rx_bps)}`}
                       </td>
                       <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>{p.name}</td>
                       <td
