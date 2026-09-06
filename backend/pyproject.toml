@@ -74,7 +74,7 @@ inference = [
     # / Blackwell。vllm 0.22 依赖 nvidia-cutlass-dsl[cu13] + flashinfer 0.6.11,全 cu13。
     # 动机:栈更新统一到 cu13(fp8 加速已证伪解耦,见 7b2758d)。
     # 2026-09-04 升到 0.28.x(Qwen3.8/Qwen3.5 混合线性注意力 + 视觉塔架构需要 ≥0.24)。
-    # 0.28 钉 torch==2.13.0 + torchvision==0.28.0 + **torchaudio==2.11.0**(即 torchaudio
+    # 0.28 钉 torch==2.13.0 + torchvision==0.29.0 + **torchaudio==2.11.0**(即 torchaudio
     # 2.11 是官方认可的、可配 torch 2.13 的版本,不必为它卡在 0.26)。torchcodec>=0.14。
     "vllm>=0.28.0",
     "modelscope>=1.34.0",
@@ -114,7 +114,7 @@ image = [
     "einops>=0.8",
     # SeedVR2 超分引擎(vendored NumZ src,Apache 2.0,见 seedvr2_vendor/)依赖。
     # 无 flash-attn/无自编译 CUDA;flash-attn 可选(回退 SDPA)。PR-1 集成(project_seedvr2_integration)。
-    "torchvision==0.28.0",          # SeedVR2 VAE/图像变换;钉 0.28.0(配 torch 2.13,vllm 0.28 也要这版)
+    "torchvision==0.29.0",          # SeedVR2 VAE/图像变换;钉 0.28.0(配 torch 2.13,vllm 0.28 也要这版)
     "torchaudio==2.11.0",           # TTS(cosyvoice2 等)音频 IO;2026-06-03 全栈 bump 时掉了(回归:
                                     # cosyvoice2 ModuleNotFoundError),钉 2.11.0 配 torch 2.11
     "omegaconf>=2.3.0",             # SeedVR2 config
