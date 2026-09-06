@@ -62,3 +62,8 @@ params:
     # **保留思考能力**(这个模型要用来做图文解读,推理是要的),只是不混在正文里,
     # 前端/下游可以自己决定折叠还是展示。
     reasoning-parser: qwen3
+    # 工具调用(2026-09-05,3.6 退役后本模型成为目录唯一 LLM):nous-app 的 agent_runner 会
+    # 传 tools,3.6 当年就是靠这两个参数服务它的(同一套 vLLM,解析器同名)。
+    # qwen3_xml = Qwen3.5+ 的 XML 风格工具调用格式;bool True 只渲染成裸 --flag。
+    enable-auto-tool-choice: true
+    tool-call-parser: qwen3_xml
