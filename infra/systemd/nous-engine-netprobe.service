@@ -1,0 +1,28 @@
+[Unit]
+Description=nous-engine 每进程网络流量采集(bpftrace,root;spec 2026-09-06 process-net-traffic)
+# 只写 /run/nous-engine/net_by_pid.json 给后端读;后端(heygo)不提权。独立于后端存活。
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+# /run/nous-engine 由 systemd 建(0755),后端只读。
+RuntimeDirectory=nous-engine
+RuntimeDirectoryMode=0755
+Environment=NOUS_NET_BY_PID=/run/nous-engine/net_by_pid.json
+ExecStart=/usr/bin/python3 /media/heygo/program/projects-code/repos/nous-engine/infra/monitoring/nous-netprobe.py
+# bpftrace 要 tracefs/bpf,除此之外锁死文件系统。
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/nous-engine
+PrivateTmp=yes
+MemoryMax=512M
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
