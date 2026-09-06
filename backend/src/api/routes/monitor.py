@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import signal
 import subprocess
 import time
@@ -192,8 +194,58 @@ def _gpu_processes(pid_map: dict[int, str] | None = None) -> dict[int, list[dict
         return {}
 
 
-def _top_processes(limit: int = 20) -> list[dict]:
-    """Return top processes by CPU usage."""
+# spec 2026-09-06 process-net-traffic §2.2:每进程网络速率来自 root 采集器
+# (nous-engine-netprobe)每 2s 原子写的文件;本进程(heygo)只读,不提权。
+NET_BY_PID_DEFAULT = "/run/nous-engine/net_by_pid.json"
+NET_BY_PID_MAX_AGE_S = 10.0
+_net_probe_last_available: bool | None = None
+
+
+def _read_net_by_pid(
+    path: str | None = None,
+    max_age_s: float = NET_BY_PID_MAX_AGE_S,
+    now: float | None = None,
+) -> tuple[dict[int, tuple[int, int]], dict]:
+    """读采集器文件 → ({pid: (tx_bps, rx_bps)}, net_probe)。缺失/过期/坏 JSON 一律
+    ({}, available=False),不抛;每 2s 轮询都会调,只在可用性**翻转**时记一行 info。"""
+    global _net_probe_last_available
+    path = path or os.environ.get("NOUS_NET_BY_PID", NET_BY_PID_DEFAULT)
+    now = time.time() if now is None else now
+    net: dict[int, tuple[int, int]] = {}
+    available = False
+    age: float | None = None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        age = round(now - float(doc["ts"]), 1)
+        interval = float(doc.get("interval_s") or 2) or 2.0
+        if 0 <= age <= max_age_s:
+            available = True
+            for pid_s, v in (doc.get("pids") or {}).items():
+                try:
+                    net[int(pid_s)] = (
+                        int(int(v.get("tx", 0)) / interval),
+                        int(int(v.get("rx", 0)) / interval),
+                    )
+                except (TypeError, ValueError, AttributeError):
+                    continue
+    except (OSError, ValueError, KeyError, TypeError):
+        net, available, age = {}, False, None
+    if available != _net_probe_last_available:
+        logger.info("netprobe %s(%s)", "可用" if available else "不可用", path)
+        _net_probe_last_available = available
+    return net, {"available": available, "age_s": age}
+
+
+def _top_processes(
+    limit: int = 20,
+    net: dict[int, tuple[int, int]] | None = None,
+    max_total: int = 40,
+) -> list[dict]:
+    """CPU 前 limit 个进程 ∪ 有网络流量但不在其中的进程(按流量降序补,总数 ≤ max_total)。
+
+    net 为 None = 采集器不可用 → net_*_bps 全 None;为 {} = 可用但没流量 → 全 0。
+    """
     procs = []
     for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info", "cmdline"]):
         try:
@@ -211,7 +263,25 @@ def _top_processes(limit: int = 20) -> list[dict]:
             continue
 
     procs.sort(key=lambda x: x["cpu_percent"], reverse=True)
-    return procs[:limit]
+    top = procs[:limit]
+    if net:
+        chosen = {r["pid"] for r in top}
+        by_pid = {r["pid"]: r for r in procs}
+        extra = sorted(
+            (pid for pid in net if pid not in chosen and pid in by_pid and sum(net[pid]) > 0),
+            key=lambda pid: sum(net[pid]),
+            reverse=True,
+        )
+        top = top + [by_pid[pid] for pid in extra[: max(0, max_total - len(top))]]
+    for r in top:
+        if net is None:
+            r["net_tx_bps"] = None
+            r["net_rx_bps"] = None
+        else:
+            tx, rx = net.get(r["pid"], (0, 0))
+            r["net_tx_bps"] = tx
+            r["net_rx_bps"] = rx
+    return top
 
 
 # 短 TTL 服务端缓存(性能 P0):/monitor/stats 无缓存,被前端两个独立 query key
@@ -369,7 +439,12 @@ async def _compute_system_stats(request: Request):
     uptime_seconds = time.time() - psutil.boot_time()
 
     # Top processes。process_iter 遍历全主机进程 → 丢线程池,别在事件循环上扫(性能 P0)。
-    processes = await asyncio.to_thread(_top_processes)
+    # spec process-net-traffic §2.2:读采集器文件 + 扫进程都在同一个线程里,不占事件循环。
+    def _procs_with_net():
+        net, probe = _read_net_by_pid()
+        return _top_processes(net=net if probe["available"] else None), probe
+
+    processes, net_probe = await asyncio.to_thread(_procs_with_net)
 
     # pinned / stash RAM 聚合(spec ram-pinned-linkage PR-1b):各 runner 经 Pong 上报本进程
     # 的 pinned(含流式预 pin)+ stash 池字节;主进程本体也算上(主进程模型/组件若 stash)。
@@ -406,6 +481,7 @@ async def _compute_system_stats(request: Request):
             "stash_ram_mb": stash_ram_mb,
         },
         "processes": processes,
+        "net_probe": net_probe,
         "uptime_seconds": int(uptime_seconds),
     }
 

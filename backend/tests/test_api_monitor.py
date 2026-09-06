@@ -47,7 +47,9 @@ async def test_monitor_aggregates_pinned_and_stash_ram(monkeypatch):
 
     monkeypatch.setattr(m, "_gpu_stats_nvidia_smi", lambda: [])
     monkeypatch.setattr(m, "_gpu_processes", lambda pid_map=None: {})
-    monkeypatch.setattr(m, "_top_processes", lambda: [])
+    # `**kw`:_top_processes 自 spec process-net-traffic §2.2 起带 net/max_total 参数,
+    # _compute_system_stats 用关键字调它 —— 零参 lambda 会 TypeError。
+    monkeypatch.setattr(m, "_top_processes", lambda **kw: [])
     # 主进程账本归零(只验 runner 聚合)
     import src.services.inference.pinned_stash as PS
     monkeypatch.setattr(PS, "total_pinned_bytes", lambda: 0)
