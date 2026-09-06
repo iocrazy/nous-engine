@@ -1,0 +1,30 @@
+// nous-engine-netprobe:每进程网络收发字节(spec 2026-09-06 process-net-traffic §2.1)。
+// 只累加字节数,不看地址/端口/内容。用 kretprobe 的返回值(实际收发字节)而不是入参的
+// 请求长度:部分发送/接收时入参会高估。tcp_sendmsg/tcp_recvmsg/udp_sendmsg/udp_recvmsg
+// 及 v6 版都是导出的稳定内核函数,比 tcp_cleanup_rbuf 之类内部符号更不容易随内核变。
+// pid 在 bpftrace 里就是 tgid(进程),容器进程在宿主内核也是宿主 pid → docker 天然覆盖。
+kretprobe:tcp_sendmsg, kretprobe:udp_sendmsg, kretprobe:udpv6_sendmsg
+{
+  if (retval > 0) { @tx[pid] += retval; }
+}
+
+kretprobe:tcp_recvmsg, kretprobe:udp_recvmsg, kretprobe:udpv6_recvmsg
+{
+  if (retval > 0) { @rx[pid] += retval; }
+}
+
+// 每 2s 吐一次并清零:包装器把同一轮的 @tx / @rx 合成一份 JSON。先 tx 后 rx,
+// 包装器以收到 @rx 作为"这一轮齐了"的信号。
+interval:s:2
+{
+  print(@tx);
+  print(@rx);
+  clear(@tx);
+  clear(@rx);
+}
+
+END
+{
+  clear(@tx);
+  clear(@rx);
+}
