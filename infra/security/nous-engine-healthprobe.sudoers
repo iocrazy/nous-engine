@@ -1,5 +1,0 @@
-# nous-engine 健康巡检隧道自愈授权(2026-06-16)。
-# nous-healthprobe.sh 以 heygo 运行,探到 cloudflared「半开僵尸」(后端健康但公网持续
-# 530)时需 restart 隧道。仅授权这一个服务的 restart,无密码;不开放其它 systemctl 操作。
-# 由 install.sh 装到 /etc/sudoers.d/nous-engine-healthprobe(0440),装后 visudo -c 校验。
-heygo ALL=(root) NOPASSWD: /usr/bin/systemctl restart nous-engine-cloudflared, /usr/bin/systemctl restart nous-engine-cloudflared.service

@@ -8,7 +8,7 @@ torch/fastapi,不依赖 nous-backend 的 venv),自己跑 nvidia-smi + 读 /proc 
 
 公开无登录(用户拍板):只露硬件概况 + 组件在线/离线,不露模型路径/密钥/内部错误细节。
 
-跑:python3 status_service.py(默认 127.0.0.1:8001,经 cloudflared 暴露公网)。
+跑:python3 status_service.py(默认 127.0.0.1:8001;公网隧道已退役,只在本机/内网看)。
 环境变量:NOUS_STATUS_PORT / NOUS_STATUS_HOST / NOUS_STATUS_BACKEND。
 """
 from __future__ import annotations

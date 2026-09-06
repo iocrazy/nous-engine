@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # WebAuthn / Passkey settings.
     # ADMIN_PASSKEY_RP_ID is the host the browser sends — must EXACTLY match
     # the domain the page is loaded from (no scheme, no port). Examples:
-    #   prod cloudflare:  api.iocrazy.com
+    #   prod (ZeroTier):  10.0.0.10   (公网隧道已退役,后端只在本机/内网可达)
     #   localhost dev:    localhost   (works without https for localhost only)
     # Multiple origins (dev + prod) are supported via a comma-separated list
     # in ADMIN_PASSKEY_RP_ORIGINS — every value must be `scheme://host[:port]`.

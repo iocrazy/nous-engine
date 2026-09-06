@@ -2,18 +2,19 @@
 # enginectl — nous-engine 全栈一键管控(spec native-pg-systemd-stack PR-2)。
 # 装到 /usr/local/bin/enginectl(由 infra/systemd/install.sh 安装)。
 #
-#   enginectl up        拉起全栈(DB→后端→隧道→状态)并打印启动自检 banner
-#   enginectl down      停应用栈(后端→隧道随 PartOf;状态/comfyui)。DB(postgresql)保持运行
+#   enginectl up        拉起全栈(DB→后端→状态)并打印启动自检 banner
+#   enginectl down      停应用栈(后端/状态/comfyui)。DB(postgresql)保持运行
 #   enginectl restart   重启应用栈(后端/状态;comfyui 仅在 enabled 时)并打印重启报告:
 #                       重启了谁 / 后端多久真的能收请求 / 自检 banner / 常驻模型加载进度 / 栈状态
-#   enginectl status    各 unit active? + 端口 + 公网隧道,一屏
-#   enginectl logs [u]  journalctl -f(u 缺省 backend;可 cloudflared/status/comfyui/postgresql)
+#   enginectl status    各 unit active? + 端口 + ZeroTier/ComfyUI,一屏
+#   enginectl logs [u]  journalctl -f(u 缺省 backend;可 status/healthprobe/comfyui/postgresql)
 #
 # 启停要 root → 内部用 sudo(会提示密码)。只读的 status/logs 不需要。
 # ENGINECTL_WAIT=秒 覆盖 up/restart 等后端就绪的上限(默认 180)。
 set -euo pipefail
 
-# cloudflared 是 PartOf=nous-engine-backend → 跟随后端启停,不单列。
+# 公网隧道 nous-engine-cloudflared 已于 2026-09-06 退役(用户决定:不再对外暴露),
+# 单元已删 + mask;这里不再列它、不探公网。
 # aligner 已随 Qwen3-ASR 旧栈退役(7073567 删调用,2026-07-28 拆 systemd 接线):MOSS 内建
 # 时间戳/说话人分离,后端无任何 aligner 调用。unit 连同 target/install 引用一并删除。
 # comfyui 是独立 sidecar(不 Requires/PartOf backend),但仍在 up/down/restart 管控范围。
@@ -24,9 +25,9 @@ c_grn() { printf '\033[32m%s\033[0m' "$*"; }
 c_red() { printf '\033[31m%s\033[0m' "$*"; }
 c_ylw() { printf '\033[33m%s\033[0m' "$*"; }
 
-# status/restart 报告里逐行列的全栈单元(含不受 up/down 管的 postgresql、随后端启停的
-# cloudflared)—— 操作者关心的是整栈现状,不只是被操作的那几个。
-STACK_UNITS=(postgresql nous-engine-backend nous-engine-cloudflared nous-engine-status nous-engine-comfyui)
+# status/restart 报告里逐行列的全栈单元(含不受 up/down 管的 postgresql)—— 操作者
+# 关心的是整栈现状,不只是被操作的那几个。
+STACK_UNITS=(postgresql nous-engine-backend nous-engine-status nous-engine-comfyui)
 
 # 后端本地就绪探针(与 cmd_status 的 ZeroTier 探测同一个 /healthz,只是走回环)。
 HEALTHZ_URL=http://127.0.0.1:8000/healthz
@@ -96,21 +97,6 @@ _status_endpoints() {
   else
     printf '  http://127.0.0.1:8888  %s\n' "$(c_dim '离线(单元未启用或未启动)')"
   fi
-  printf '\n公网隧道:\n'
-  # 单元在 auto-restart 循环里(activating)且日志说找不到 origin cert → 是凭证没配,
-  # 不是隧道故障;直接说清,免得每次都去翻 journal。
-  if journalctl -u nous-engine-cloudflared -n 30 --no-pager -o cat 2>/dev/null | grep -q 'Cannot determine default origin certificate'; then
-    printf '  api.iocrazy.com  %s %s\n' "$(c_ylw '未配置凭证')" "$(c_dim '(~/.cloudflared 无 cert.pem/凭证 json;需 tunnel login 或 --token 启动)')"
-    return
-  fi
-  code="$(curl -s -m 6 -o /dev/null -w '%{http_code}' https://api.iocrazy.com/api/v1/engines 2>/dev/null || echo 000)"
-  case "$code" in
-    # 401 是管理门在挡(没带 cookie/bearer)—— 说明隧道通到后端了,正常。
-    200|401) printf '  api.iocrazy.com  %s %s\n' "$(c_grn "HTTP $code")" "$(c_dim '(401=鉴权门,服务正常)')" ;;
-    000)     printf '  api.iocrazy.com  %s\n' "$(c_red '不可达')" ;;
-    # 5xx 多半是 cloudflared 侧的问题(530=隧道没连上源站),别再印「服务正常」误导。
-    *)       printf '  api.iocrazy.com  %s %s\n' "$(c_red "HTTP $code")" "$(c_dim '(隧道异常?enginectl logs cloudflared)')" ;;
-  esac
 }
 
 # 从 journal 拉 backend 启动自检 banner。$1 = journalctl --since 时间戳(可空):给了就只
@@ -269,7 +255,6 @@ cmd_restart() {
   if [ "$comfy_note" != '本次已重启' ]; then
     printf '  %-32s %s\n' nous-engine-comfyui.service "$(c_dim '跳过(unit 未 enabled)')"
   fi
-  printf '  %-32s %s\n' nous-engine-cloudflared.service "$(c_dim '随后端重启(PartOf=backend)')"
 
   # --no-block:同 cmd_up —— 阻塞 restart 客户端会挂(unit 实际 ~3s 就重启完);入队即返回,
   # 自己 poll。注意:--no-block 下「停旧→起新」非同步完成,poll is-active 到的可能是旧实例
@@ -317,14 +302,13 @@ cmd_restart() {
 
   if [ "$READY" = 1 ]; then _models_section; fi
 
-  # 收尾用 status 的同一份报告(端口/ZeroTier/ComfyUI 桥/隧道),单元表带上本次动作标注,
+  # 收尾用 status 的同一份报告(端口/ZeroTier/ComfyUI 桥),单元表带上本次动作标注,
   # 免得同样的单元行在一屏里出现两遍格式还不一样。
   echo
   # 注意:键要跟 STACK_UNITS 里的写法一致(不带 .service 后缀)。
   cmd_status \
     'postgresql=未受本次重启影响' \
     'nous-engine-backend=本次已重启' \
-    'nous-engine-cloudflared=随后端重启(PartOf)' \
     'nous-engine-status=本次已重启' \
     "nous-engine-comfyui=${comfy_note}"
 }
@@ -337,9 +321,9 @@ cmd_status() {
 cmd_logs() {
   u="${1:-backend}"
   case "$u" in
-    backend|cloudflared|status|healthprobe|comfyui) journalctl -u "nous-engine-$u" -f ;;
+    backend|status|healthprobe|comfyui) journalctl -u "nous-engine-$u" -f ;;
     postgresql|pg) journalctl -u postgresql@17-main -f ;;
-    *) echo "未知日志目标 '$u'(backend|cloudflared|status|comfyui|postgresql)" >&2; exit 1 ;;
+    *) echo "未知日志目标 '$u'(backend|status|healthprobe|comfyui|postgresql)" >&2; exit 1 ;;
   esac
 }
 
@@ -349,5 +333,5 @@ case "${1:-status}" in
   restart) cmd_restart ;;
   status)  cmd_status ;;
   logs)    shift; cmd_logs "$@" ;;
-  *) echo "用法: enginectl up|down|restart|status|logs [backend|cloudflared|status|postgresql]" >&2; exit 1 ;;
+  *) echo "用法: enginectl up|down|restart|status|logs [backend|status|healthprobe|comfyui|postgresql]" >&2; exit 1 ;;
 esac

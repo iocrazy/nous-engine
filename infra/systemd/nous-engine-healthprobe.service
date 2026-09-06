@@ -1,6 +1,6 @@
 [Unit]
-Description=nous-engine 本地健康巡检(后端 + 公网隧道存活,2026-06-16)
-# 一次性探针;由 nous-engine-healthprobe.timer 触发。失败(后端连不上/DB 挂/隧道 down)
+Description=nous-engine 本地健康巡检(后端存活 + DB/模型加载,2026-06-16;隧道探针 2026-09-06 随隧道退役移除)
+# 一次性探针;由 nous-engine-healthprobe.timer 触发。失败(后端连不上/DB 挂)
 # 退出非 0 → systemd 标 failed;将来接告警只需加 OnFailure=<alert>.service。
 After=network-online.target
 

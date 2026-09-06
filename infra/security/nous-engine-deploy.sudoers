@@ -1,7 +1,7 @@
 # nous-engine deploy.sh 免密重启后端(2026-06-20)。
 # 让 infra/deploy.sh 的后端重启免密 —— **不存任何密码**,只放行重启 nous-engine-backend
-# 这一件事(最小权限,sudo 其它操作照样要密码)。cloudflared 经 nous-engine-backend 的
-# PartOf 自动跟随重启,且其免密已在 nous-engine-healthprobe.sudoers 给,这里不重复。
+# 这一件事(最小权限,sudo 其它操作照样要密码)。公网隧道已退役(2026-09-06),
+# 原 nous-engine-healthprobe.sudoers(免密重启 cloudflared)已随之删除。
 # 由 install.sh 装到 /etc/sudoers.d/nous-engine-deploy(0440)+ visudo 校验。
 #
 # 两条都放行:#581 起 deploy.sh/enginectl 用 `--no-block`(阻塞式 restart 在本机会傻等

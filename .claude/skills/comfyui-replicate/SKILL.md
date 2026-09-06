@@ -89,7 +89,7 @@ description: 复刻 ComfyUI 工作流到 nous-center 全流程 SOP:解析 JSON �
 - key:`POST /api/v1/keys {label, service_ids:[svc.id]}` → 返回 secret(只此一次)。
 - 验证:`POST /v1/apps/{name}` + `Authorization: Bearer <secret>`,body 用 exposed key,
   取 `outputs.<dec节点id>.image_url` 下载眼看。
-- 公网:cloudflared/systemd 默认不动(deploy 暂缓约定),用户说「部署」才装。
+- 公网:nous-engine 不对外暴露(公网隧道 2026-09-06 退役),不要给它装 cloudflared。
 
 ## 阶段 6:卸载 manifest(模块化标注)
 
