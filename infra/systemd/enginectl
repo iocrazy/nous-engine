@@ -7,7 +7,7 @@
 #   enginectl restart   重启应用栈(后端/状态;comfyui 仅在 enabled 时)并打印重启报告:
 #                       重启了谁 / 后端多久真的能收请求 / 自检 banner / 常驻模型加载进度 / 栈状态
 #   enginectl status    各 unit active? + 端口 + ZeroTier/ComfyUI,一屏
-#   enginectl logs [u]  journalctl -f(u 缺省 backend;可 status/healthprobe/comfyui/postgresql)
+#   enginectl logs [u]  journalctl -f(u 缺省 backend;可 status/healthprobe/netprobe/comfyui/postgresql)
 #
 # 启停要 root → 内部用 sudo(会提示密码)。只读的 status/logs 不需要。
 # ENGINECTL_WAIT=秒 覆盖 up/restart 等后端就绪的上限(默认 180)。
@@ -27,7 +27,7 @@ c_ylw() { printf '\033[33m%s\033[0m' "$*"; }
 
 # status/restart 报告里逐行列的全栈单元(含不受 up/down 管的 postgresql)—— 操作者
 # 关心的是整栈现状,不只是被操作的那几个。
-STACK_UNITS=(postgresql nous-engine-backend nous-engine-status nous-engine-comfyui)
+STACK_UNITS=(postgresql nous-engine-backend nous-engine-status nous-engine-netprobe nous-engine-comfyui)
 
 # 后端本地就绪探针(与 cmd_status 的 ZeroTier 探测同一个 /healthz,只是走回环)。
 HEALTHZ_URL=http://127.0.0.1:8000/healthz
@@ -310,6 +310,7 @@ cmd_restart() {
     'postgresql=未受本次重启影响' \
     'nous-engine-backend=本次已重启' \
     'nous-engine-status=本次已重启' \
+    'nous-engine-netprobe=未受本次重启影响(常驻采集器)' \
     "nous-engine-comfyui=${comfy_note}"
 }
 
@@ -321,9 +322,9 @@ cmd_status() {
 cmd_logs() {
   u="${1:-backend}"
   case "$u" in
-    backend|status|healthprobe|comfyui) journalctl -u "nous-engine-$u" -f ;;
+    backend|status|healthprobe|netprobe|comfyui) journalctl -u "nous-engine-$u" -f ;;
     postgresql|pg) journalctl -u postgresql@17-main -f ;;
-    *) echo "未知日志目标 '$u'(backend|status|healthprobe|comfyui|postgresql)" >&2; exit 1 ;;
+    *) echo "未知日志目标 '$u'(backend|status|healthprobe|netprobe|comfyui|postgresql)" >&2; exit 1 ;;
   esac
 }
 
@@ -333,5 +334,5 @@ case "${1:-status}" in
   restart) cmd_restart ;;
   status)  cmd_status ;;
   logs)    shift; cmd_logs "$@" ;;
-  *) echo "用法: enginectl up|down|restart|status|logs [backend|status|healthprobe|comfyui|postgresql]" >&2; exit 1 ;;
+  *) echo "用法: enginectl up|down|restart|status|logs [backend|status|healthprobe|netprobe|comfyui|postgresql]" >&2; exit 1 ;;
 esac

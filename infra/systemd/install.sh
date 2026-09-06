@@ -23,7 +23,7 @@ TARGETS=(nous-engine.target)
 SUDOERS=(nous-engine-deploy)
 # 全部拷进 /etc/systemd/system(含 oneshot probe/dbbackup、target、comfyui)。
 UNIT_FILES=(nous-engine-backend.service nous-engine-status.service \
-            nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine.target)
+            nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine-netprobe.service nous-engine.target)
 
 LOCAL_URL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
 ZT_URL="${NOUS_ZT_URL:-http://10.0.0.10:8000}"
@@ -66,6 +66,27 @@ case "${1:-install}" in
       else bad "$svc 启动失败 — 查 journalctl -u $svc -n 50"; fi
     done
 
+    # netprobe(spec 2026-09-06 process-net-traffic):root bpftrace 采集每进程网络流量。
+    # 机器上有 bpftrace 才装;先 --dry-run 附着一次全部探针,符号缺失就明说、不启。
+    if command -v bpftrace >/dev/null 2>&1; then
+      if bpftrace --dry-run "$SCRIPT_DIR/../monitoring/netprobe.bt" >/tmp/nous-netprobe-dryrun.log 2>&1; then
+        if systemctl enable --now nous-engine-netprobe.service >/dev/null 2>&1; then ok "nous-engine-netprobe(每进程网络流量)"
+        else bad "nous-engine-netprobe 启动失败 — 查 journalctl -u nous-engine-netprobe -n 50"; fi
+      else
+        systemctl disable --now nous-engine-netprobe.service >/dev/null 2>&1 || true
+        bad "netprobe 探针附着失败(内核符号缺?)— 见 /tmp/nous-netprobe-dryrun.log;面板「网络」列将显示 —"
+      fi
+    else
+      systemctl disable --now nous-engine-netprobe.service >/dev/null 2>&1 || true
+      warn "未装 bpftrace → 跳过 nous-engine-netprobe(面板「网络」列显示 —);apt install bpftrace 后重跑本脚本"
+    fi
+
+    # 隧道退役后 healthprobe 的 NOUS_TUNNEL_AUTOHEAL drop-in 已无意义,顺手清掉。
+    if [[ -d "$TARGET/nous-engine-healthprobe.service.d" ]]; then
+      rm -rf "$TARGET/nous-engine-healthprobe.service.d"; systemctl daemon-reload
+      ok "已清除 nous-engine-healthprobe.service.d(隧道自愈 drop-in,已失效)"
+    fi
+
     # 公网隧道已退役(2026-09-06):把历史遗留的 nous-engine-cloudflared 清干净并 mask,
     # 保证重装/迁移/任何 PartOf 联动都不会再把它拉起来;其免密重启 sudoers 一并删除。
     systemctl disable --now nous-engine-cloudflared.service >/dev/null 2>&1 || true
@@ -101,7 +122,7 @@ case "${1:-install}" in
     code=000
     for _ in $(seq 1 15); do code="$(probe "$LOCAL_URL/healthz")"; [[ "$code" == 200 ]] && break; sleep 2; done
 
-    for svc in postgresql "${SERVICES[@]}"; do
+    for svc in postgresql "${SERVICES[@]}" nous-engine-netprobe.service; do
       if svc_active "$svc"; then ok "$(printf '%-24s active' "$svc")"; else bad "$(printf '%-24s %s' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || echo inactive)")"; fi
     done
 
@@ -137,6 +158,7 @@ case "${1:-install}" in
     for tgt in "${TARGETS[@]}"; do systemctl disable "$tgt" 2>/dev/null || true; rm -f "$TARGET/$tgt"; ok "移除 $tgt"; done
     for tmr in "${TIMERS[@]}"; do systemctl disable --now "$tmr" 2>/dev/null || true; rm -f "$TARGET/$tmr"; ok "移除 $tmr"; done
     for svc in "${SERVICES[@]}"; do systemctl disable --now "$svc" 2>/dev/null || true; rm -f "$TARGET/$svc"; ok "移除 $svc"; done
+    systemctl disable --now nous-engine-netprobe.service 2>/dev/null || true; rm -f "$TARGET/nous-engine-netprobe.service"; ok "移除 nous-engine-netprobe.service"
     rm -f "$TARGET/nous-engine-healthprobe.service" "$TARGET/nous-engine-dbbackup.service"
     rm -f "$ENGINECTL_DST"
     for sd in "${SUDOERS[@]}"; do rm -f "/etc/sudoers.d/$sd"; done
