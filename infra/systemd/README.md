@@ -35,7 +35,7 @@ enginectl up        # 拉起全栈(DB→后端→状态)并打印启动自检 ba
 enginectl down      # 停应用栈(后端/状态/comfyui);postgresql 保持运行
 enginectl restart   # 重启应用栈 + 打印重启报告(见下)
 enginectl status    # 各 unit active? + 端口 + ZeroTier/ComfyUI,一屏
-enginectl logs [u]  # journalctl -f(u 缺省 backend;可 status/healthprobe/comfyui/postgresql)
+enginectl logs [u]  # journalctl -f(u 缺省 backend;可 status/healthprobe/netprobe/comfyui/postgresql)
 ```
 
 启停内部用 `sudo`(会提示密码);`status`/`logs` 只读无需 sudo。
@@ -47,7 +47,7 @@ startup 字段;MOSS ASR / vLLM 权重要几分钟,报「加载中」而不假称
 单元没回到 active 时不印 banner,改印各自日志尾巴 + `enginectl logs <u>` 指路。
 等待上限默认 180s(停这一半可能很久:backend 是 TimeoutStopSec=120 顺序 unload vLLM),
 `ENGINECTL_WAIT=<秒>` 可覆盖。
-底层是 `nous-engine.target`(总闸,`Wants=` 三个 unit:postgresql / backend / status)。
+底层是 `nous-engine.target`(总闸,`Wants=` 四个 unit:postgresql / backend / status / netprobe)。
 
 ## 验证
 
@@ -115,6 +115,12 @@ sudo ./infra/systemd/install.sh uninstall
   `urllib` 探 `<backend>/health` 拿组件在线/离线。公开无登录,只露硬件概况 + 组件在线/离线,
   不露模型路径/密钥/内部错误。`/`(HTML 自动刷新 15s)、`/api.json`、`/healthz`。
   与 SPA 内 admin 状态页(#547,`/status` 详细版)并存:一个对外独立监控、一个登录后详查。
+- **`nous-engine-netprobe`(每进程网络流量,root)** — `infra/monitoring/netprobe.bt` 用 bpftrace
+  的 kretprobe 按 pid 累加 TCP/UDP 实际收发字节(只有字节数,没有地址/端口/内容),包装器
+  `nous-netprobe.py` 每 2s 原子写 `/run/nous-engine/net_by_pid.json`;后端(heygo)只读它,不提权。
+  面板「进程」表的「网络」列与按流量排序来自这里;采集器不在时该列显示「—」。有 bpftrace
+  才装(`install.sh` 先 `--dry-run` 附着探针,符号缺失就不启并明说)。spec
+  `docs/superpowers/specs/2026-09-06-process-net-traffic-design.md`。
 
 ## 日志
 

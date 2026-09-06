@@ -4,8 +4,8 @@
 # 公网隧道(nous-engine-cloudflared)已于 2026-09-06 退役:nous-engine 只在本机/局域网/ZeroTier 可达。
 # 各服务自身已 enable(WantedBy=multi-user.target,开机自启);本 target 主要给
 # `enginectl up/down` 做一键分组 + 单条手动启停。短命令见 /usr/local/bin/enginectl。
-Description=nous-engine 全栈(DB + 后端 + 状态)
-Wants=postgresql.service nous-engine-backend.service nous-engine-status.service
+Description=nous-engine 全栈(DB + 后端 + 状态 + 网络采集)
+Wants=postgresql.service nous-engine-backend.service nous-engine-status.service nous-engine-netprobe.service
 After=postgresql.service nous-engine-backend.service
 
 [Install]
