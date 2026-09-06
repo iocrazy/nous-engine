@@ -218,6 +218,49 @@ spec 的意义在于下游真的能按提供商语义用它,所以验收在真�
    纯粹随 engine 的加载状态变化,且 nous-app 的火山/deepseek 行不受任何影响
    (观察项,不是 nous-engine 的义务)。
 
+### 12.5 验收结果(2026-09-05,真机,master `f9b3fc8`,后端 17:28 重启)
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 12.1 常驻预载 | ✅ | 重启后 `moss_transcribe_diarize`(GPU1)、`qwen3_8_27b_abliterated_awq`(GPU [0,2])、`qwen3_embedding_8b`(GPU1)三者 `status=loaded resident=True held_by=[]`;InstanceApiKey 视角 `/v1/models` = `[qwen3-8-27b (owned_by nous-engine)]` |
+| 12.2 未就绪即拒绝、无副作用 | ✅(阈值改写,见下) | `unload?force=true` → 200;GPU 0/2 回落到 717/280 MiB;冷调用 `POST /v1/chat/completions` → **503** `{type:model_not_ready, code:model_not_ready, param:model, ready_models:[]}`;调用后 GPU 0/2 **仍是 717/280 MiB**;冷时 `/v1/models` = `[]`;`load` → 200,~3 分钟后 `loaded`,GPU 0/2 回到 16893/16455 MiB |
+| 12.3 ComfyUI 人像整条 | 见 12.6 | |
+| 12.4 下游只反映状态 | ✅(观察项) | nous-app `mediahub_models`:`mediahub-moss-asr → ok`、`nous-qwen3-embedding-8b → ok`、`nous-qwen3-llm(actual_model=qwen3-6-35b)→ fail` —— 3.6 已退役,fail 是它目录的真实状态;它的火山/deepseek 行不受影响。是否把该行改指 `qwen3-8-27b` 是 nous-app 侧的事(§13 第一条) |
+
+**12.2 的「<100ms」改写为「鉴权之外 <5ms」**:实测 503 端到端 ~189ms,但 `/v1/*` 上
+任何带 bearer 的请求(401/404/200 全一样)都是 ~185ms —— `deps_auth.py` 的 bcrypt
+常数时间校验(cost 12,故意的,防时序探测)。拒绝路径本身只多 <5ms,且无 GPU 副作用,
+这才是本条要证的东西;bcrypt 成本是另一个话题(要压得单开,比如缓存已校验 key 的 HMAC)。
+
+**运维备忘(验收期间定下的)**:
+- `model_runtime_overrides` 里 `qwen3_embedding_8b` 那行**整行保留**(`gpu=1 /
+  resident=true / vram_budget 22G`)。别只删 `vram_budget` 留 `gpu`:它的
+  `gpu_memory_utilization: 0.22` 是按 96G 定的,落到 24G 卡就只剩 5.3G,起不来。
+- 3.6 已退役:active 服务 `qwen3-6-35b`、`ltx-drama` 已删(「新工作流」自动退回 draft),
+  3.6 的覆盖行已删;权重目录 `llm/Qwen3.6-35B-A3B-FP8`(~35G)留盘,`scan_local_models`
+  仍会把它列成可加载的自动发现模型,删不删是用户决定。
+- 3.8 已补 `--enable-auto-tool-choice --tool-call-parser qwen3_xml`(#717,§13 第三条
+  关闭);生效方式 = `POST /api/v1/engines/reload` + 重载 3.8,不用重启后端。
+
+### 12.6 ComfyUI 人像整条(§12.3,用户硬性要求)—— ✅ 2026-09-05 18:06
+
+- 工作流:`Aiden-极致真实摄影人像工作流.json`(反推开关 `LazySwitchKJ` 146 = true,
+  `ImageCaptionNode` 58 = `nous本机/qwen3-8-27b`,规则 `Detail Caption`,seed 20260905),
+  经 comfy-cli MCP `validate_workflow`(67 节点,0 错 0 警)→ `run_workflow`,
+  prompt_id `c109ae9d-c40b-449b-9d3a-d0120f74007c`,ComfyUI :8888,**整条不 bypass**。
+- 输入:`input/smoke_caption_src.png`(1920×1088,真人像)。
+- 反推(node 63 文本输出,经 nous-engine `/v1/chat/completions` → Qwen3.8 视觉):
+  「自然写实的人像摄影风格……一位年轻的亚洲女性……米白色的圆领针织毛衣,坐在一把深棕色的
+  木质靠背椅上……左侧墙面投射着窗户框架形成的几何光影格纹,右侧后方是一扇带有白色窗框的
+  窗户……85 毫米定焦、f/2.0……」(全文约 1.6k 字,四段:画面风格 / 核心元素 / 具体内容 /
+  构图方式)。
+- 链路:反推 → Z-Image 双阶段 → flux-2-klein-9b 精修 → SeedVR2 7B 放大 → `SaveImage` 138。
+- 产物:`/media/heygo/cache/output/comfyui/ComfyUI_00014_.png`,**5632×3072** RGB,
+  18.4 MB。目检:米白针织衫、深棕木椅圆顶立柱、左墙窗影格纹、右后白框窗 —— 与反推文本
+  逐项对得上,说明反推文本确实驱动了生成。
+- 期间 nous-engine 请求日志:`POST /v1/chat/completions 200`(InstanceApiKey `sk-comf-…`),
+  3.8 全程 `loaded`,没有任何自动加载/卸载事件。
+
 ## 13. 范围外与后续
 
 - nous-app 侧:`mediahub_models` 的 `actual_provider` 叫 `openai`、`actual_model`
