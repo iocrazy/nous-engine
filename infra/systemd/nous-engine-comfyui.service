@@ -2,6 +2,10 @@
 Description=nous-engine ComfyUI sidecar
 After=network.target
 
+# 安全边界(2026-09-07):ComfyUI 自身**零鉴权**,而它的节点能读写任意文件、执行
+# 自定义代码 —— 监听 0.0.0.0 等于把这台机器交给局域网/ZeroTier 上的任何人。
+# 后端桥走 NOUS_COMFY_URL=http://127.0.0.1:8888(回环),绑回环不影响它。
+# 要从别的机器开界面:ssh -L 8888:127.0.0.1:8888 heygo@10.0.0.10
 [Service]
 Type=simple
 User=heygo
@@ -12,7 +16,7 @@ Environment=CUDA_VISIBLE_DEVICES=1
 # 现成 ComfyUI 安装(v0.31.0, 自带 .venv)
 WorkingDirectory=/media/heygo/program/projects-code/github-repos/ComfyUI
 # 参数与用户手动启动习惯完全一致(8888 供 IC 直连 + nous 桥;output 落 cache 盘)
-ExecStart=/media/heygo/program/projects-code/github-repos/ComfyUI/.venv/bin/python main.py --output-directory /media/heygo/cache/output/comfyui --listen 0.0.0.0 --port 8888
+ExecStart=/media/heygo/program/projects-code/github-repos/ComfyUI/.venv/bin/python main.py --output-directory /media/heygo/cache/output/comfyui --listen 127.0.0.1 --port 8888
 Restart=on-failure
 RestartSec=5
 
