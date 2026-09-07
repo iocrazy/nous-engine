@@ -3,14 +3,21 @@
 // 请求长度:部分发送/接收时入参会高估。tcp_sendmsg/tcp_recvmsg/udp_sendmsg/udp_recvmsg
 // 及 v6 版都是导出的稳定内核函数,比 tcp_cleanup_rbuf 之类内部符号更不容易随内核变。
 // pid 在 bpftrace 里就是 tgid(进程),容器进程在宿主内核也是宿主 pid → docker 天然覆盖。
+// retval 必须先截成 32 位有符号(2026-09-07 真机验收踩到):这些内核函数返回 `int`,
+// 而 bpftrace 的 retval 是 64 位且**零扩展** —— 负的 errno(-EAGAIN = -11)会变成
+// 4294967285 这种巨大正数,直接冲过 `> 0`,每次给该 pid 累加约 4.29GB。实测生产机上
+// 一个 2 秒区间的 67 个 pid 里 26 个 rx > 4GB,拆开正是「高 32 位 = 负返回次数,
+// 低 32 位 = 2^32 - errno」。截断后 -11 就是 -11,被 `> 0` 正常挡掉。
 kretprobe:tcp_sendmsg, kretprobe:udp_sendmsg, kretprobe:udpv6_sendmsg
 {
-  if (retval > 0) { @tx[pid] += retval; }
+  $n = (int32)retval;
+  if ($n > 0) { @tx[pid] += (uint64)$n; }
 }
 
 kretprobe:tcp_recvmsg, kretprobe:udp_recvmsg, kretprobe:udpv6_recvmsg
 {
-  if (retval > 0) { @rx[pid] += retval; }
+  $n = (int32)retval;
+  if ($n > 0) { @rx[pid] += (uint64)$n; }
 }
 
 // 每 2s 吐一次并清零:包装器把同一轮的 @tx / @rx 合成一份 JSON。先 tx 后 rx,
