@@ -14,6 +14,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET=/etc/systemd/system
 ENGINECTL_DST=/usr/local/bin/enginectl
+# root 单元(netprobe)执行的采集器装在这里,root:root —— 不在用户可写的仓库里执行。
+# 安全边界见 backend/tests/test_infra_privilege_boundary.py。
+PRIV_LIBDIR=/usr/local/lib/nous-engine
 
 # 长驻服务。公网隧道 nous-engine-cloudflared 已于 2026-09-06 退役(用户决定:nous-engine
 # 只在本机/局域网/ZeroTier 可达,不再对外暴露);下面第 2 步会主动清掉旧单元并 mask。
@@ -68,8 +71,18 @@ case "${1:-install}" in
 
     # netprobe(spec 2026-09-06 process-net-traffic):root bpftrace 采集每进程网络流量。
     # 机器上有 bpftrace 才装;先 --dry-run 附着一次全部探针,符号缺失就明说、不启。
+    #
+    # 安全边界(2026-09-07):采集器**复制**到 $PRIV_LIBDIR 并归 root,单元执行那一份。
+    # 直接执行仓库里的那份会形成「提交进 master → deploy.sh 的 git reset --hard → 下次
+    # 单元启动 = 免密 root 代码执行」的链条(仓库 heygo:heygo 775、public、master 可直推)。
+    # 代价:改了 infra/monitoring/ 下的采集器,必须重跑本脚本才生效 —— 这正是我们要的
+    # 「拿 root 必须是一次刻意的 sudo 动作」。
     if command -v bpftrace >/dev/null 2>&1; then
-      if bpftrace --dry-run "$SCRIPT_DIR/../monitoring/netprobe.bt" >/tmp/nous-netprobe-dryrun.log 2>&1; then
+      install -d -m 0755 -o root -g root "$PRIV_LIBDIR"
+      install -m 0755 -o root -g root "$SCRIPT_DIR/../monitoring/nous-netprobe.py" "$PRIV_LIBDIR/nous-netprobe.py"
+      install -m 0644 -o root -g root "$SCRIPT_DIR/../monitoring/netprobe.bt"     "$PRIV_LIBDIR/netprobe.bt"
+      ok "采集器已装到 $PRIV_LIBDIR(root:root)"
+      if bpftrace --dry-run "$PRIV_LIBDIR/netprobe.bt" >/tmp/nous-netprobe-dryrun.log 2>&1; then
         if systemctl enable --now nous-engine-netprobe.service >/dev/null 2>&1; then ok "nous-engine-netprobe(每进程网络流量)"
         else bad "nous-engine-netprobe 启动失败 — 查 journalctl -u nous-engine-netprobe -n 50"; fi
       else
@@ -159,6 +172,7 @@ case "${1:-install}" in
     for tmr in "${TIMERS[@]}"; do systemctl disable --now "$tmr" 2>/dev/null || true; rm -f "$TARGET/$tmr"; ok "移除 $tmr"; done
     for svc in "${SERVICES[@]}"; do systemctl disable --now "$svc" 2>/dev/null || true; rm -f "$TARGET/$svc"; ok "移除 $svc"; done
     systemctl disable --now nous-engine-netprobe.service 2>/dev/null || true; rm -f "$TARGET/nous-engine-netprobe.service"; ok "移除 nous-engine-netprobe.service"
+    rm -rf "$PRIV_LIBDIR"; ok "移除 $PRIV_LIBDIR(root 属主的采集器副本)"
     rm -f "$TARGET/nous-engine-healthprobe.service" "$TARGET/nous-engine-dbbackup.service"
     rm -f "$ENGINECTL_DST"
     for sd in "${SUDOERS[@]}"; do rm -f "/etc/sudoers.d/$sd"; done

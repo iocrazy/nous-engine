@@ -12,7 +12,12 @@ User=root
 RuntimeDirectory=nous-engine
 RuntimeDirectoryMode=0755
 Environment=NOUS_NET_BY_PID=/run/nous-engine/net_by_pid.json
-ExecStart=/usr/bin/python3 /media/heygo/program/projects-code/repos/nous-engine/infra/monitoring/nous-netprobe.py
+# 安全边界(2026-09-07):执行的是 install.sh 以 root 属主复制过去的那份,**不是**
+# 仓库里的那份 —— 仓库目录 heygo:heygo 775,若直接执行它,「任何进到 master 的提交
+# → deploy.sh 的 git reset --hard → 下次本单元启动」就是一条免密 root 代码执行链。
+# 改了 infra/monitoring/ 下的采集器要重跑 sudo ./infra/systemd/install.sh 才生效。
+# 包装器按 __file__ 同目录找 netprobe.bt,所以两个文件一起装在这里。
+ExecStart=/usr/bin/python3 /usr/local/lib/nous-engine/nous-netprobe.py
 # bpftrace 要 tracefs/bpf,除此之外锁死文件系统。
 ProtectSystem=strict
 ProtectHome=yes

@@ -18,6 +18,9 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# --force:允许覆盖脏工作树(默认拒绝,见下面的守卫)。
+FORCE=0
+for a in "$@"; do case "$a" in --force) FORCE=1 ;; *) echo "未知参数 '$a'(只认 --force)" >&2; exit 2 ;; esac; done
 LOCAL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
 
 if [[ "${EUID}" -eq 0 ]]; then
@@ -39,6 +42,18 @@ cd "$REPO"
 step "同步到 origin/master"
 [[ -f "$REPO/.nous-production" ]] || die "不在专用生产检出(缺 .nous-production 标记)。生产部署只在 nous-prod 跑;dev 改动走 PR→CI→master 后,在 nous-prod 里 ./infra/deploy.sh。"
 git fetch origin master -q || die "git fetch 失败。"
+# 脏树守卫(2026-09-07 安全审查):`reset --hard` 会**不吭一声**丢掉生产机上的本地改动
+# (就地调过的 models.d/*.yaml 之类)。本仓库别处都是 fail-loud(dist 时间戳校验、
+# `import vllm` 校验),这里也一样:先报出将丢什么,要覆盖得显式 --force。
+dirty="$(git status --porcelain --untracked-files=no)"
+if [[ -n "$dirty" ]]; then
+  if (( FORCE )); then
+    printf '\033[33m⚠ --force:以下本地改动将被 reset --hard 丢弃\033[0m\n%s\n' "$dirty" >&2
+  else
+    printf '%s\n' "$dirty" >&2
+    die "生产检出有未提交改动(上面这些),reset --hard 会丢掉它们。先提交/推走,或确认要丢就 ./infra/deploy.sh --force。"
+  fi
+fi
 git reset --hard origin/master || die "git reset --hard origin/master 失败。"
 ok "已同步到 $(git rev-parse --short HEAD)"
 
