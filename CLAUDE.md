@@ -233,12 +233,24 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   跑无 `--workers`(生产就是这样)。上了多 worker/多进程部署,每个进程各有自己的
   `_SEM`,互不认识,这条不变式就破了——需要先换成跨进程锁(Postgres advisory lock
   之类)才能加 `--workers`。
-- sidecar 是独立 systemd 单元 `nous-engine-comfyui`,默认 **disabled**(装机时模板
+- sidecar 是独立 systemd 单元 `nous-engine-comfyui`,**首装** disabled(装机时模板
   路径 `/opt/comfyui` 多半还没铺,`enginectl restart` 不会强启一个禁用单元——2026-08-10
   设计修正,见 `infra/systemd/enginectl`)。启用前置:① GSP 缓解脚本已上机
   (`infra/gpu/setup-gpu-mitigations.sh`,Pro 6000 满载崩卡 bug);② 核对单元里的
   `CUDA_VISIBLE_DEVICES` 跟目标卡对得上(`infra/systemd/nous-engine-comfyui.service`)。
   `enginectl status|up|down|restart|logs comfyui` 纳管。
+  **「首装」不是「每次装」**:`install.sh` 对已 `enabled` 的 comfyui 保持不动(#727)。
+  这里以前是无条件 `systemctl disable`,每次重装都把「前置条件已核对过」的结论推翻,
+  且不带 `--now` → 进程照跑、当场零征兆,**要等下次重启才发现 sidecar 没回来**
+  (2026-09-07 就这么踩了一次:16:37 跑 install.sh,21:31 重启才显形)。
+- **单元 `--listen` 是逐个点名网卡,不是通配符**:`127.0.0.1,10.0.0.10` —— 回环给后端桥
+  (`NOUS_COMFY_URL`)+ 本机浏览器,ZeroTier 那个给「从别的机器开 ComfyUI 界面」。
+  LAN(`192.168.8.x`)、docker0/br-*(`172.x`)、mihomo 的 Meta(`198.18.x`)一个口都不开。
+  **别图省事改回 `0.0.0.0`**:ComfyUI 自身零鉴权,而它的节点能读写任意文件、执行自定义
+  代码,绑通配符 = 把这台机器交给能路由到它的任何人(2026-09-07 收紧,#725/#727)。
+  换机器要改那个硬编码的 ZeroTier IP。`main.py` 对 `--listen` 做 `split(",")`,每个地址
+  各起一个 TCPSite;ZT 网卡晚起会 bind 失败,靠 `Restart=on-failure` 重试收敛
+  (`After=zerotier-one.service` 只能缓解 —— 网卡 up ≠ 地址已配)。
 - 真机 smoke(非 CI,需 sidecar 已跑 + 权重已入 ComfyUI models):
   `cd backend && uv run python tests/manual/smoke_comfy_h3.py --base http://127.0.0.1:8000
   --admin-token $ADMIN_TOKEN --workflow /path/to/xxx-api.json --mapping /path/to/mapping.json`
