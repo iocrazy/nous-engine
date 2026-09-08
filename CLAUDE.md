@@ -235,10 +235,15 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   之类)才能加 `--workers`。
 - sidecar 是独立 systemd 单元 `nous-engine-comfyui`,**首装** disabled(装机时模板
   路径 `/opt/comfyui` 多半还没铺,`enginectl restart` 不会强启一个禁用单元——2026-08-10
-  设计修正,见 `infra/systemd/enginectl`)。启用前置:① GSP 缓解脚本已上机
-  (`infra/gpu/setup-gpu-mitigations.sh`,Pro 6000 满载崩卡 bug);② 核对单元里的
+  设计修正,见 `infra/systemd/enginectl`)。启用前置只剩一条:核对单元里的
   `CUDA_VISIBLE_DEVICES` 跟目标卡对得上(`infra/systemd/nous-engine-comfyui.service`)。
   `enginectl status|up|down|restart|logs comfyui` 纳管。
+  **GSP 缓解脚本已不再是前置**(2026-09-08 复核):驱动已从 `infra/gpu/README.md` 点名的
+  595.71.05 升到 **595.91.07**;`setup-gpu-mitigations.sh` **从未上机**(persistence 三卡
+  全 Disabled、`DynamicPowerManagement=3` 即 GC6 仍开、`nous-gpu-guard` 单元不存在),
+  而 2026-07-01 至今内核日志**零 Xid、零 FULLCHIP_RESET**,期间 PRO 6000 一直带着常驻
+  模型跑、ComfyUI 也钉在这张卡上。用户 2026-08-11 亦明确确认该问题不再出现。
+  `infra/gpu/README.md` 留档仅供**复发时**排查,别再当安装前置推荐。
   **「首装」不是「每次装」**:`install.sh` 对已 `enabled` 的 comfyui 保持不动(#727)。
   这里以前是无条件 `systemctl disable`,每次重装都把「前置条件已核对过」的结论推翻,
   且不带 `--now` → 进程照跑、当场零征兆,**要等下次重启才发现 sidecar 没回来**
