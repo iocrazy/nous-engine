@@ -1,11 +1,17 @@
 [Unit]
 Description=nous-engine ComfyUI sidecar
 After=network.target
+# --listen 里点名了 ZeroTier 地址,网卡没起来时 bind 会 EADDRNOTAVAIL。
+# After= 不保证地址已配好(网卡 up ≠ 有 IP),真正兜底的是下面的 Restart=on-failure。
+After=zerotier-one.service
 
 # 安全边界(2026-09-07):ComfyUI 自身**零鉴权**,而它的节点能读写任意文件、执行
 # 自定义代码 —— 监听 0.0.0.0 等于把这台机器交给局域网/ZeroTier 上的任何人。
-# 后端桥走 NOUS_COMFY_URL=http://127.0.0.1:8888(回环),绑回环不影响它。
-# 要从别的机器开界面:ssh -L 8888:127.0.0.1:8888 heygo@10.0.0.10
+# 所以**逐个点名**要开口的网卡,不用通配符:
+#   127.0.0.1  → 后端桥(NOUS_COMFY_URL)+ 本机浏览器
+#   10.0.0.10  → ZeroTier,用户从别的机器开界面走这个
+# LAN(192.168.8.x)、docker0/br-*(172.x)、mihomo 的 Meta(198.18.x)一个口都不开。
+# main.py:450 对 --listen 做 address.split(","),每个地址各起一个 TCPSite。
 [Service]
 Type=simple
 User=heygo
@@ -16,7 +22,8 @@ Environment=CUDA_VISIBLE_DEVICES=1
 # 现成 ComfyUI 安装(v0.31.0, 自带 .venv)
 WorkingDirectory=/media/heygo/program/projects-code/github-repos/ComfyUI
 # 参数与用户手动启动习惯完全一致(8888 供 IC 直连 + nous 桥;output 落 cache 盘)
-ExecStart=/media/heygo/program/projects-code/github-repos/ComfyUI/.venv/bin/python main.py --output-directory /media/heygo/cache/output/comfyui --listen 127.0.0.1 --port 8888
+ExecStart=/media/heygo/program/projects-code/github-repos/ComfyUI/.venv/bin/python main.py --output-directory /media/heygo/cache/output/comfyui --listen 127.0.0.1,10.0.0.10 --port 8888
+# 开机时 ZeroTier 可能比本单元晚拿到 10.0.0.10,bind 失败 → 这里重试到网卡就绪。
 Restart=on-failure
 RestartSec=5
 

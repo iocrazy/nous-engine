@@ -38,6 +38,16 @@ ENGINECTL_WAIT="${ENGINECTL_WAIT:-180}"
 
 _unit_active() { systemctl is-active "$1" 2>/dev/null || true; }
 
+# 探一个 URL 的 HTTP 状态码。连不上时 curl **自己就会往 stdout 写 000** 并以非 0 退出,
+# 所以再挂一个 `|| echo 000` 会把两份拼成 "000000"(2026-09-07 实测,报告里就是这么印的)。
+# 只在输出为空(curl 没装/被信号打断)时才兜底。--noproxy 是必须的:本机跑着 mihomo,
+# 走代理会把内网地址探成代理的返回码。
+_http_code() {
+  local code
+  code="$(curl -s -m "${2:-4}" --noproxy '*' -o /dev/null -w '%{http_code}' "$1" 2>/dev/null)" || true
+  printf '%s' "${code:-000}"
+}
+
 _short_unit() { local u="${1#nous-engine-}"; printf '%s' "${u%.service}"; }
 
 # 单元一行:名字 + 彩色状态 + 暗色备注。状态串带 ANSI 转义 → printf 的 %-Ns 会按字节数
@@ -74,25 +84,26 @@ _status_endpoints() {
   printf '\nZeroTier 内网访问:\n'
   # 后端 bind 0.0.0.0 → ZeroTier 网卡(10.0.0.10)同样可达。探一下 /healthz 确认内网入口活着。
   local zt_code cq depth code
-  zt_code="$(curl -s -m 4 -o /dev/null -w '%{http_code}' http://10.0.0.10:8000/healthz 2>/dev/null || echo 000)"
+  zt_code="$(_http_code http://10.0.0.10:8000/healthz)"
   if [ "$zt_code" = 200 ]; then
     printf '  http://10.0.0.10:8000  %s\n' "$(c_grn 'HTTP 200')"
   else
     printf '  http://10.0.0.10:8000  %s %s\n' "$(c_red "HTTP ${zt_code}")" "$(c_dim '(ZeroTier 未连/未分配 10.0.0.10?)')"
   fi
   # ComfyUI sidecar(桥):直探 /queue 拿队列深度;未启用/没起时给暗色提示不刷红。
-  # 同时探 ZeroTier 地址 —— 用户在别的机器上开 ComfyUI 网页走的是 10.0.0.10:8888,
-  # 不是 0.0.0.0(那是 bind 写法,浏览器打不开),这里把能用的地址直接印出来。
+  # 两个地址都要探,因为单元是**双绑** 127.0.0.1,10.0.0.10(见 nous-engine-comfyui.service):
+  # 回环那条是后端桥的命脉(NOUS_COMFY_URL),ZeroTier 那条是用户在别的机器开网页用的。
+  # 任一条红了都说明 --listen 被改窄或网卡没起,这里分开印以便一眼定位是哪半边断了。
   printf '\nComfyUI 桥:\n'
   cq="$(curl -s -m 4 --noproxy '*' http://127.0.0.1:8888/queue 2>/dev/null || true)"
   if [ -n "$cq" ]; then
     depth="$(printf '%s' "$cq" | grep -o '"queue_\(running\|pending\)": *\[[^]]*\]' | grep -c 'prompt' || true)"
     printf '  http://127.0.0.1:8888  %s %s\n' "$(c_grn '在线')" "$(c_dim "队列 ${depth:-0}")"
-    zt_code="$(curl -s -m 4 --noproxy '*' -o /dev/null -w '%{http_code}' http://10.0.0.10:8888/system_stats 2>/dev/null || echo 000)"
+    zt_code="$(_http_code http://10.0.0.10:8888/system_stats)"
     if [ "$zt_code" = 200 ]; then
-      printf '  http://10.0.0.10:8888  %s %s\n' "$(c_grn 'HTTP 200')" "$(c_dim '(浏览器用这个地址,别用 0.0.0.0)')"
+      printf '  http://10.0.0.10:8888  %s %s\n' "$(c_grn 'HTTP 200')" "$(c_dim '(从别的机器开界面用这个)')"
     else
-      printf '  http://10.0.0.10:8888  %s\n' "$(c_red "HTTP ${zt_code}")"
+      printf '  http://10.0.0.10:8888  %s %s\n' "$(c_red "HTTP ${zt_code}")" "$(c_dim '(--listen 少了 10.0.0.10?或 ZeroTier 没起)')"
     fi
   else
     printf '  http://127.0.0.1:8888  %s\n' "$(c_dim '离线(单元未启用或未启动)')"
@@ -190,7 +201,7 @@ _wait_backend_ready() {
     mono="$(systemctl show -p ActiveEnterTimestampMonotonic --value nous-engine-backend.service 2>/dev/null || true)"
     if [ "$st" = active ] && [ -n "$mono" ] && [ "$mono" != "$baseline" ]; then
       [ -n "$READY_UNIT_SECS" ] || READY_UNIT_SECS=$(( SECONDS - t0 ))
-      READY_CODE="$(curl -s -m 3 --noproxy '*' -o /dev/null -w '%{http_code}' "$HEALTHZ_URL" 2>/dev/null || echo 000)"
+      READY_CODE="$(_http_code "$HEALTHZ_URL" 3)"
       if [ "$READY_CODE" = 200 ]; then READY=1; break; fi
     fi
     sleep 1

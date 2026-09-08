@@ -108,13 +108,22 @@ case "${1:-install}" in
     systemctl mask nous-engine-cloudflared.service >/dev/null 2>&1 || true
     ok "nous-engine-cloudflared 已退役(单元移除 + mask,不再对外暴露)"
 
-    # ComfyUI sidecar:不默认启用 —— 安装前须核对(见下面说明)。
-    systemctl disable nous-engine-comfyui.service >/dev/null 2>&1 || true
-    warn "nous-engine-comfyui 单元已安装但未启用(安装前置条件检查)"
-    warn "  前置:ComfyUI 安装在 WorkingDirectory + venv + CUDA_VISIBLE_DEVICES 验证"
-    warn "  ① 核对 GPU: nvidia-smi --query-gpu=index,name --format=csv(PCI_BUS_ID 排序)"
-    warn "  ② 编辑 $(realpath "$SCRIPT_DIR/nous-engine-comfyui.service") → 设 WorkingDirectory + CUDA_VISIBLE_DEVICES"
-    warn "  ③ sudo systemctl daemon-reload && sudo systemctl enable --now nous-engine-comfyui"
+    # ComfyUI sidecar:首装不默认启用 —— 单元里的 WorkingDirectory / CUDA_VISIBLE_DEVICES
+    # 是按本机硬编码的,换机器多半不成立 → ExecStart 立刻失败 + Restart=on-failure 无限循环。
+    # 但**已经 enabled 就别动**:那说明前置条件此前已核对过。这里以前是无条件 disable,
+    # 于是每次重装都把结论悄悄推翻,而且不带 --now 当场毫无征兆,要等下次重启才发现
+    # sidecar 起不来(2026-09-07 就这么踩了一次)。
+    if systemctl is-enabled --quiet nous-engine-comfyui.service 2>/dev/null; then
+      ok "nous-engine-comfyui(已启用,前置条件此前已核对 → 保持不动)"
+    else
+      systemctl disable nous-engine-comfyui.service >/dev/null 2>&1 || true
+      warn "nous-engine-comfyui 单元已安装但未启用(安装前置条件检查)"
+      warn "  前置:ComfyUI 安装在 WorkingDirectory + venv + CUDA_VISIBLE_DEVICES 验证"
+      warn "  ① 核对 GPU: nvidia-smi --query-gpu=index,name --format=csv(PCI_BUS_ID 排序)"
+      warn "  ② 编辑 $(realpath "$SCRIPT_DIR/nous-engine-comfyui.service") → 设 WorkingDirectory + CUDA_VISIBLE_DEVICES"
+      warn "  ③ 核对 --listen:回环给后端桥,另一个地址是本机 ZeroTier IP,换机器要改"
+      warn "  ④ sudo systemctl daemon-reload && sudo systemctl enable --now nous-engine-comfyui"
+    fi
 
     # ── 3. 定时器 + 总闸 ────────────────────────────────────────────────
     step "启用定时器 + 总闸"
