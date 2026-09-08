@@ -109,13 +109,41 @@ def test_uninstall_removes_the_privileged_libdir():
 # ── 2. ComfyUI 不得暴露到局域网 ─────────────────────────────────────────────
 
 
-def test_comfyui_does_not_listen_on_all_interfaces():
+#: `--listen` 接受逗号分隔的地址表(main.py 对它 split(",") 后每个地址各起一个
+#: TCPSite),所以判定必须**逐个**看,不能对整条 ExecStart 做子串匹配。
+_WILDCARD_BINDS = {"0.0.0.0", "::", "*", ""}
+
+
+def _comfy_listen_addrs() -> list[str]:
+    import re
+
     exec_start = _exec_start(_read("infra/systemd/nous-engine-comfyui.service"))
-    assert "--listen 0.0.0.0" not in exec_start, (
-        "ComfyUI 零鉴权且节点可执行任意代码,不能监听 0.0.0.0;"
-        "要从别的机器访问请用 SSH 隧道。当前:" + exec_start
+    m = re.search(r"--listen[= ]+(\S+)", exec_start)
+    assert m, "ComfyUI 必须显式 --listen,不能靠默认值(默认就是 127.0.0.1,但别赌):" + exec_start
+    return [a.strip() for a in m.group(1).split(",")]
+
+
+def test_comfyui_binds_no_wildcard_address():
+    """零鉴权 + 节点可执行任意代码 → 每个绑定地址都必须是具体网卡,绝不能是通配符。
+
+    #725 的原判定是 `"--listen 0.0.0.0" not in exec_start`,#727 把参数改成逗号表
+    (`127.0.0.1,10.0.0.10`)之后就有了盲区:`--listen 127.0.0.1,0.0.0.0` 同样能过 ——
+    子串里 `--listen 0.0.0.0` 并不出现。逐个地址判定才咬得住。
+    """
+    addrs = _comfy_listen_addrs()
+    bad = [a for a in addrs if a in _WILDCARD_BINDS]
+    assert not bad, (
+        f"ComfyUI 零鉴权且节点可执行任意代码,绑定里不能有通配地址 {bad}(当前 {addrs});"
+        "要逐个点名网卡 —— 回环给后端桥,另一个给 ZeroTier。"
     )
-    assert "--listen 127.0.0.1" in exec_start, "ComfyUI 应显式绑回环:" + exec_start
+
+
+def test_comfyui_keeps_loopback_for_the_bridge():
+    """后端桥走 NOUS_COMFY_URL(默认回环),所以回环这一项不能被摘掉。"""
+    addrs = _comfy_listen_addrs()
+    assert any(a.startswith("127.") or a == "localhost" for a in addrs), (
+        f"绑定里没有回环({addrs}):后端桥按 NOUS_COMFY_URL 连 127.0.0.1 会 Connection refused"
+    )
 
 
 # ── 3. deploy.sh 不得静默销毁 ───────────────────────────────────────────────
