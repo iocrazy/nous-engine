@@ -109,13 +109,47 @@ def test_uninstall_removes_the_privileged_libdir():
 # ── 2. ComfyUI 不得暴露到局域网 ─────────────────────────────────────────────
 
 
-def test_comfyui_does_not_listen_on_all_interfaces():
+def _comfy_listen_addr() -> str:
+    import re
+
     exec_start = _exec_start(_read("infra/systemd/nous-engine-comfyui.service"))
-    assert "--listen 0.0.0.0" not in exec_start, (
-        "ComfyUI 零鉴权且节点可执行任意代码,不能监听 0.0.0.0;"
-        "要从别的机器访问请用 SSH 隧道。当前:" + exec_start
+    m = re.search(r"--listen\s+(\S+)", exec_start)
+    assert m, "ComfyUI 必须显式 --listen 一个地址,不能靠默认值:" + exec_start
+    return m.group(1)
+
+
+def test_comfyui_does_not_listen_on_all_interfaces():
+    """零鉴权 + 节点可执行任意代码 → 只能绑到一个具体地址,绝不能是 0.0.0.0。"""
+    addr = _comfy_listen_addr()
+    assert addr not in ("0.0.0.0", "::", "*"), (
+        f"ComfyUI 零鉴权且节点可执行任意代码,不能监听所有网卡(当前 {addr});"
+        "绑回环走 SSH 隧道,或绑到某张受控网卡(如 ZeroTier)的具体地址。"
     )
-    assert "--listen 127.0.0.1" in exec_start, "ComfyUI 应显式绑回环:" + exec_start
+
+
+def test_comfyui_non_loopback_bind_waits_for_its_interface():
+    """绑非回环地址时,必须等那张网卡起来,否则开机自启会 bind 失败。
+
+    2026-09-07:用户把 comfyui 设成开机自启并要绑 ZeroTier 地址 10.0.0.10。该地址在
+    ztu7tc2vml 上,由 zerotier-one.service 异步分配 —— 只有 `After=network.target`
+    时 comfy 很可能早于它启动,bind 到不存在的地址直接失败。所以非回环绑定必须同时:
+    ① 排在 zerotier-one 之后;② `StartLimitIntervalSec=0`,让 Restart=on-failure 的
+    重试不会在开机窗口内被启动次数上限掐死(与 backend/status 两个单元同样的写法)。
+    """
+    addr = _comfy_listen_addr()
+    if addr.startswith("127.") or addr == "localhost":
+        return  # 绑回环没有网卡时序问题
+    unit = _read("infra/systemd/nous-engine-comfyui.service")
+    assert "zerotier-one.service" in unit, (
+        f"comfyui 绑非回环地址 {addr},但没有声明对 zerotier-one.service 的顺序依赖 —— "
+        "开机时地址还不存在,bind 会失败"
+    )
+    assert "After=" in unit and "zerotier-one.service" in unit.split("[Service]")[0], (
+        "对 zerotier-one 的依赖要写在 [Unit] 段的 After=/Wants= 里"
+    )
+    assert "StartLimitIntervalSec=0" in unit, (
+        "绑具体网卡地址时必须 StartLimitIntervalSec=0,否则开机重试会被启动次数上限掐死"
+    )
 
 
 # ── 3. deploy.sh 不得静默销毁 ───────────────────────────────────────────────

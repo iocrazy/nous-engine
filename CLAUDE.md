@@ -225,6 +225,11 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   cancelled,`workflow_runner` 的 honor-cancelled 分支保住 canceled 终态。
   `GET /api/v1/comfy/health` 的 `running_render`(`{task_id, held_seconds}`,空闲 None)
   就是给下次排障一眼看出"谁占着信号量、占了多久"的。
+- **`--listen` 与 `NOUS_COMFY_URL` 必须同址**(2026-09-07 踩点):ComfyUI 绑到某个具体
+  地址后,回环就**不再监听**。本机 unit 绑 ZeroTier 的 `10.0.0.10`(零鉴权服务只对授权过的
+  ZeroTier 成员开放,不上物理局域网),所以 `backend/.env` 的 `NOUS_COMFY_URL` 必须是
+  `http://10.0.0.10:8888` —— 还留着 `127.0.0.1` 的话桥一连就 Connection refused。
+  `.env` 不在仓库里,改 unit 时不会被带着改,这是唯一会咬人的地方。
 - env 三件套:`NOUS_COMFY_URL`(sidecar 地址,默认 `http://127.0.0.1:8188`)、
   `NOUS_COMFY_TIMEOUT`(渲染等待上限,默认 14400s)、
   `NOUS_COMFY_DOWNLOAD_TIMEOUT`(产物下载超时,默认 120s)。

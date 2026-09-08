@@ -1,11 +1,22 @@
 [Unit]
 Description=nous-engine ComfyUI sidecar
 After=network.target
+# 绑的是 ZeroTier 地址 10.0.0.10(在 ztu7tc2vml 上,由 zerotier-one 异步分配)——
+# 只有 After=network.target 时本单元很可能早于它启动,bind 到不存在的地址直接失败。
+# Wants 而非 Requires:ZeroTier 挂了也让 comfy 起来重试,不连坐。
+Wants=zerotier-one.service
+After=zerotier-one.service
+# 开机窗口内地址可能还没就绪,靠 Restart=on-failure 重试到成功;不设 0 会被
+# systemd 默认的「10 秒内 5 次」上限掐死并永久放弃(backend/status 两个单元同样写法)。
+StartLimitIntervalSec=0
 
-# 安全边界(2026-09-07):ComfyUI 自身**零鉴权**,而它的节点能读写任意文件、执行
-# 自定义代码 —— 监听 0.0.0.0 等于把这台机器交给局域网/ZeroTier 上的任何人。
-# 后端桥走 NOUS_COMFY_URL=http://127.0.0.1:8888(回环),绑回环不影响它。
-# 要从别的机器开界面:ssh -L 8888:127.0.0.1:8888 heygo@10.0.0.10
+# 安全边界(2026-09-07):ComfyUI 自身**零鉴权**,节点能读写任意文件、执行自定义代码。
+# 绝不能监听 0.0.0.0(那是把机器交给局域网上的任何人)。这里按用户决定绑 **ZeroTier
+# 地址 10.0.0.10**:只在他授权过的 ZeroTier 成员之间可达,物理局域网/公网都碰不到。
+# 残留风险要认:ZeroTier 网络里的任何设备都能无鉴权驱动它 —— 换句话说,ZeroTier 的
+# 成员授权就是 ComfyUI 的唯一门禁。想更紧就改回 127.0.0.1 + ssh -L 8888:127.0.0.1:8888。
+# 后端桥走 NOUS_COMFY_URL=http://127.0.0.1:8888(回环)—— 注意:绑到具体地址后回环
+# **不再监听**,桥会连不上,所以 .env 里那个 URL 必须同步改成 http://10.0.0.10:8888。
 [Service]
 Type=simple
 User=heygo
@@ -16,7 +27,7 @@ Environment=CUDA_VISIBLE_DEVICES=1
 # 现成 ComfyUI 安装(v0.31.0, 自带 .venv)
 WorkingDirectory=/media/heygo/program/projects-code/github-repos/ComfyUI
 # 参数与用户手动启动习惯完全一致(8888 供 IC 直连 + nous 桥;output 落 cache 盘)
-ExecStart=/media/heygo/program/projects-code/github-repos/ComfyUI/.venv/bin/python main.py --output-directory /media/heygo/cache/output/comfyui --listen 127.0.0.1 --port 8888
+ExecStart=/media/heygo/program/projects-code/github-repos/ComfyUI/.venv/bin/python main.py --output-directory /media/heygo/cache/output/comfyui --listen 10.0.0.10 --port 8888
 Restart=on-failure
 RestartSec=5
 
