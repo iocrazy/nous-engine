@@ -314,3 +314,15 @@ def test_autodeploy_off_marker_is_gitignored():
         ".nous-autodeploy-off"
         in (_REPO / ".gitignore").read_text(encoding="utf-8").split()
     )
+
+
+def test_deploy_sh_bootstraps_path_before_touching_uv_or_npm():
+    """ship.sh 经非交互 ssh 调 deploy.sh:.zshrc 不读,uv(linuxbrew)/node(nvm 函数)都不在
+    PATH 上。#736 首跑就死在 `uv: command not found`,留下「检出是新代码、进程是旧的」半截
+    状态。deploy.sh 必须在第一次用 uv/npm 之前自己铺好 PATH,且不能靠调用方的 shell。"""
+    text = (_REPO / "infra/deploy.sh").read_text(encoding="utf-8")
+    first_use = min(text.index("uv sync"), text.index("npm run build"))
+    bootstrap = text[:first_use]
+    assert "brew shellenv" in bootstrap, "linuxbrew 的 uv 不在非交互 PATH 上"
+    assert "nvm.sh" in bootstrap, "nvm 的 node 是 shell 函数,非交互下不存在"
+    assert ".local/bin" in bootstrap
