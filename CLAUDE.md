@@ -20,6 +20,12 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
 
 ## Operational
 
+- **合并 + 上线一条命令**(2026-09-09):在 Mac 上 `./infra/ship.sh <PR号>` —— 等 CI 全绿 →
+  squash 合并 → ssh 到生产机跑闸门(`infra/autodeploy-guard.sh`:开关关着 / ComfyUI 渲染
+  进行中 → **只合并不上线**,exit 5)→ `deploy.sh` → 校验生产 HEAD 含本次 merge commit。
+  被闸门拒过之后 `./infra/ship.sh --deploy-only` 重试;`enginectl autodeploy off|on` 是开关。
+  仓库是 public,**不挂 self-hosted runner、不轮询**:扳机就是合并本身,Mac 经 ZeroTier
+  ssh 过去。不经 ship 的合并(网页/dependabot)不会自动上线,下次 ship 一并带上。
 - Backend: systemd services. `sudo ./infra/systemd/install.sh`,
   then `journalctl -u nous-engine-backend -f` for logs. Don't `nohup ... & disown`.
   一键管控 `enginectl status|up|down|restart|logs`(装到 `/usr/local/bin/enginectl`)。
