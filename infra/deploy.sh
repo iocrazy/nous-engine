@@ -34,6 +34,22 @@ die()  { printf '\033[1;31m❌ %s\033[0m\n' "$*" >&2; exit 1; }
 
 cd "$REPO"
 
+# ---------- 0. 非交互 ssh 下的 PATH 自举(2026-09-09 ship.sh 首跑踩到)----------
+# ship.sh 经 `ssh host './infra/deploy.sh'` 调本脚本:非登录、非交互 shell,.zshrc 不读 ——
+# uv(linuxbrew)和 node(nvm 的 shell 函数)都不在 PATH 上,`uv: command not found`;
+# 而这时 git 已经 reset 到新版,venv/dist/重启一步没做(#736 首跑就是这个半截状态:
+# 检出是新代码,进程还是旧的)。所以本脚本自己把路铺好,不依赖调用它的 shell 是谁:
+# brew shellenv → nvm.sh(有 default 别名时它的 node 优先,与手动发版一致)→ ~/.local/bin。
+# 缺哪个就跳过,下面 uv/npm 找不到照旧 fail-loud。
+for brew in /home/linuxbrew/.linuxbrew/bin/brew /opt/homebrew/bin/brew; do
+  [[ -x "$brew" ]] && { eval "$("$brew" shellenv)"; break; }
+done
+if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+  export NVM_DIR="$HOME/.nvm"
+  set +u; . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true; set -u   # nvm.sh 在 set -u 下会报未定义变量
+fi
+export PATH="$HOME/.local/bin:$PATH"
+
 # ---------- 1. 同步 master(只在专用生产检出)----------
 # 生产与 dev 检出分离(2026-06-21):systemd 指向专用 nous-prod 检出,dev session 各用
 # 自己的 worktree,谁都不碰生产。生产检出 detached、只读、deploy 专用 → fetch + reset
