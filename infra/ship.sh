@@ -34,7 +34,7 @@ step() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✅ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*"; }
 die()  { local rc="$1"; shift; printf '\033[1;31m❌ %s\033[0m\n' "$*" >&2; notify "❌ $*"; exit "$rc"; }
-usage() { sed -n '3,6p' "${BASH_SOURCE[0]}" | sed 's/^# //' >&2; exit 2; }
+usage() { sed -n '4,6p' "${BASH_SOURCE[0]}" | sed 's/^# //' >&2; exit 2; }
 
 notify() {
   [[ -n "$WEBHOOK" ]] || return 0
@@ -110,8 +110,16 @@ if (( guard_rc != 0 )); then
 fi
 
 # ---------- 5. 上线(deploy.sh 自带全部校验:同步/venv/build/重启/新实例确认) ----------
-step "上线(deploy.sh @ $HOST)"
-"${SSH[@]}" "cd '$PROD' && ./infra/deploy.sh" || die 6 "deploy.sh 失败(输出见上;journalctl -u nous-engine-backend -n 50)。"
+# 跟闸门一样,灌的是 Mac 上**正在被上线那版**的 deploy.sh,不执行生产机磁盘上的那份 ——
+# #737 首跑踩到:磁盘上那份是旧版,它跑到一半 `git reset --hard` 把自己换成新版,bash 却还在
+# 按旧内容执行(报的行号都是旧的)。修 deploy.sh 的改动永远要等「下一次」才生效,且一个
+# 正在执行时被改写的脚本本身就是事故源。落到 infra/.ship-deploy.sh 再执行(不能 bash -s:
+# uv/npm/sudo 会把 stdin 里剩下的脚本当输入吃掉):放在 infra/ 下 BASH_SOURCE 算出的 REPO
+# 才对;未跟踪文件不触发脏树守卫,reset --hard 也不碰它;跑完删。
+step "上线(deploy.sh @ $HOST,灌入本机这份)"
+remote_deploy='infra/.ship-deploy.sh'
+"${SSH[@]}" "cd '$PROD' && cat > $remote_deploy && chmod +x $remote_deploy && ./$remote_deploy; rc=\$?; rm -f $remote_deploy; exit \$rc" \
+  < "$SCRIPT_DIR/deploy.sh" || die 6 "deploy.sh 失败(输出见上;journalctl -u nous-engine-backend -n 50)。"
 
 # ---------- 6. 校验:生产 HEAD 真含本次 merge commit ----------
 if [[ -n "$sha" ]]; then
