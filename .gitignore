@@ -67,6 +67,8 @@ backend/.env.bak*
 # 专用生产检出标记(只在 nous-prod 检出存在,deploy.sh 凭它放行 reset --hard;
 # dev 检出不该有 → 误跑 deploy.sh 会被拒)。见 infra/PROD_CHECKOUT.md
 .nous-production
+# ship.sh 的上线闸门开关(enginectl autodeploy on|off),落在生产检出根目录
+.nous-autodeploy-off
 
 # coverage (pytest-cov)
 .coverage

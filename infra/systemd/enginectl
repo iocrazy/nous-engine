@@ -8,6 +8,10 @@
 #                       重启了谁 / 后端多久真的能收请求 / 自检 banner / 常驻模型加载进度 / 栈状态
 #   enginectl status    各 unit active? + 端口 + ZeroTier/ComfyUI,一屏
 #   enginectl logs [u]  journalctl -f(u 缺省 backend;可 status/healthprobe/netprobe/comfyui/postgresql)
+#   enginectl autodeploy on|off|status
+#                       infra/ship.sh 上线闸门的开关:off 落一个 .nous-autodeploy-off 标记到生产检出
+#                       根目录(= backend 单元 WorkingDirectory 的上一级),ship.sh 看到就只合并不上线;
+#                       on 删掉。要静默期(演示/长渲染/不想被重启)就 off,不用改任何配置
 #
 # 启停要 root → 内部用 sudo(会提示密码)。只读的 status/logs 不需要。
 # ENGINECTL_WAIT=秒 覆盖 up/restart 等后端就绪的上限(默认 180)。
@@ -339,11 +343,41 @@ cmd_logs() {
   esac
 }
 
+# 生产检出 = backend 单元指向的目录的上一级。不猜路径:systemd 说哪就是哪。
+_prod_root() {
+  local wd
+  wd="$(systemctl show -p WorkingDirectory --value nous-engine-backend 2>/dev/null || true)"
+  [[ -n "$wd" && "$wd" != "/" ]] || { echo "定位不到生产检出(nous-engine-backend 单元没有 WorkingDirectory?)" >&2; return 1; }
+  printf '%s' "$(dirname "$wd")"
+}
+
+cmd_autodeploy() {
+  local root marker
+  root="$(_prod_root)" || exit 1
+  marker="$root/.nous-autodeploy-off"
+  case "${1:-status}" in
+    off)
+      touch "$marker"
+      echo "$(c_ylw '⏸ 自动上线已关闭'):$marker —— ship.sh 只合并不上线;enginectl autodeploy on 恢复" ;;
+    on)
+      rm -f "$marker"
+      echo "$(c_grn '▶ 自动上线已开启'):ship.sh 合并后会经闸门上线" ;;
+    status)
+      if [[ -e "$marker" ]]; then
+        echo "$(c_ylw '⏸ 关闭')(自 $(date -r "$marker" '+%m-%d %H:%M'))  $marker"
+      else
+        echo "$(c_grn '▶ 开启')  生产检出:$root"
+      fi ;;
+    *) echo "用法: enginectl autodeploy on|off|status" >&2; exit 1 ;;
+  esac
+}
+
 case "${1:-status}" in
-  up)      cmd_up ;;
-  down)    cmd_down ;;
-  restart) cmd_restart ;;
-  status)  cmd_status ;;
-  logs)    shift; cmd_logs "$@" ;;
-  *) echo "用法: enginectl up|down|restart|status|logs [backend|status|healthprobe|netprobe|comfyui|postgresql]" >&2; exit 1 ;;
+  up)         cmd_up ;;
+  down)       cmd_down ;;
+  restart)    cmd_restart ;;
+  status)     cmd_status ;;
+  logs)       shift; cmd_logs "$@" ;;
+  autodeploy) shift; cmd_autodeploy "$@" ;;
+  *) echo "用法: enginectl up|down|restart|status|logs [backend|status|healthprobe|netprobe|comfyui|postgresql]|autodeploy on|off|status" >&2; exit 1 ;;
 esac
