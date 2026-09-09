@@ -52,7 +52,9 @@ def prod_dir(tmp_path: Path) -> Path:
     d = tmp_path / "prod"
     (d / "backend").mkdir(parents=True)
     (d / ".nous-production").touch()
-    (d / "backend/.env").write_text("ADMIN_TOKEN=tok-for-test\nOTHER=1\n", encoding="utf-8")
+    (d / "backend/.env").write_text(
+        "ADMIN_TOKEN=tok-for-test\nOTHER=1\n", encoding="utf-8"
+    )
     return d
 
 
@@ -81,7 +83,12 @@ def _guard(prod_dir: Path, guard_bin: Path, tmp_path: Path, **env: str):
 
 
 def test_guard_allows_when_idle(prod_dir, guard_bin, tmp_path):
-    r, log = _guard(prod_dir, guard_bin, tmp_path, FAKE_HEALTH='{"online": true, "running_render": null}')
+    r, log = _guard(
+        prod_dir,
+        guard_bin,
+        tmp_path,
+        FAKE_HEALTH='{"online": true, "running_render": null}',
+    )
     assert r.returncode == 0, r.stdout + r.stderr
     # 探的是 comfy/health,且带了 .env 里的 ADMIN_TOKEN、绕过代理(本机跑着 mihomo)
     assert "/api/v1/comfy/health" in log
@@ -102,7 +109,9 @@ def test_guard_refuses_while_render_running(prod_dir, guard_bin, tmp_path):
 
 def test_guard_refuses_when_switched_off(prod_dir, guard_bin, tmp_path):
     (prod_dir / ".nous-autodeploy-off").touch()
-    r, log = _guard(prod_dir, guard_bin, tmp_path, FAKE_HEALTH='{"running_render": null}')
+    r, log = _guard(
+        prod_dir, guard_bin, tmp_path, FAKE_HEALTH='{"running_render": null}'
+    )
     assert r.returncode == 5
     assert ".nous-autodeploy-off" in r.stdout + r.stderr
     assert log.strip() == "", "开关关着就不该再去探健康接口"
@@ -197,7 +206,6 @@ def test_ship_usage_without_pr(ship_bin, tmp_path):
 def test_ship_happy_path_merges_then_guards_then_deploys(ship_bin, tmp_path):
     r, log = _ship(ship_bin, tmp_path, ["123"])
     assert r.returncode == 0, r.stdout + r.stderr
-    kinds = [ln.split()[0] + " " + " ".join(ln.split()[1:3]) for ln in log]
     # 顺序是契约:先看 CI,再合,再闸门,再上线,再校验
     checks = next(i for i, ln in enumerate(log) if ln.startswith("gh pr checks"))
     merge = next(i for i, ln in enumerate(log) if ln.startswith("gh pr merge"))
@@ -205,12 +213,20 @@ def test_ship_happy_path_merges_then_guards_then_deploys(ship_bin, tmp_path):
     deploy = next(i for i, ln in enumerate(log) if "deploy.sh" in ln)
     verify = next(i for i, ln in enumerate(log) if "merge-base" in ln)
     assert checks < merge < guard < deploy < verify, "\n".join(log)
-    assert any("--watch" in ln for ln in log if ln.startswith("gh pr checks")), "CI 未完成时要等,不是立刻判红"
-    assert any("--squash" in ln and "--delete-branch" in ln for ln in log if ln.startswith("gh pr merge"))
+    assert any("--watch" in ln for ln in log if ln.startswith("gh pr checks")), (
+        "CI 未完成时要等,不是立刻判红"
+    )
+    assert any(
+        "--squash" in ln and "--delete-branch" in ln
+        for ln in log
+        if ln.startswith("gh pr merge")
+    )
     # ssh 一律非交互:不能卡在密码提示上
     assert all("BatchMode=yes" in ln for ln in log if ln.startswith("ssh"))
     # 闸门灌的是仓库里那份 guard(不依赖生产机上已有)
-    assert "nous-autodeploy-off" in (tmp_path / "stub.log.guard-stdin").read_text(encoding="utf-8")
+    assert "nous-autodeploy-off" in (tmp_path / "stub.log.guard-stdin").read_text(
+        encoding="utf-8"
+    )
     # 上线后校验的是这次的 merge commit 在生产 HEAD 里
     assert any("deadbeefcafe" in ln for ln in log if "merge-base" in ln)
     assert "deadbeefcafe" in r.stdout
@@ -235,7 +251,9 @@ def test_ship_red_ci_never_merges(ship_bin, tmp_path):
 def test_ship_rejects_unshippable_pr(ship_bin, tmp_path, env, why):
     r, log = _ship(ship_bin, tmp_path, ["123"], **env)
     assert r.returncode == 2, why
-    assert not any(ln.startswith("gh pr checks") for ln in log), f"{why}:不该走到 CI 检查"
+    assert not any(ln.startswith("gh pr checks") for ln in log), (
+        f"{why}:不该走到 CI 检查"
+    )
 
 
 def test_ship_merge_failure_stops_before_ssh(ship_bin, tmp_path):
@@ -284,10 +302,15 @@ def test_ship_deploy_only_skips_gh_entirely(ship_bin, tmp_path):
 
 def test_sudoers_still_allows_noninteractive_restart():
     """ssh 非交互里 sudo 没法输密码;deploy.sh 那句 --no-block restart 必须免密。"""
-    text = (_REPO / "infra/security/nous-engine-deploy.sudoers").read_text(encoding="utf-8")
+    text = (_REPO / "infra/security/nous-engine-deploy.sudoers").read_text(
+        encoding="utf-8"
+    )
     assert "NOPASSWD: /usr/bin/systemctl --no-block restart nous-engine-backend" in text
 
 
 def test_autodeploy_off_marker_is_gitignored():
     """标记落在生产检出根目录;不 ignore 会让 deploy.sh 的脏树守卫把它当未提交改动。"""
-    assert ".nous-autodeploy-off" in (_REPO / ".gitignore").read_text(encoding="utf-8").split()
+    assert (
+        ".nous-autodeploy-off"
+        in (_REPO / ".gitignore").read_text(encoding="utf-8").split()
+    )
