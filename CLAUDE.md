@@ -26,6 +26,12 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   被闸门拒过之后 `./infra/ship.sh --deploy-only` 重试;`enginectl autodeploy off|on` 是开关。
   仓库是 public,**不挂 self-hosted runner、不轮询**:扳机就是合并本身,Mac 经 ZeroTier
   ssh 过去。不经 ship 的合并(网页/dependabot)不会自动上线,下次 ship 一并带上。
+- **Python 3.13.14**(`.python-version`,2026-09-09 起;CI/生产/开发机统一)。生产 `.venv` 只装
+  `--extra inference`,**没有 diffusers**(在 `image` extra,出图走 ComfyUI 桥),不是 bug。
+  **uv 的 venv 目录绝不能 `mv` 改名**:`bin/*` 入口脚本是绝对路径 shebang,改名后 `bin/uvicorn`
+  ENOENT、unit 起不来(2026-09-09 生产停 4.5 分钟)。要换 venv 就在最终路径 `rm -rf .venv &&
+  uv sync --extra inference`(轮子全在缓存,秒级);deploy.sh 重启前会跑 `uv run uvicorn
+  --version` 兜住这类坏入口。旧 3.12 环境留在 `backend/.venv-312`,只有换回 `.venv` 名才能用。
 - Backend: systemd services. `sudo ./infra/systemd/install.sh`,
   then `journalctl -u nous-engine-backend -f` for logs. Don't `nohup ... & disown`.
   一键管控 `enginectl status|up|down|restart|logs`(装到 `/usr/local/bin/enginectl`)。

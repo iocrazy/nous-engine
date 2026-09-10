@@ -83,7 +83,12 @@ step "后端 venv 同步(--extra inference)"
 cd "$REPO/backend"
 uv sync --extra inference || die "uv sync --extra inference 失败 —— venv 没对齐,中止(否则常驻模型会 0/N)。"
 uv run python -c 'import vllm' 2>/dev/null || die "venv 同步后仍 import vllm 失败 —— inference extra 没装上,中止(否则常驻模型 spawn vLLM 会崩)。"
-ok "venv 已同步且 vllm 可导入"
+# 再验 unit 真正执行的那个入口(ExecStart 是 `uv run uvicorn …`)。上面那条走的是 bin/python
+# 符号链接,验不出 bin/uvicorn 这种入口脚本坏没坏 —— 2026-09-09 真踩:venv 目录被改名,
+# uv 写的绝对路径 shebang 全部失效,`import vllm` 照样过,重启后 unit 一直 ENOENT 起不来,
+# 生产停了 4.5 分钟。这里先跑一遍,坏了就在重启**之前** fail-loud。
+uv run uvicorn --version >/dev/null 2>&1 || die "uv run uvicorn --version 失败 —— bin/uvicorn 入口不可执行(shebang 指向不存在的路径?venv 被改过名?),中止,不重启。"
+ok "venv 已同步,vllm 可导入,uvicorn 入口可执行"
 cd "$REPO"
 
 # ---------- 2. 前端 build(fail-loud + dist 时间戳校验)----------
