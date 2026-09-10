@@ -335,3 +335,16 @@ def test_deploy_sh_bootstraps_path_before_touching_uv_or_npm():
     assert "brew shellenv" in bootstrap, "linuxbrew 的 uv 不在非交互 PATH 上"
     assert "nvm.sh" in bootstrap, "nvm 的 node 是 shell 函数,非交互下不存在"
     assert ".local/bin" in bootstrap
+
+
+def test_deploy_sh_exercises_uvicorn_entrypoint_before_restart():
+    """2026-09-09 事故:venv 改名后 bin/uvicorn 的绝对路径 shebang 失效,unit 起不来,生产停 4.5 分钟。
+    deploy.sh 当时只验了 `python -c 'import vllm'`(走 bin/python 符号链接,不受影响),重启后才炸。
+    重启前必须跑一遍**unit 真正用的那个入口**(uvicorn --version),让它在重启之前 fail-loud。"""
+    text = (_REPO / "infra/deploy.sh").read_text(encoding="utf-8")
+    restart = text.index("systemctl --no-block restart nous-engine-backend")
+    before = text[:restart]
+    assert "uvicorn --version" in before, (
+        "deploy.sh 重启前没验证 uvicorn 入口脚本能执行"
+    )
+    assert "import vllm" in before, "原有的 import vllm 校验不能被顺手删掉"
