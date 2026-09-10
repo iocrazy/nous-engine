@@ -176,7 +176,7 @@ def ship_bin(tmp_path: Path) -> Path:
         "ssh",
         'echo "ssh $*" >> "$STUB_LOG"\n'
         'if [[ "$*" == *"bash -s"* ]]; then cat > "$STUB_LOG.guard-stdin"; exit "${FAKE_SSH_GUARD_RC:-0}"; fi\n'
-        'if [[ "$*" == *deploy.sh* ]]; then exit "${FAKE_SSH_DEPLOY_RC:-0}"; fi\n'
+        'if [[ "$*" == *deploy.sh* ]]; then cat > "$STUB_LOG.deploy-stdin"; exit "${FAKE_SSH_DEPLOY_RC:-0}"; fi\n'
         'if [[ "$*" == *merge-base* ]]; then exit "${FAKE_SSH_VERIFY_RC:-0}"; fi\n'
         'echo "ssh stub: 未预期的调用 $*" >&2; exit 99\n',
     )
@@ -227,6 +227,15 @@ def test_ship_happy_path_merges_then_guards_then_deploys(ship_bin, tmp_path):
     assert "nous-autodeploy-off" in (tmp_path / "stub.log.guard-stdin").read_text(
         encoding="utf-8"
     )
+    # deploy.sh 也是灌本机这份过去执行,不跑生产机磁盘上的旧版(#737 首跑:旧 deploy.sh 跑到一半
+    # 被自己的 reset --hard 换掉)。落成临时文件再执行,不能 bash -s(uv/npm 会吃 stdin);跑完删。
+    deploy_line = next(ln for ln in log if "deploy.sh" in ln and "bash -s" not in ln)
+    assert "infra/.ship-deploy.sh" in deploy_line and "rm -f" in deploy_line, (
+        deploy_line
+    )
+    assert "bash -s" not in deploy_line
+    streamed = (tmp_path / "stub.log.deploy-stdin").read_text(encoding="utf-8")
+    assert "uv sync --extra inference" in streamed, "灌过去的得是真的 deploy.sh"
     # 上线后校验的是这次的 merge commit 在生产 HEAD 里
     assert any("deadbeefcafe" in ln for ln in log if "merge-base" in ln)
     assert "deadbeefcafe" in r.stdout
