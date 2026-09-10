@@ -94,7 +94,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # 24 = 当前 LTS。20 已 EOL,且 jsdom 30 / vitest 5 / undici 8 的 engines 都要求 ≥22
+          # (undici 8 直接 require('node:worker_threads').markAsUncloneable,22.10 才有;#734 在
+          # Node 20 上就是这么炸的:0 个测试收集到)。tests/test_ci_node_version.py 锁住这里与
+          # package-lock 里 engines 的关系,下次依赖再抬门槛本地就红。
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
