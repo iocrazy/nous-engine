@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import os
 
-# standalone 必须在 import torch 前固定 PCI_BUS_ID —— 否则 torch 默认 FASTEST_FIRST 把
-# Pro 6000 排到 cuda:0、cuda:1 反而是 24G 的 3090,SMOKE_DEVICE=cuda:1 直接 OOM。生产走
-# src/api/main.py 已 setdefault,但本脚本不经它、且 uv 不 load .env,得自己设。
+# standalone 必须在 import torch 前固定 PCI_BUS_ID —— 否则 torch 默认 FASTEST_FIRST 按
+# 算力排序,两张卡**对调**:cuda:0 成了 Pro 6000、cuda:1 成了 Pro 5000。于是下面默认的
+# SMOKE_DEVICE=cuda:1 本意是 ComfyUI 那张空闲的 Pro 6000,实际落到跑着全部常驻模型的
+# Pro 5000 上(常驻已占 ~58GiB)—— OOM,还会把推理服务一起拖下水。
+# (2026-09-20 两卡改造前这里的形状是 cuda:1 变成 24G 的 3090;卡换了,坑还在。)
+# 生产走 src/api/main.py 已 setdefault,但本脚本不经它、且 uv 不 load .env,得自己设。
 os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
 import asyncio
