@@ -27,11 +27,14 @@ WorkingDirectory=/media/heygo/program/projects-code/repos/nous-engine/infra/moss
 # 独立 venv + 全部 GPU/CUDA_HOME/PATH/端口 出口都在 start_serve.sh 里(sh 脚本启动,
 # 进程 cmdline 干净,便于 cgroup 收束)。
 ExecStart=/media/heygo/program/projects-code/repos/nous-engine/infra/moss-asr/start_serve.sh
-# UUID 钉到 index1 的 Pro 6000(96GB)。裸 cuda:0 随枚举顺序/槽位变不可靠;UUID 绑定不变。
-# start_serve.sh 里也 export 了同一 UUID(直接跑脚本时生效),这里再声明一份保证 systemd
-# 路径同样钉死。老注释的「别落 Pro 6000」(GSP 固件崩卡)已失效,见文件头 2026-09-05 说明。
+# UUID 钉到 index0 的 Pro 5000(72GB)。裸 cuda:0 随枚举顺序/槽位变不可靠;UUID 绑定不变。
+# 2026-09-20 两卡改造:原先钉的是 Pro 6000(GPU-d24ed424…),那张现在**由 ComfyUI 独占**,
+# ASR 绝不能落上去。start_serve.sh 里也 export 了同一 UUID(直接跑脚本时生效),这里再
+# 声明一份保证 systemd 路径同样钉死。**四处同步**:本文件、start_serve.sh、
+# backend/configs/models.d/moss_transcribe_diarize.yaml 的 params.gpu_uuid(生产真相源)、
+# backend/src/services/inference/asr_sglang.py 的缺省值。
 Environment=CUDA_DEVICE_ORDER=PCI_BUS_ID
-Environment=CUDA_VISIBLE_DEVICES=GPU-d24ed424-5712-55e9-9b95-77d997ac80dc
+Environment=CUDA_VISIBLE_DEVICES=GPU-f4334111-b8d2-4df3-ea0f-6177698f8ce9
 Environment=NOUS_MOSS_ASR_PORT=8003
 Environment=MODELS_ROOT=/media/heygo/program/models
 Restart=on-failure

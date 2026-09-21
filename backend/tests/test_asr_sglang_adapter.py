@@ -33,7 +33,10 @@ def test_adapter_is_inference_adapter(tmp_path):
     a = _make(tmp_path)
     assert isinstance(a, InferenceAdapter)
     assert a.modality == MediaModality.AUDIO
-    assert a.estimated_vram_mb == 15000   # Pro 6000 上 mem_fraction_static 0.15 的稳态,见 moss_config.yaml
+    # Pro 5000 上 mem_fraction_static 0.10 的实测稳态 8996 MiB,取整 9000(见 moss_config.yaml
+    # 与 models.d/moss_transcribe_diarize.yaml 的 vram_mb)。2026-09-20 两卡迁移前这里是
+    # 15000(Pro 6000 / 0.15 口径)—— 比例按整卡总量算,换卡必须连这个申报值一起改。
+    assert a.estimated_vram_mb == 9000
 
 
 def test_build_env_pins_uuid_not_index(tmp_path):

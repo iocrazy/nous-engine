@@ -81,10 +81,15 @@ curl -s -X POST http://127.0.0.1:8003/v1/audio/transcriptions \
 ```
 
 `.venv/`、`sglang-omni/`(clone,setup.sh 钉死 commit)、`logs/` 都 gitignore;每检出一份重跑
-`setup.sh`。GPU 钉 index1 的 Pro 6000(UUID `GPU-d24ed424-…`,硬编码在三处,改一处要三处同步:
+`setup.sh`。GPU 钉 index0 的 **Pro 5000**(UUID `GPU-f4334111-…`,硬编码在**四处**,
+改一处要四处同步:
 `backend/configs/models.d/moss_transcribe_diarize.yaml` 的 `params.gpu_uuid` ← **生产真相源**、
-`start_serve.sh`、退役 unit)。2026-09-05 #709 从 3090 搬来,两张 3090 整块让给 Qwen3.8 做 tp=2;
+`start_serve.sh`、退役 unit `infra/systemd/nous-engine-moss-asr.service`、
+`backend/src/services/inference/asr_sglang.py` 的 `_gpu_uuid` **缺省值**(旧文档漏列了这处,
+2026-09-20 迁移时四处里有三处没跟着改,ASR 差点被起到 ComfyUI 的卡上))。
+历史:2026-09-05 #709 从 3090 搬到 Pro 6000(两张 3090 让给 Qwen3.8 做 tp=2);
 老文档的「绝不 Pro 6000」(GSP 固件崩卡)已失效,该问题 2026-08-11 确认解决。
+2026-09-20 两张 3090 拔除、换上 Pro 5000,**Pro 6000 改为 ComfyUI 独占,ASR 落 Pro 5000**。
 端口 8003(env `NOUS_MOSS_ASR_PORT` 可改)。日志走 journald:`journalctl -u nous-engine-backend -f`
 (Arc 2 后 MOSS 是 backend 的子进程,不再有自己的 unit)。
 

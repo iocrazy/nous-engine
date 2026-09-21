@@ -13,10 +13,11 @@ _port/pid/is_loaded),但**不是** VLLMAdapter 的克隆,关键差异:
    枚举不跟随 PCI 序,裸 index 会落到哪张卡不可预期。UUID 不随槽位/枚举顺序变。配合
    `CUDA_DEVICE_ORDER=PCI_BUS_ID`,进程内只见这一张卡 = cuda:0(moss_config.yaml 里
    device=cuda:0 即指它)。
-   生产钉的是 **Pro 6000**(2026-09-05 #709 从 3090 搬来,两张 3090 整块让给 Qwen3.8
-   做 tp=2)。老注释写的「绝不 Pro 6000」(GSP 固件负载崩卡)**已失效** —— 该固件问题
-   2026-08-11 经用户确认解决,驱动升到 595.91.07 后零 Xid,ComfyUI 长期在这张卡上满载
-   出图出片。infra/gpu/README.md 留档仅供复发时排查。
+   生产钉的是 **Pro 5000**(GPU-f4334111…)。2026-09-20 两张 3090 物理拔除、换上
+   Pro 5000 后,推理服务统一落 GPU 0;**Pro 6000 改为 ComfyUI 独占,ASR 绝不能落那张**。
+   (历史:2026-09-05 #709 曾从 3090 搬到 Pro 6000,当时两张 3090 整块让给 Qwen3.8 做
+   tp=2。更老的「绝不 Pro 6000」(GSP 固件负载崩卡)**已失效** —— 该固件问题 2026-08-11
+   经用户确认解决,驱动升到 595.91.07 后零 Xid。infra/gpu/README.md 留档仅供复发排查。)
 3. env 完整复刻 `infra/moss-asr/start_serve.sh`(CUDA_HOME 指 venv 内 cu13 工具链、
    PATH 前插 venv/bin + cu13/bin、LD_LIBRARY_PATH、HF 离线、NO_PROXY 回环)。
 4. unload 走仓库既有 `safe_signal.safe_killpg` 杀**整进程组**(start_new_session=True
@@ -67,9 +68,11 @@ class SGLangOmniAdapter(InferenceAdapter):
     """
 
     modality = MediaModality.AUDIO
-    # mem_fraction_static 0.15 × 96GB(Pro 6000)≈14.4GB;供 UI/预算展示(落卡钉 gpu:1)。
-    # 该比例按整卡容量算,换卡要同步改 moss_config.yaml,否则这里的预算账也跟着失真。
-    estimated_vram_mb = 15000
+    # mem_fraction_static 0.10 × 71.7GB(Pro 5000)≈7.2GB,2026-09-20 真机实测稳态
+    # 8996 MiB(profiling 峰值高于静态预算,故按实测取整报 9000)。供 UI/预算展示,
+    # 落卡钉 gpu:0。该比例按**整卡容量**算,换卡要同步改 moss_config.yaml 与这里,
+    # 否则预算账失真(2026-09-20 就是这么从 0.15×96G 一路错到新卡上的)。
+    estimated_vram_mb = 9000
 
     def __init__(
         self,
@@ -93,10 +96,11 @@ class SGLangOmniAdapter(InferenceAdapter):
             Path(config_path) if config_path
             else root / "infra" / "moss-asr" / "moss_config.yaml"
         )
-        # GPU 钉卡:UUID。缺省 = 生产那张 Pro 6000(与 moss_transcribe_diarize.yaml 的
-        # params.gpu_uuid 同一张;2026-09-05 #709 从 3090 搬来,两张 3090 让给 LLM 做 tp=2)。
+        # GPU 钉卡:UUID。缺省 = 生产那张 Pro 5000(与 moss_transcribe_diarize.yaml 的
+        # params.gpu_uuid 同一张)。2026-09-20 两张 3090 拔除后推理服务统一落 GPU 0;
+        # Pro 6000(GPU-d24ed424…)交给 ComfyUI 独占,ASR 绝不能落那张。
         # 缺省值必须跟 yaml 一致 —— 否则 yaml 漏写 gpu_uuid 时会静默落到别的卡上。
-        self._gpu_uuid = gpu_uuid or "GPU-d24ed424-5712-55e9-9b95-77d997ac80dc"
+        self._gpu_uuid = gpu_uuid or "GPU-f4334111-b8d2-4df3-ea0f-6177698f8ce9"
         self._port = asr_port or 0
         self._health_path = "/" + health_path.lstrip("/")
         self._startup_timeout = startup_timeout
@@ -136,7 +140,8 @@ class SGLangOmniAdapter(InferenceAdapter):
         env = dict(os.environ)
         cuda_home = self._venv_dir / "lib" / "python3.12" / "site-packages" / "nvidia" / "cu13"
         venv_bin = str(self._venv_dir / "bin")
-        # torch 默认 FASTEST_FIRST 会把 Pro 6000 排到 cuda:0;PCI_BUS_ID + UUID 双保险钉 3090。
+        # torch 默认 FASTEST_FIRST 按算力排序会把 Pro 6000 排到 cuda:0(那是 ComfyUI 的卡);
+        # PCI_BUS_ID + UUID 双保险,确保子进程只见 Pro 5000。
         env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         env["CUDA_VISIBLE_DEVICES"] = self._gpu_uuid
         env["CUDA_HOME"] = str(cuda_home)
