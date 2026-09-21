@@ -1,0 +1,72 @@
+# wemm_embedding_2b — 多模态 Embedding(文本 / 图像 / 视频 → 2048 维,MRL)
+# 一模型一文件(configs/models.d/);改此模型只动本文件。
+#
+# tencent/WeMM-Embedding-2B,同 wemm_embedding_4b / 9b 的架构与服务方式,是这一系里
+# 最小的一档。架构 Qwen3_5ForConditionalGeneration —— 本机 vLLM 已原生注册,**不走
+# trust_remote_code**(仓库里的 modeling_wemm_embedding.py 是给 transformers /
+# sentence-transformers 路径用的,vLLM 用不到)。
+# MRL 档位 [64,128,256,512,1024,2048],满维 2048(4B 是 2560、9B 是 4096)。
+adapter: src.services.inference.llm_vllm.VLLMAdapter
+id: wemm_embedding_2b
+paths:
+  main: embedding/WeMM-Embedding-2B
+type: embedding
+# 0.26 × 94.97GiB ≈ 24.69GiB —— 与下面的 gpu_memory_utilization 对齐。
+#
+# **别按「2B 是 4B 的一半」砍半**(CLAUDE.md 点名的坑):profiling 峰值由**视觉塔带
+# 多模态 dummy 输入的激活**主导,而 2B 的视觉塔与 4B **完全相同**(hidden 1024 /
+# depth 24 / heads 16),只有文本侧小一档(2048×24 vs 4B 的 2560×32)。所以非权重开销
+# 几乎原样保留 —— 权重减半,峰值只降 ~4GiB。
+#
+# 2026-09-15 真机标定(verify_wemm_embedding.py 2b,Pro 6000 单卡):
+#   权重 + non-torch  4.53GiB
+#   峰值激活         11.95GiB   ← 视觉塔,就是上面说的那块
+#   CUDAGraph         0.09GiB
+#   KV cache          8.22GiB / 491,147 tokens,8192 长度下并发 59.95x
+# 非 KV 地板 = 16.57GiB。对照:4B util 0.30 → KV 7.66GiB/21.6x;9B 0.32 → 12.4GiB/35x。
+#
+# 注:KV 这一档其实给多了 —— max_num_seqs 只有 16,而 8192 长度下 16 路只要
+# ~131,072 tokens(≈2.2GiB)。非 KV 地板 16.57GiB(=util 0.175),理论上压到 ~0.20
+# 能省约 5.7GiB。要压就必须重跑上面那个脚本确认,别直接改数(改完不验 = 把
+# 「起不来」留给下一次加载才发现)。
+vram_mb: 25000
+# Pro 6000(96G)。同 4B/9B:跨卡 tp 对 embedding(短序列、无生成)只多一笔 all-reduce,
+# 不划算;两张 3090 组(llm-tp)被常驻的 27B 占着,每卡只剩 ~6-7.7G,塞不进。
+#
+# 2026-09-15 实机验证过这条结论:曾按用户要求改成 `gpus: [0, 2]`(util 相应抬到 0.68
+# = 16.3G/卡),加载直接被 `ModelManager._check_explicit_group_fits` 拒:
+#   「显式分配的 GPU [0,2] 装不下该模型(约 32.2G,组内每卡可用 6.1G × 2 张)」
+# 根因是 qwen3.8 常驻 util 0.70 占掉每卡 15.8G,而本模型非 KV 地板就要 ~8.3G/卡
+# (即便乐观假设视觉塔被 tp 切分)—— 8.3 > 7.2,**调 util 也救不回来**,是那组卡上
+# 没地方,不是参数问题。故改回单卡 Pro 6000:那张卡上与 ASR / ComfyUI / 其它
+# embedding 都能共存,不跟任何东西抢。
+gpu: 1
+ttl_seconds: 3600
+params:
+  # pooling runner 必须显式给,否则 vLLM 按生成模型起,/v1/embeddings 404。
+  vllm_runner: pooling
+  max_model_len: 8192
+  # embedding 是短请求、无生成,16 路并发足够;这个值直接决定上面说的 profiling 峰值,
+  # 调大会把自身消耗顶上去,要同步抬 gpu_memory_utilization。与 4B/9B 保持一致,
+  # 三档之间的显存数才有可比性。
+  max_num_seqs: 16
+  # 比例是**每卡占总量**,不是占空闲。96G 卡上 0.26 ≈ 24.7G(在 24G 卡上同一个数只有
+  # 6.2G —— 别按 24G 的直觉写)。
+  #
+  # ⚠️ 2026-09-15 真踩过:为试 [0,2] 组把这里临时改成 0.68,改回落卡时漏了这一行,
+  # 结果它在 96G 的 Pro 6000 上按 0.68 抓了 53.3GiB(标定值的两倍多),把同卡的
+  # ComfyUI 挤到只剩 19GiB。**改落卡必须同改 util,这两个数是绑死的**。
+  gpu_memory_utilization: 0.26
+  vllm_args:
+    # 覆盖适配器自动加的 `{"image":4}`(它按生成式 VL 模型的习惯给的)。embedding 一次
+    # 只编码一个对象,4 张图纯属把 profiling 峰值抬高。`--limit-mm-per-prompt` 在
+    # VLLM_ADAPTER_OWNED_FLAGS 里,所以这里是干净覆盖,不会出现两次同名 flag。
+    limit-mm-per-prompt: {"image": 1, "video": 1}
+    # 这个模板在末尾追加 `<embedding>` token(本仓库已核对 2B 这份 jinja 的结尾确实是
+    # `{{- '<embedding>' }}`);不给的话 vLLM 回退到 tokenizer_config 里的**生成用**
+    # 模板,messages 形式请求算出的向量与官方 SentenceTransformer 对不上。
+    # 调用方**必须走 messages,不能传 input 字符串** —— 见 CLAUDE.md「Embedding 模型」
+    # 一节,两条路混用会污染同一个向量库。
+    # `{model_dir}` 由 llm_vllm.substitute_model_dir 在 _build_command 里展开成
+    # 已解析的绝对模型目录 —— yaml 里不写死 LOCAL_MODELS_PATH。
+    chat-template: "{model_dir}/embedding_chat_template.jinja"
