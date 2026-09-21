@@ -30,7 +30,7 @@ stages:
     process: asr
     factory: sglang_omni.models.moss_transcribe_diarize.stages.create_sglang_moss_transcribe_diarize_executor
     factory_args:
-      device: "cuda:0"          # 进程内唯一可见卡(adapter 用 gpu_uuid 钉 Pro 6000)= cuda:0
+      device: "cuda:0"          # 进程内唯一可见卡(adapter 用 gpu_uuid 钉的那张,现为 Pro 5000)= cuda:0
       max_running_requests: 16
       encoder_cache_size_bytes: 4294967296
       request_build_max_workers: 8
