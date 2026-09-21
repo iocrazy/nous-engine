@@ -39,8 +39,9 @@ type: llm
 vram_mb: 25500
 gpu: 0
 params:
-  # 262144 是模型上限,但两张 24G 卡装不下那么大的 KV;32k 是保守起点,
-  # 跑顺了可按实际剩余显存往上调。
+  # 262144 是模型上限。util 0.35 的预算里 KV 只有 3.18 GiB = 35,693 tokens,
+  # 32768 已经几乎吃满单条序列的 KV 额度。往上调 max_model_len 必须**同步抬 util**
+  # (0.34 失败就是 KV 差 0.44 GiB),否则直接起不来。
   max_model_len: 32768
   # 显存预算(每卡比例,不是占空闲也不是绝对值 —— 换卡必须重算)。
   # 原先跨两张 24GiB 3090 TP=2 时 0.70 是安全区间(每卡 ~16.8GB);
@@ -50,7 +51,11 @@ params:
   #   - 0.35 = 24.89 GiB —— KV 3.18 GiB / 35,693 tokens,稳态 23900 MiB ✓
   #   - 0.34 = 24.2 GiB —— KV 差 0.44 GiB 起不来 ✗
   # 0.35 有失败样本作支撑,是真地板,别再往下调。
-  # 预留 4GB(DEFAULT_RESERVED_GB),余量充足。
+  #
+  # util 上界机制(与卡型无关):util 抬太高 → 卡上剩余空闲低于 gpu_monitor 的
+  # DEFAULT_RESERVED_GB=4.0 → 显存看门狗判定吃紧,模型 ready 后几秒就被 LRU 驱逐
+  # (2026-09-05 真机实测,Pro 5000 上约 util ≥ 0.94 才会触发此阈值)。
+  # 当前 0.35 离得很远,但这条规则本身要留着。
   gpu_memory_utilization: 0.35
   # 适配器没自己拼的 vLLM 参数从这里透传(键名下划线/连字符都认,dict/list 会被
   # json.dumps 成一个参数值)。--model/--port/--device/--tensor-parallel-size 是

@@ -10,14 +10,14 @@ id: wemm_embedding_4b
 paths:
   main: embedding/WeMM-Embedding-4B
 type: embedding
-# 8.81 GiB 权重 + 11.95 GiB 峰值激活 + 0.08 GiB CUDAGraph + 3.43 GiB KV
+# 8.81 GiB 权重 + 11.95 GiB 峰值激活 + 0.08 GiB CUDAGraph + 3.43 GiB KV / 78,941 tokens
 # = ~24.27 GiB;Pro 5000 单卡 71.7 GiB 充足。原先 0.30 × 95.6GiB ≈ 28.7GiB(Pro 6000)
 # 改单卡需重算:现在 0.34 × 71.12 ≈ 24.18 GiB。
 #
-# **别按权重大小猜这个数**(2026-09-11 踩过):权重只占 8.6GiB,但 vLLM 起来时要按
-# max_num_seqs × max_model_len **带多模态 dummy 输入**跑一遍 profiling,视觉塔的激活
-# 峰值把自身消耗顶到 ~21GiB。util 给 0.15 直接 `No available memory for the cache blocks`
-# (Available KV cache memory: -6.78GiB)。
+# **别按权重大小猜这个数**(2026-09-11 踩过):权重只占 8.81 GiB(盘上 10.35GB,pooling 用不到
+# lm_head/MTP 头,所以显存里更少),但 vLLM 起来时要按 max_num_seqs × max_model_len
+# **带多模态 dummy 输入**跑一遍 profiling,视觉塔的激活峰值把自身消耗顶到 ~21GiB。
+# util 给 0.15 直接 `No available memory for the cache blocks`(Available KV cache memory: -6.78GiB)。
 vram_mb: 24800
 # Pro 5000(72G)。2026-09-20 两张 3090 拔除后,推理服务统一落 GPU 0。
 # 单卡足够:跨卡 tp 对 embedding(短序列、无生成)只多一笔 all-reduce,不划算。
