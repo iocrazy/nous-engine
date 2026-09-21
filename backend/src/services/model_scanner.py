@@ -38,23 +38,16 @@ _MEDIA_MODEL_SUBDIRS = {"diffusers"}
 def _iter_candidate_model_dirs(type_dir: Path):
     """Yield (model_dir, local_path) pairs for one type/ tree.
 
-    LLM/TTS/VL stay depth-2 (`<type>/<model>`). Complete media models are
-    depth-3 under `diffusers/`. Component buckets are skipped because their
+    LLM/TTS/VL/embedding stay depth-2 (`<type>/<model>`). Complete media models
+    are depth-3 under `diffusers/`. Component buckets are skipped because their
     individual weights are listed by component-node executors.
+
+    2026-09-11:embedding 从 `text/embedding/<model>` 提成顶层桶 `embedding/<model>`
+    (`text/` 下只有这一个 bucket,那层纯属多余),depth-3 特例随之删除。
     """
     if type_dir.name == "media":
         for sub in sorted(type_dir.iterdir()):
             if not sub.is_dir() or sub.name not in _MEDIA_MODEL_SUBDIRS:
-                continue
-            for model_dir in sorted(sub.iterdir()):
-                if model_dir.is_dir():
-                    yield model_dir, f"{type_dir.name}/{sub.name}/{model_dir.name}"
-        return
-    if type_dir.name == "text":
-        # text/ 树按用途分桶(embedding/…),模型在 depth-3:text/<bucket>/<model>
-        # (2026-06-12 embedding 接入;models.yaml main=text/embedding/Qwen3-Embedding-4B)。
-        for sub in sorted(type_dir.iterdir()):
-            if not sub.is_dir():
                 continue
             for model_dir in sorted(sub.iterdir()):
                 if model_dir.is_dir():

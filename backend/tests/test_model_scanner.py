@@ -80,6 +80,26 @@ def test_scanner_keeps_llm_depth_2(tmp_path, monkeypatch):
     assert any(v["local_path"] == "llm/Qwen3-7B" for v in found.values())
 
 
+def test_scanner_finds_embedding_bucket_at_depth_2(tmp_path, monkeypatch):
+    """2026-09-11:embedding 是**顶层**桶 `embedding/<MODEL>`,走通用 depth-2 分支。
+
+    原来是 `text/embedding/<MODEL>`,scanner 和 model_metadata_service 各有一段
+    depth-3 的 `text` 特例;`text/` 下只有 embedding 一个 bucket,那层是多余的,
+    收成顶层桶后两段特例都删了。这条钉住新布局,防止再被当成 depth-3 处理。
+    """
+    d = tmp_path / "embedding" / "WeMM-Embedding-4B"
+    d.mkdir(parents=True)
+    (d / "config.json").write_text(
+        json.dumps({"model_type": "qwen3_5",
+                    "architectures": ["Qwen3_5ForConditionalGeneration"]})
+    )
+    _stub_settings_to(tmp_path, monkeypatch)
+
+    from src.services.model_scanner import scan_models
+    found = scan_models()
+    assert any(v["local_path"] == "embedding/WeMM-Embedding-4B" for v in found.values())
+
+
 def test_scanner_ignores_non_diffusers_image_subdirs(tmp_path, monkeypatch):
     """A novel image/<foo>/ subdir (not in the known set) is ignored rather
     than treated as a model. Adding a new bucket without updating the

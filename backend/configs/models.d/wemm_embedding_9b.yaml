@@ -1,0 +1,32 @@
+# wemm_embedding_9b — 多模态 Embedding(文本 / 图像 / 视频 → 4096 维,MRL)
+# 一模型一文件(configs/models.d/);改此模型只动本文件。
+#
+# tencent/WeMM-Embedding-9B,同 wemm_embedding_4b 的架构与服务方式,只是更大。
+# MMEB-v2 上 4B=79.2 / 9B=80.6(官方 README 表 1)—— 1.4 分换近一倍显存,先都登记,
+# 实际用哪个按真机对比再定。
+adapter: src.services.inference.llm_vllm.VLLMAdapter
+id: wemm_embedding_9b
+paths:
+  main: embedding/WeMM-Embedding-9B
+type: embedding
+# 见 wemm_embedding_4b.yaml 里那段「别按权重大小猜」:权重(盘上 18.82GB)只是一部分,
+# 带多模态 dummy 输入的 profiling 峰值才是大头。hidden_size 4096(4B 是 2560),
+# 峰值按比例更大。下面的数是实测标定的,别凭直觉往下调。
+vram_mb: 31000
+# Pro 6000(96G)。单张 3090 24G 装不下(光权重就 18.8G);要上 3090 得走 llm-tp 组
+# [0,2] 且那组是空的 —— 现在被常驻的 27B 占着,每卡只剩 ~7.5G。
+gpu: 1
+ttl_seconds: 3600
+params:
+  vllm_runner: pooling
+  max_model_len: 8192
+  max_num_seqs: 16
+  # 0.32 × 95.6GiB ≈ 30.6G(比例是每卡占**总量**,见 4B 那份的注释)。实测:权重
+  # 15.77GiB + 自身开销 ≈ 18.3GiB,余下 KV 12.4GiB / 286,347 tokens,8192 长度下
+  # 并发 35x —— 对 embedding 够用有余。0.50 起得来但 KV 会到 29.5GiB(83x),白占 19G。
+  gpu_memory_utilization: 0.32
+  vllm_args:
+    # 见 wemm_embedding_4b.yaml 的说明:`<embedding>` token 靠这个模板追加,
+    # limit-mm-per-prompt 覆盖适配器默认的 {"image":4} 以压低 profiling 峰值。
+    limit-mm-per-prompt: {"image": 1, "video": 1}
+    chat-template: "{model_dir}/embedding_chat_template.jinja"

@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # backend/ 进 sys
 
 from src.services.inference.llm_vllm import VLLMAdapter
 
-MODEL_PATH = "text/embedding/Qwen3-Embedding-4B"
+MODEL_PATH = "embedding/Qwen3-Embedding-4B"
 DEVICE = "cuda:1"  # Pro6000 96G(PCI_BUS_ID 序)
 BUDGET_GB = 11.0
 CARD_GB = 96.0

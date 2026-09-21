@@ -164,6 +164,26 @@ def render_vllm_args(vllm_args: dict | None) -> list[str]:
     return out
 
 
+#: `vllm_args` 的值里可以写这个占位符,展开成**已解析的绝对模型目录**。
+#: 给 `--chat-template` 这类「指向模型自带文件」的参数用(WeMM-Embedding 的
+#: embedding_chat_template.jinja)。不用它就得把 LOCAL_MODELS_PATH 写死进 git 里的
+#: yaml,破坏「重格/搬盘只改 .env 两个根」(model_roots.yaml 文件头)。
+#: 展开在 `_build_command` 里做 —— 构造期 render 只做校验(早失败),那时还不知道
+#: 模型路径解析成了 LOCAL_MODELS_PATH 下的相对路径还是 yaml 给的绝对路径。
+MODEL_DIR_PLACEHOLDER = "{model_dir}"
+
+
+def substitute_model_dir(argv: list[str], model_dir: str) -> list[str]:
+    """把 argv 里的 `{model_dir}` 换成 `model_dir`。没有占位符则原样返回。
+
+    只做字面替换,不碰其它花括号 —— `--speculative-config` 的 JSON 串
+    (`{"method":"mtp"}`)不含这个占位符,不会被误伤。
+    """
+    if not any(MODEL_DIR_PLACEHOLDER in tok for tok in argv):
+        return argv
+    return [tok.replace(MODEL_DIR_PLACEHOLDER, model_dir) for tok in argv]
+
+
 def merge_vllm_args(cmd: list[str], extra: list[str], *, label: str = "vLLM") -> list[str]:
     """把 vllm_args 渲染出的 `extra` 并进适配器拼好的 `cmd`。
 
@@ -532,7 +552,10 @@ class VLLMAdapter(InferenceAdapter):
         # yaml 的 `params.vllm_args` 最后并进来:同名 flag 以它为准(把适配器那份摘掉),
         # 其余追加。放在 apply_visible_devices 之前,好让启动日志打的是最终 argv。
         # 落卡不受影响 —— --model/--port/--device 在 __init__ 的 render 阶段就被拒了。
-        cmd = merge_vllm_args(cmd, self._vllm_extra_argv, label="vLLM")
+        # `{model_dir}` 在这里才展开:构造期还不知道 model_path 最终解析成哪个绝对路径。
+        cmd = merge_vllm_args(
+            cmd, substitute_model_dir(self._vllm_extra_argv, model_path), label="vLLM",
+        )
 
         # Set cache directories to persistent storage (avoid re-compilation)
         env = dict(os.environ)

@@ -150,6 +150,33 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   (MTP 投机解码 `speculative-config` 实测 83 → 111 tok/s;`reasoning-parser: qwen3`
   把思考分离到 `reasoning_content`,**不是关思考**)。
 
+## Embedding 模型
+
+- 模型都在 **`embedding/<MODEL>`**(LOCAL_MODELS_PATH 下的顶层桶,depth-2)。
+  2026-09-11 从 `text/embedding/` 提上来:`text/` 下只有 embedding 一个 bucket,那层
+  纯属多余,`model_scanner` 与 `model_metadata_service` 里各一段 depth-3 的 `text`
+  特例一并删掉了。多模态 embedding 也放这里(`Qwen3-VL-Embedding-2B` 从 `vl/` 搬入),
+  判据是**任务是 embedding**,不是模态。
+- **WeMM-Embedding-4B / 9B**(tencent,Qwen3.5 base,文本+图像+视频 → 4B 2560 维 /
+  9B 4096 维,MRL)。架构 `Qwen3_5ForConditionalGeneration` 本机 vLLM 0.28 原生支持,
+  **不走 trust_remote_code**(仓库里的 `modeling_wemm_embedding.py` 是 transformers /
+  sentence-transformers 路径用的,vLLM 用不到)。
+- **调用方必须走 `messages`,别传 `input` 字符串**:WeMM 的
+  `embedding_chat_template.jinja` 在末尾追加 `<embedding>` token,而 vLLM 的
+  `/v1/embeddings` **只有带 `messages` 时才套 chat template**;传 `input` 是裸
+  tokenize。2026-09-11 真机实测(`tests/manual/verify_wemm_embedding.py`):同一句话
+  两条路算出的向量余弦只有 **0.909(4B)/ 0.945(9B)**,且 messages 路的同义/无关
+  区分度更好(4B 0.837 vs 0.231,input 路 0.785 vs 0.194)。**两条路混用会污染同一个
+  向量库** —— 建库和检索必须固定同一条。Qwen3-Embedding 系列没有这个 token,不受影响。
+- **`gpu_memory_utilization` 别按权重大小猜**(2026-09-11 踩过):WeMM-4B 权重才
+  8.6GiB,但 vLLM 启动要按 `max_num_seqs × max_model_len` 带**多模态 dummy 输入**跑
+  profiling,视觉塔激活峰值把自身消耗顶到 ~21GiB。util 给 0.15 直接
+  `No available memory for the cache blocks`(Available KV cache memory: **-6.78GiB**)。
+  标定值写在两份 yaml 的注释里,改之前先读。调 `max_num_seqs` 要同步抬 util。
+- 改这两个模型的 yaml 或升 vLLM 后,跑
+  `uv run python tests/manual/verify_wemm_embedding.py {4b|9b}`(真模型/GPU,非 CI)——
+  CI 有 Popen 护栏起不了真 vLLM,配置能不能起、向量对不对只靠这个 standalone 脚本。
+
 ## 图像引擎 (image engine)
 
 - 引擎只剩一套 = `ModularImageBackend`(`image_modular.py`,Modular Diffusers)。

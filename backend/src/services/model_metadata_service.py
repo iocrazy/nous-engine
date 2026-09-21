@@ -228,6 +228,8 @@ def _scan_local_models_uncached() -> set[str]:
     Layout:
       llm/<MODEL>                          — depth 2
       tts/<MODEL>                          — depth 2
+      embedding/<MODEL>                    — depth 2(2026-09-11 从
+                                             text/embedding/ 提成顶层桶)
       media/<sub>/<MODEL>                  — depth 3, diffusers models and
                                              component buckets
     """
@@ -238,16 +240,6 @@ def _scan_local_models_uncached() -> set[str]:
     found = set()
     for type_dir in base.iterdir():
         if not type_dir.is_dir():
-            continue
-        if type_dir.name == "text":
-            # text/ 树按用途分桶(embedding/…)—— 模型在 depth-3:text/<bucket>/<model>
-            # (2026-06-12 embedding 接入,与 model_scanner._iter_candidate_model_dirs 同口径)。
-            for sub in type_dir.iterdir():
-                if not sub.is_dir():
-                    continue
-                for model_dir in sub.iterdir():
-                    if model_dir.is_dir():
-                        found.add(f"{type_dir.name}/{sub.name}/{model_dir.name}")
             continue
         if type_dir.name == "media":
             for child in type_dir.iterdir():
