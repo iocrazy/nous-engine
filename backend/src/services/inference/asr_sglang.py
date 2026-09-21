@@ -9,11 +9,14 @@ _port/pid/is_loaded),但**不是** VLLMAdapter 的克隆,关键差异:
    与 backend 的 vllm 0.22 钉两条互不相干的升级轨,故独立 venv/工具链)。
 2. **GPU 钉卡不用 device index,用 UUID**。VLLMAdapter 把 `CUDA_VISIBLE_DEVICES` 设成
    ModelManager 传进来的 `device` 里的 index;这里**故意忽略 device index**,改用
-   yaml `params.gpu_uuid` 钉那张 3090 —— 因为 sgl-omni 子进程内 torch 默认
-   FASTEST_FIRST 枚举会把 Pro 6000 排到 cuda:0,裸 index 可能命中 Pro 6000(GSP 固件
-   崩卡拖黑整机,见 infra/gpu/README.md)。UUID 不随槽位/枚举顺序变。配合
+   yaml `params.gpu_uuid` 钉卡 —— 因为 sgl-omni 子进程内 torch 默认 FASTEST_FIRST
+   枚举不跟随 PCI 序,裸 index 会落到哪张卡不可预期。UUID 不随槽位/枚举顺序变。配合
    `CUDA_DEVICE_ORDER=PCI_BUS_ID`,进程内只见这一张卡 = cuda:0(moss_config.yaml 里
    device=cuda:0 即指它)。
+   生产钉的是 **Pro 6000**(2026-09-05 #709 从 3090 搬来,两张 3090 整块让给 Qwen3.8
+   做 tp=2)。老注释写的「绝不 Pro 6000」(GSP 固件负载崩卡)**已失效** —— 该固件问题
+   2026-08-11 经用户确认解决,驱动升到 595.91.07 后零 Xid,ComfyUI 长期在这张卡上满载
+   出图出片。infra/gpu/README.md 留档仅供复发时排查。
 3. env 完整复刻 `infra/moss-asr/start_serve.sh`(CUDA_HOME 指 venv 内 cu13 工具链、
    PATH 前插 venv/bin + cu13/bin、LD_LIBRARY_PATH、HF 离线、NO_PROXY 回环)。
 4. unload 走仓库既有 `safe_signal.safe_killpg` 杀**整进程组**(start_new_session=True
@@ -90,8 +93,10 @@ class SGLangOmniAdapter(InferenceAdapter):
             Path(config_path) if config_path
             else root / "infra" / "moss-asr" / "moss_config.yaml"
         )
-        # GPU 钉卡:UUID(绝不 Pro 6000)。缺省 = 生产那张 3090(与 systemd unit/start_serve.sh 同一张)。
-        self._gpu_uuid = gpu_uuid or "GPU-2fd7c91c-af39-7b02-66b9-988331ce3bd7"
+        # GPU 钉卡:UUID。缺省 = 生产那张 Pro 6000(与 moss_transcribe_diarize.yaml 的
+        # params.gpu_uuid 同一张;2026-09-05 #709 从 3090 搬来,两张 3090 让给 LLM 做 tp=2)。
+        # 缺省值必须跟 yaml 一致 —— 否则 yaml 漏写 gpu_uuid 时会静默落到别的卡上。
+        self._gpu_uuid = gpu_uuid or "GPU-d24ed424-5712-55e9-9b95-77d997ac80dc"
         self._port = asr_port or 0
         self._health_path = "/" + health_path.lstrip("/")
         self._startup_timeout = startup_timeout

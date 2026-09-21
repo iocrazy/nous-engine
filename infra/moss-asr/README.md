@@ -81,9 +81,12 @@ curl -s -X POST http://127.0.0.1:8003/v1/audio/transcriptions \
 ```
 
 `.venv/`、`sglang-omni/`(clone,setup.sh 钉死 commit)、`logs/` 都 gitignore;每检出一份重跑
-`setup.sh`。GPU 钉 index0 3090(UUID `GPU-2fd7c91c-…`,`start_serve.sh` / unit 里硬编码,
-**绝不 Pro 6000**——GSP 固件崩卡,见 `infra/gpu/README.md`);端口 8003(env `NOUS_MOSS_ASR_PORT` 可改)。
-日志走 journald:`journalctl -u nous-moss-asr -f`。
+`setup.sh`。GPU 钉 index1 的 Pro 6000(UUID `GPU-d24ed424-…`,硬编码在三处,改一处要三处同步:
+`backend/configs/models.d/moss_transcribe_diarize.yaml` 的 `params.gpu_uuid` ← **生产真相源**、
+`start_serve.sh`、退役 unit)。2026-09-05 #709 从 3090 搬来,两张 3090 整块让给 Qwen3.8 做 tp=2;
+老文档的「绝不 Pro 6000」(GSP 固件崩卡)已失效,该问题 2026-08-11 确认解决。
+端口 8003(env `NOUS_MOSS_ASR_PORT` 可改)。日志走 journald:`journalctl -u nous-engine-backend -f`
+(Arc 2 后 MOSS 是 backend 的子进程,不再有自己的 unit)。
 
 `start_spike_serve.sh` / `moss_spike_config.yaml` / `SPIKE.md` 是 PR-0 spike 遗留,保留在 git
 作参考;生产走 `start_serve.sh` + `moss_config.yaml`。
