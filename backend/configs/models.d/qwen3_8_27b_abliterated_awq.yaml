@@ -33,9 +33,12 @@ paths:
 # 不常驻 = 下游(ComfyUI 反推 / nous-app)一律 503 model_not_ready。
 resident: true
 type: llm
-# 19.32 GiB 权重 + 2.39 GiB 峰值激活 + 0.45 GiB CUDAGraph + 3.18 GiB KV
-# = ~25.34 GiB;Pro 5000 单卡 71.7 GiB 充足。原先 0.70 × 24GiB ≈ 16.8GB(两张 3090 TP=2)
-# 改单卡需重算:现在 0.35 × 71.12 ≈ 24.89 GiB。
+# util 预算 = 权重 19.32 + 峰值激活 2.39 + KV 3.18 = 24.89 GiB = 0.35 × 71.12 ✓
+# **CUDAGraph 的 0.45 GiB 不在这个等式里** —— 它是 util 预算之外的另一块预留。
+# (2026-09-20 五次测量逐一核对过:三个模型的「权重+峰值激活+KV」都精确等于 vLLM 日志的
+#  "Desired GPU memory utilization",把 CUDAGraph 加进去反而对不上。别照直觉求和。)
+# 所以卡上实占 ≈ 24.89 + 0.45 ≈ 25.34 GiB;Pro 5000 单卡 71.7 GiB 充足。
+# 原先 0.70 × 24GiB ≈ 16.8GB(两张 3090 TP=2),改单卡需重算。
 vram_mb: 25500
 gpu: 0
 params:

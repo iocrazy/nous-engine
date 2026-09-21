@@ -10,9 +10,12 @@ id: wemm_embedding_4b
 paths:
   main: embedding/WeMM-Embedding-4B
 type: embedding
-# 8.81 GiB 权重 + 11.95 GiB 峰值激活 + 0.08 GiB CUDAGraph + 3.43 GiB KV / 78,941 tokens
-# = ~24.27 GiB;Pro 5000 单卡 71.7 GiB 充足。原先 0.30 × 95.6GiB ≈ 28.7GiB(Pro 6000)
-# 改单卡需重算:现在 0.34 × 71.12 ≈ 24.18 GiB。
+# util 预算 = 权重 8.81 + 峰值激活 11.95 + KV 3.43(78,941 tokens) = 24.19 GiB
+# ≈ 0.34 × 71.12 = 24.18 ✓
+# **CUDAGraph 的 0.08 GiB 不在这个等式里** —— 它是 util 预算之外的另一块预留
+# (2026-09-20 五次测量都验证了这一点,别把它加进来凑)。
+# 卡上实占 ≈ 24.27 GiB;Pro 5000 单卡 71.7 GiB 充足。
+# 原先 0.30 × 95.6GiB ≈ 28.7GiB(Pro 6000 口径),改单卡需重算。
 #
 # **别按权重大小猜这个数**(2026-09-11 踩过):权重只占 8.81 GiB(盘上 10.35GB,pooling 用不到
 # lm_head/MTP 头,所以显存里更少),但 vLLM 起来时要按 max_num_seqs × max_model_len
