@@ -1033,16 +1033,41 @@ class ModelManager:
                 except Exception:  # noqa: BLE001 — callback is best-effort
                     logger.exception("preload_residents on_loaded callback failed for %s", spec.id)
 
+    def _live_policy(self, model_id: str, entry) -> tuple[bool, int]:
+        """该模型**当前生效**的 (resident, ttl_seconds) —— 回收类守卫的唯一判据。
+
+        为什么不能直接读 `entry.spec`(2026-09-16 真机事故):`load_model` 对已加载模型
+        是早返回(`if self.is_loaded(...): touch(); return`),**不刷新 entry.spec**。
+        所以改了 yaml 的 resident/ttl 再 `POST /engines/reload`,换掉的只是
+        `registry.specs`,live entry 仍停在首次加载那份旧 spec。结果:
+        `wemm_embedding_4b` 明明配了 `resident: true`、UI 也显示 True
+        (API 读的是 cfg,见 routes/engines.py `resident=cfg.get(...)`),
+        84 分钟后仍被 `TTL expired` 卸掉 —— 守卫读的是旧 spec 的 resident=False。
+
+        registry 查不到就退回 entry.spec:测试注入的 adapter_factory 模型、L1 组件等
+        本就不在 registry 里,那些场景 entry.spec 才是唯一来源。
+        """
+        spec = None
+        reg = getattr(self, "_registry", None)
+        if reg is not None:
+            try:
+                spec = reg.get(model_id)
+            except Exception:  # noqa: BLE001 —— registry 异常不该让守卫瘫痪
+                spec = None
+        if spec is None:
+            spec = entry.spec
+        return bool(getattr(spec, "resident", False)), int(getattr(spec, "ttl_seconds", 0) or 0)
+
     async def check_idle_models(self) -> None:
         """Unload models that have been idle too long with no references."""
         now = time.monotonic()
         to_unload: list[str] = []
         for mid, entry in list(self._models.items()):
-            if entry.spec.resident:
+            resident, ttl = self._live_policy(mid, entry)
+            if resident:
                 continue
             if self._references.get(mid):
                 continue
-            ttl = entry.spec.ttl_seconds
             if ttl <= 0:
                 continue
             if now - entry.last_used > ttl:
@@ -1100,7 +1125,9 @@ class ModelManager:
         candidates = [
             entry
             for mid, entry in self._models.items()
-            if not entry.spec.resident
+            # 与 check_idle_models 同口径:读**当前生效**的 resident,不是 entry 里
+            # 那份可能陈旧的 spec(见 _live_policy 的说明)。
+            if not self._live_policy(mid, entry)[0]
             and not self._references.get(mid)
             and mid not in self._in_use  # 不驱逐正在 infer 的(否则 segfault)
             # stashed 的不占卡 —— 选它销毁腾不出显存,守卫会误以为腾了 → 重试仍 OOM 空转。
