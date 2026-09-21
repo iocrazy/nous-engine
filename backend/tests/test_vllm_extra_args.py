@@ -16,6 +16,7 @@ from src.services.inference.llm_vllm import (
     merge_vllm_args,
     normalize_vllm_flag,
     render_vllm_args,
+    substitute_model_dir,
 )
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
@@ -279,3 +280,33 @@ async def test_no_vllm_args_leaves_argv_unchanged(tmp_path):
     cmd_b, _ = await _capture_argv(plain2)
     assert cmd_a == cmd_b
     assert not any(t.startswith("--speculative") or t.startswith("--reasoning") for t in cmd_a)
+
+
+# ---------------------------------------------------------------------------
+# `{model_dir}` 占位符(2026-09-11,接 WeMM-Embedding)
+# ---------------------------------------------------------------------------
+
+def test_substitute_model_dir_replaces_placeholder():
+    argv = ["--chat-template", "{model_dir}/embedding_chat_template.jinja"]
+    assert substitute_model_dir(argv, "/models/embedding/WeMM-Embedding-4B") == [
+        "--chat-template", "/models/embedding/WeMM-Embedding-4B/embedding_chat_template.jinja",
+    ]
+
+
+def test_substitute_model_dir_leaves_other_tokens_alone():
+    """零回归:没写占位符的 argv 一个字节都不变(含 JSON 串里的花括号)。"""
+    argv = ["--speculative-config", '{"method":"mtp"}', "--enforce-eager"]
+    assert substitute_model_dir(argv, "/models/x") == argv
+
+
+async def test_launch_argv_expands_model_dir_placeholder(tmp_path):
+    """占位符在 _build_command 里按**已解析的绝对模型目录**展开 —— yaml 里不写死
+    LOCAL_MODELS_PATH,搬盘只改 .env 这条约定不被破坏。"""
+    a = VLLMAdapter(
+        paths={"main": str(tmp_path)}, vllm_port=19999,
+        vllm_args={"chat-template": "{model_dir}/embedding_chat_template.jinja"},
+    )
+    cmd, _ = await _capture_argv(a)
+    assert cmd[cmd.index("--chat-template") + 1] == \
+        f"{tmp_path}/embedding_chat_template.jinja"
+    assert "{model_dir}" not in " ".join(cmd)

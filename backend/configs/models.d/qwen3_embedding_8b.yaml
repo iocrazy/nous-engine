@@ -3,7 +3,7 @@
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: qwen3_embedding_8b
 paths:
-  main: text/embedding/Qwen3-Embedding-8B
+  main: embedding/Qwen3-Embedding-8B
 type: embedding
 # 2026-09-05:17500 低报了实际占用。真实预留的优先级是
 #   overlay `vram_budget` > 本文件 `params.gpu_memory_utilization` > adapter 自动公式

@@ -3,7 +3,7 @@
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: qwen3_embedding_4b
 paths:
-  main: text/embedding/Qwen3-Embedding-4B
+  main: embedding/Qwen3-Embedding-4B
 type: embedding
 vram_mb: 9500
 ttl_seconds: 3600

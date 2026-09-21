@@ -14,15 +14,37 @@ _ROOT = pathlib.Path(__file__).parent.parent
 
 def test_models_yaml_registers_embedding_models():
     # 模型定义已迁到 configs/models.d/<id>.yaml(2026-06-20);走 collect_model_entries 单一来源。
+    # 2026-09-11:embedding 收成顶层桶 `embedding/<MODEL>`(原 `text/embedding/`,`text/`
+    # 下只有这一个 bucket,scanner/metadata 两处 depth-3 特例一并删掉)。
     by_id = {m["id"]: m for m in collect_model_entries(_ROOT / "configs/models.yaml")}
     for mid, subdir in (("qwen3_embedding_4b", "Qwen3-Embedding-4B"),
-                        ("qwen3_embedding_8b", "Qwen3-Embedding-8B")):
+                        ("qwen3_embedding_8b", "Qwen3-Embedding-8B"),
+                        ("wemm_embedding_4b", "WeMM-Embedding-4B"),
+                        ("wemm_embedding_9b", "WeMM-Embedding-9B")):
         m = by_id.get(mid)
         assert m, f"models.yaml 缺 {mid}"
         assert m["type"] == "embedding"
-        assert m["paths"]["main"] == f"text/embedding/{subdir}"
+        assert m["paths"]["main"] == f"embedding/{subdir}"
         # pooling runner 必须显式给(否则 vLLM 当生成模型起,/v1/embeddings 404)
         assert m.get("params", {}).get("vllm_runner") == "pooling", f"{mid} 缺 vllm_runner=pooling"
+
+
+def test_wemm_passes_embedding_chat_template():
+    """WeMM 必须透传 `--chat-template …/embedding_chat_template.jinja`。
+
+    该模板在末尾追加 `<embedding>` token,是官方 vLLM serve 命令的一部分;不给的话
+    vLLM 回退到 tokenizer_config 里的**生成用**模板,messages 形式的请求算出来的向量
+    与官方 SentenceTransformer 对不上。纯文本 `input:` 路径不过模板,不受影响。
+    """
+    by_id = {m["id"]: m for m in collect_model_entries(_ROOT / "configs/models.yaml")}
+    for mid in ("wemm_embedding_4b", "wemm_embedding_9b"):
+        args = by_id[mid].get("params", {}).get("vllm_args", {})
+        tmpl = args.get("chat-template")
+        assert tmpl, f"{mid} 缺 vllm_args.chat-template"
+        assert tmpl.endswith("/embedding_chat_template.jinja"), tmpl
+        # 必须走 `{model_dir}` 占位符,不许把 LOCAL_MODELS_PATH 写死进 git 里的 yaml
+        # (model_roots.yaml 文件头:重格/搬盘只改 .env 的两个根)。
+        assert tmpl.startswith("{model_dir}/"), f"{mid} 的模板路径写死了绝对路径:{tmpl}"
 
 
 def test_vllm_adapter_passes_runner_flag():

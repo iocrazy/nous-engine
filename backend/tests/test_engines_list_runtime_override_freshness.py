@@ -21,7 +21,7 @@ from src.api.response_cache import invalidate
 from src.services.model_scanner import invalidate_scan_cache
 
 ENGINE = "qwen3_embedding_4b"
-LOCAL_PATH = "text/embedding/Qwen3-Embedding-4B"
+LOCAL_PATH = "embedding/Qwen3-Embedding-4B"
 
 
 @pytest.fixture(autouse=True)
