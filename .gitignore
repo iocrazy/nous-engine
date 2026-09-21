@@ -75,3 +75,8 @@ backend/.env.bak*
 backend/.coverage
 htmlcov/
 coverage.xml
+
+# OCR 评测产物(make_ocr_testdoc.py 生成 / 运行输出)
+backend/tests/manual/_ocr_testdoc.png
+backend/tests/manual/_ocr_out.txt
+backend/tests/manual/_smoke_out/
