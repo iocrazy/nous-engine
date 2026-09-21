@@ -12,19 +12,28 @@ type: embedding
 # 见 wemm_embedding_4b.yaml 里那段「别按权重大小猜」:权重(盘上 18.82GB)只是一部分,
 # 带多模态 dummy 输入的 profiling 峰值才是大头。hidden_size 4096(4B 是 2560),
 # 峰值按比例更大。下面的数是实测标定的,别凭直觉往下调。
-vram_mb: 31000
-# Pro 6000(96G)。单张 3090 24G 装不下(光权重就 18.8G);要上 3090 得走 llm-tp 组
-# [0,2] 且那组是空的 —— 现在被常驻的 27B 占着,每卡只剩 ~7.5G。
-gpu: 1
+vram_mb: 31400
+# Pro 5000(72G)。2026-09-20 两张 3090 拔除、Pro 6000 交给 ComfyUI 独占后,
+# 推理服务统一落 GPU 0(用户定的分工:6000 全部跑 ComfyUI,5000 跑 embedding/llm/asr/ocr)。
+# 旧注释提到的 llm-tp 组 [0,2] 已随 3090 拔除删掉,不再是备选。
+#
+# ⚠️ **本模型装不进三个常驻之外的余量**:常驻(ASR+qwen3.8+WeMM-4B)占 57.9 GiB,
+# 卡上只剩 ~13.8 GiB,而它要 30.6 GiB。要用它得先手工卸掉某个常驻
+# (常驻不会被 evict_lru 驱逐)。日常建库主力是已常驻的 WeMM-4B,这个 9B 是备用档。
+gpu: 0
 ttl_seconds: 3600
 params:
   vllm_runner: pooling
   max_model_len: 8192
   max_num_seqs: 16
-  # 0.32 × 95.6GiB ≈ 30.6G(比例是每卡占**总量**,见 4B 那份的注释)。实测:权重
-  # 15.77GiB + 自身开销 ≈ 18.3GiB,余下 KV 12.4GiB / 286,347 tokens,8192 长度下
-  # 并发 35x —— 对 embedding 够用有余。0.50 起得来但 KV 会到 29.5GiB(83x),白占 19G。
-  gpu_memory_utilization: 0.32
+  # 比例是每卡占**总量**,换卡必须重算(见 4B 那份的注释)。
+  # 2026-09-20 从 Pro 6000 换到 Pro 5000:**保持绝对预算不变**做等价换算 ——
+  #   旧 0.32 × 95.6GiB ≈ 30.6GiB  →  新 30.6 / 71.12 ≈ 0.43
+  # 这是**换算,不是重新标定**:Pro 6000 上的实测(权重 15.77GiB + 自身开销 ≈ 18.3GiB,
+  # 余下 KV 12.4GiB / 286,347 tokens,8192 长度下并发 35x)在同样的绝对预算下仍成立,
+  # 但真机没在 Pro 5000 上复测过。真要用它之前跑一次
+  # tests/manual/measure_pro5000_floors.py 把地板量出来再收。
+  gpu_memory_utilization: 0.43
   vllm_args:
     # 见 wemm_embedding_4b.yaml 的说明:`<embedding>` token 靠这个模板追加,
     # limit-mm-per-prompt 覆盖适配器默认的 {"image":4} 以压低 profiling 峰值。
