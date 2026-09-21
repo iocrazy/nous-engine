@@ -16,9 +16,16 @@ After=zerotier-one.service
 Type=simple
 User=heygo
 Environment=CUDA_DEVICE_ORDER=PCI_BUS_ID
-# 前置:GSP 缓解脚本上机 —— Pro 6000 满载崩卡 bug(infra/gpu/README.md)
-# PCI_BUS_ID 序实测(2026-08-10 本机三卡):0=3090, 1=Pro 6000(96G), 2=3090 → 绑 1
-Environment=CUDA_VISIBLE_DEVICES=1
+# **用 UUID 钉卡,不用索引** —— 索引随插拔/枚举漂移,UUID 不会。
+# 2026-09-20 两张 3090 物理拔除、换上 Pro 5000:这次 Pro 6000 的索引碰巧还是 1,
+# 但同一次改动里 hardware.yaml 与七条 DB override 全要跟着重写,就是因为索引会变。
+# MOSS ASR 早就是 UUID 钉卡的,这里对齐。
+# GPU-d24ed424… = RTX PRO 6000 Blackwell 96GB(另一张 GPU-f4334111… 是 Pro 5000,
+# 跑全部推理服务,ComfyUI 不能看见它,否则会挤掉常驻模型)。
+#
+# 旧注释提到的「GSP 缓解脚本」已不再是前置:Pro 6000 满载崩卡的 GSP 固件 bug
+# 于 2026-08-11 经用户确认解决,infra/gpu/README.md 留档只供复发排查。
+Environment=CUDA_VISIBLE_DEVICES=GPU-d24ed424-5712-55e9-9b95-77d997ac80dc
 # 现成 ComfyUI 安装(v0.31.0, 自带 .venv)
 WorkingDirectory=/media/heygo/program/projects-code/github-repos/ComfyUI
 # 参数与用户手动启动习惯完全一致(8888 供 IC 直连 + nous 桥;output 落 cache 盘)
