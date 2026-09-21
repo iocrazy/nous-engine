@@ -1,0 +1,50 @@
+# unlimited_ocr — 文档 OCR / 图文理解(baidu/Unlimited-OCR,image-text-to-text)
+# 一模型一文件(configs/models.d/);改此模型只动本文件。
+#
+# 架构 UnlimitedOCRForCausalLM —— 本机 vLLM 0.28.0 **已原生注册**(2026-09-16 核过:
+# ModelRegistry.get_supported_archs() 里有它),所以官方 README 那套
+# `docker pull vllm/vllm-openai:unlimited-ocr` 和 SGLang dev wheel 都不需要,
+# 走本仓库统一的 VLLMAdapter 即可。config.json 里虽有 auto_map 指向
+# modeling_unlimitedocr.py,但那是 transformers 路径用的,**不走 trust_remote_code**
+# (同 WeMM 那几个的处理)。上游 SGLang wheel 已归档在
+# models/nous/archive/Unlimited-OCR-upstream/,备查不备用。
+#
+# 结构:小语言模型(12 层 / hidden 1280 / MoE 64 路由 + 2 共享,每 token 激活 6)
+# + 重视觉编码器 deeplip_b_l(CLIP-L-14-224 与 SAM-ViT-B 双塔)。6.21GiB 权重
+# 大头是 MoE 专家。candidate_resolutions [[1024,1024]] + tile_tag 2D = 分块读图,
+# 整页文档的视觉 token 数很可观 —— max_model_len 别往下砍。
+adapter: src.services.inference.llm_vllm.VLLMAdapter
+id: unlimited_ocr
+paths:
+  main: vl/Unlimited-OCR
+# ⚠️ **必须显式写 type** —— model_scanner 的自动探测只按架构名里有没有
+# "VL" / "Vision" / "visual" 判 is_vl(scanner:175),`UnlimitedOCRForCausalLM`
+# 一个都不含,会被误判成 `type: llm`,于是在引擎库里归错类、走错的路由。
+type: understand
+# ⚠️ 初值,**尚未真机标定**。落 PR 前按下面的办法量一次再回填:
+#   起来之后看 vLLM 日志的 "Available KV cache memory" / "peak activation"
+#   (适配器把子进程 stdout 收在有界 deque 里不外打,参考
+#    tests/manual/verify_wemm_embedding.py 的 _print_memory_profile)。
+# 推算:权重 6.21GiB + 视觉塔 profiling 峰值(双塔 + 1024×1024 分块,参考 WeMM 那边
+# 单塔就顶到 ~12GiB)+ KV。0.22 × 94.97 ≈ 20.9GiB 先跑通,再按实测收。
+vram_mb: 21000
+# Pro 6000(96G)。这张卡上已有 MOSS ASR 常驻 + WeMM-4B 常驻 + ComfyUI,
+# 加载前先看 nvidia-smi 有没有余量(本模型不常驻,按 ttl 自然卸载)。
+gpu: 1
+ttl_seconds: 3600
+params:
+  # 生成式模型(CausalLM),不是 pooling —— 不要设 vllm_runner。
+  #
+  # 32768 是模型 config 的 max_position_embeddings 原生上限。OCR 整页文档经
+  # 2D 分块后视觉 token 很多,这里砍小会直接截断长文档,别为了省显存动它。
+  max_model_len: 32768
+  # 视觉塔的 profiling 峰值按 max_num_seqs × max_model_len 带多模态 dummy 输入算
+  # (CLAUDE.md「别按权重大小猜」那条对这个模型同样成立)。OCR 是长输入短输出、
+  # 单张为主,8 路够用;调大要同步抬 gpu_memory_utilization。
+  max_num_seqs: 8
+  # 比例是**每卡占总量**,不是占空闲。96G 卡上 0.22 ≈ 20.9G。
+  gpu_memory_utilization: 0.22
+  vllm_args:
+    # 覆盖适配器按生成式 VL 习惯自动加的 `{"image":4}`。OCR 请求以单图/单页为主,
+    # 4 张图只会把 profiling 峰值抬高。要批量喂多页文档再往上调,并同步抬 util。
+    limit-mm-per-prompt: {"image": 1}
