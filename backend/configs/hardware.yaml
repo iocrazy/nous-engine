@@ -14,26 +14,17 @@
 # ASR（MOSS/SGLang 独立 systemd 微服务，自带 CUDA_VISIBLE_DEVICES）、向量嵌入
 # 都不经过这里，它们的卡各自决定。
 #
-# 当前 = Pro 6000 + 2x3090 三卡布局（两张 3090 之间有 NVLink bridge）。
-# 索引 = PCI_BUS_ID（与 nvidia-smi 一致；src/api/main.py:11 在 import torch 前
-# setdefault CUDA_DEVICE_ORDER=PCI_BUS_ID —— 不在 .env 里，standalone 脚本
-# 不经 main.py 必须自己设，否则 torch 默认 FASTEST_FIRST 会把 Pro 6000
-# 排到 cuda:0，与本 yaml + nvidia-smi 错位，导致 ModelManager
-# get_best_gpu(nvidia-smi index) 喂给 torch 当 cuda:N 装错卡）:
-#   GPU 0: RTX 3090 (01:00)  24 GB  → 显示卡（驱动 Xorg/GNOME）——重负载计算慎放！
-#                                     在显示卡上加载模型会撑爆 595 开源驱动的 NVKMS
-#                                     显存分配（NvKmsKapiMemory，GPU 0x100=bus01）→ 桌面掉登录。
-#   GPU 1: RTX Pro 6000 Blackwell  96 GB  → llm group 偏好（ComfyUI sidecar 也绑这张）
-#   GPU 2: RTX 3090 (9A:00)  24 GB  → tts + image group 偏好（共用这张 24GB 3090）
+# 当前 = Pro 6000 + Pro 5000 两卡布局（2026-09-20，两张 3090 已拔除）。
+# 索引 = PCI_BUS_ID（与 nvidia-smi 一致）:
+#   GPU 0: RTX PRO 5000 72GB Blackwell (01:00)  71.7 GiB 实测
+#          → 全部推理服务:LLM / ASR / embedding / OCR
+#   GPU 1: RTX PRO 6000 96GB Blackwell (99:00)  95.6 GiB 实测
+#          → ComfyUI sidecar 独占（unit 用 UUID 钉卡，见 nous-engine-comfyui.service）
 #
-# image group 的偏好原本是 GPU 0（崩桌面，见上），2026-06-22 改到 GPU 2。注意这
-# 只挡住 auto 选卡：给某个模型显式设 gpu:0 覆盖，仍会装到显示卡上。
-# 两张 3090（GPU 0 / GPU 2）之间有 NVLink（nvidia-smi topo -m: NV4，4 链路各 14 GB/s）。
-# 2026-09-04 起声明为 llm-tp 组（见下），供 vLLM 张量并行当 ~47GB 用（GPU 0 桌面常驻
-# 约 1GB）。显示器仍接在 GPU 0：代码层对显示卡只 warning 不拒绝；LLM 显存是预分配的，
-# 不像出图那样突涨，风险比当年 image 崩桌面小。若实测桌面卡顿/掉登录，把显示器线换到
-# Pro 6000 即可，软件侧不用改。role 用 llm-tp 而不是 llm：Lane K 只给 role:llm 的组起
-# LLMRunner，第二个 llm 组会和 Pro 6000 那组抢同一个代表模型。
+# **没有多卡 group** —— 两张卡型号不同，validate_gpu_group 对异构组直接报错
+# （topology.py:269「GPU 组必须同型号」）。想做张量并行必须买同型号第二张。
+#
+# 显示输出走主板 ASPEED BMC（9c:00.0），不占用任何 N 卡。
 #
 # 字段语义：
 #   id      group 唯一标识，runner / scheduler 用它寻址
@@ -46,25 +37,19 @@
 # V1.5 manual-only：不解析 nvidia-smi topo -m，无 detection 字段。
 groups:
   - id: llm
-    gpus: [1]              # Pro 6000 96GB
+    gpus: [0]              # Pro 5000 72GB —— LLM/ASR/embedding/OCR 全在这张
     nvlink: false
     role: llm
-    vram_gb: 96
+    vram_gb: 72
 
   - id: image
-    gpus: [2]              # 偏好 GPU2 3090（原偏好 GPU0 显示卡，跑图会崩桌面）；与 tts 共用 24GB
+    gpus: [1]              # Pro 6000 96GB —— 与 ComfyUI 共用(两者都非常驻,按需错峰)
     nvlink: false
     role: image
-    vram_gb: 24
+    vram_gb: 96
 
   - id: tts
-    gpus: [2]              # 另一张 3090
+    gpus: [0]              # Pro 5000;TTS 模型最大 7.8GiB,与推理服务共卡
     nvlink: false
     role: tts
-    vram_gb: 24
-
-  - id: llm-tp
-    gpus: [0, 2]           # 两张 3090 NVLink 对,vLLM tensor-parallel=2 当 ~47GB 用
-    nvlink: true
-    role: llm-tp           # 不是 llm:避免 Lane K 多起一个 LLMRunner(见文件头说明)
-    vram_gb: 48
+    vram_gb: 72

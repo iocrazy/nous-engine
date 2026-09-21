@@ -5,9 +5,9 @@ from src.config import load_hardware_config
 def test_load_default_hardware_yaml():
     """configs/hardware.yaml 解析出 groups 列表。
 
-    实际部署:Pro 6000 96GB (llm, gpu=1) + 两张 3090。GPU0 是显示卡(跑图会撑爆
-    595 驱动 NVKMS 显存分配崩桌面),image 已从 GPU0 移到 GPU2,与 tts 共用那张
-    3090;三个 group,无 NVLink tp(GPU0 占作显示)。
+    实际部署(2026-09-20 起,两张 3090 已拔除):Pro 5000 72GB(llm/tts,gpu=0,
+    LLM/ASR/embedding/OCR 全在这张)+ Pro 6000 96GB(image,gpu=1,与 ComfyUI
+    sidecar 错峰共用);两卡异构,无 NVLink tp 组。
     """
     cfg = load_hardware_config()
     assert "groups" in cfg
@@ -15,14 +15,14 @@ def test_load_default_hardware_yaml():
     assert isinstance(groups, list)
     assert len(groups) >= 1
     llm = next(g for g in groups if g["role"] == "llm")
-    assert llm["gpus"] == [1]
+    assert llm["gpus"] == [0]
     assert llm["nvlink"] is False
-    assert llm["vram_gb"] == 96
-    # image 与 tts 共用 GPU2 那张 3090(GPU0 留作显示卡,禁止放计算)
+    assert llm["vram_gb"] == 72
+    # image 独占 Pro 6000(与 ComfyUI 错峰共用),tts 与 llm 共用 Pro 5000
     image = next(g for g in groups if g["role"] == "image")
-    assert image["gpus"] == [2]
+    assert image["gpus"] == [1]
     tts = next(g for g in groups if g["role"] == "tts")
-    assert tts["gpus"] == [2]
+    assert tts["gpus"] == [0]
 
 
 def test_load_3gpu_template(tmp_path):
