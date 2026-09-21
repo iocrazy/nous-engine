@@ -89,23 +89,31 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
 
 ## GPU 放置 / 张量并行 (GPU groups)
 
-- 本机三张卡(PCI 序):`cuda:0` = RTX 3090 24G(**驱动显示器**)、`cuda:1` = RTX PRO 6000
-  96G、`cuda:2` = RTX 3090 24G。0 与 2 之间有 NVLink(`nvidia-smi topo -m` 显示 NV4)。
-  生产经 `src/api/main.py` setdefault 了 `CUDA_DEVICE_ORDER=PCI_BUS_ID`。
+- 两张卡(PCI 序,`src/api/main.py` setdefault 了 `CUDA_DEVICE_ORDER=PCI_BUS_ID`):
+  `cuda:0` = RTX PRO 5000 Blackwell 71.7GiB(`GPU-f4334111-b8d2-4df3-ea0f-6177698f8ce9`)
+  承**全部推理服务**(LLM/ASR/embedding/OCR);`cuda:1` = RTX PRO 6000 Blackwell 95.6GiB
+  (`GPU-d24ed424-5712-55e9-9b95-77d997ac80dc`)**ComfyUI 独占**,systemd 单元用 UUID 钉卡
+  (索引随插拔漂移,UUID 不会;MOSS ASR 子进程同理用 UUID)。2026-09-20 原先两张 RTX 3090
+  (旧索引 0/2,NVLink 互联)已物理拔除,`hardware.yaml` 的跨卡组 `llm-tp` 随之删除,现在
+  只有 `llm`/`image`/`tts` 三个**单卡组**,**没有任何多卡 group**;显示输出走主板
+  ASPEED BMC,不占 N 卡(旧的「GPU 0 驱动显示器,腾空前别用于 TP」约束已作废)。
+  **异构卡拼不成 TP 组**(Pro 5000 ≠ Pro 6000,见下方同型号校验),本机 tp 恒为 1 ——
+  以下 TP 相关代码路径原样保留,只是现在走不到,除非将来买入同型号第二张卡。
 - **放置决策只在 `ModelManager._resolve_placement` 一处**。适配器(vLLM/SGLang)只执行
   传下来的 `device`/`gpus`,**绝不自己换卡** —— 适配器自作主张换卡会造成「预算按 A 卡算、
   `CUDA_VISIBLE_DEVICES` 钉 B 卡」的启动期 OOM,manager 记的落卡也和真实占用对不上。
 - **显式 `gpu`/`gpus` 是硬约束**:装不下就 `ModelLoadError`(信息里给可用组的建议),
   不自动搬。只有没有任何显式放置的模型才走自动选卡/选组。
-- **模型级 `gpus: [0, 2]`**(与单卡 `gpu` 并存,给了就以它为准)= 张量并行跨这组卡,
+- **模型级 `gpus: [...]`**(与单卡 `gpu` 并存,给了就以它为准)= 张量并行跨这组卡,
   `tp = len(gpus)`(显式 `tensor_parallel_size` 只能**收窄**)。落点:models.yaml 的
   `gpus:`、`model_runtime_overrides.gpus`(JSONB **三态**:NULL=未覆盖 / `[]`=显式清空组 /
-  `[0,2]`=组;没有 `[]` 这个哨兵,YAML 配了组的模型永远退不出组)、
-  `PATCH /api/v1/engines/{name}/gpu` 的 body `{"gpus":[0,2]}`(单卡仍是 `?gpu=N`)。
+  非空列表=组;没有 `[]` 这个哨兵,YAML 配了组的模型永远退不出组)、
+  `PATCH /api/v1/engines/{name}/gpu` 的 body `{"gpus":[...]}`(单卡仍是 `?gpu=N`)。
+  本机现在没有同型号第二张卡可组,这条路径当前打不着,字段/语义原样保留。
 - **候选组的权威来源是 `configs/hardware.yaml`**(经 `GPUAllocator._build_groups` 解析),
-  **不是**代码枚举卡的组合 —— 那份 yaml 记着运维约束(GPU 0 驱动显示器,腾空前别用于 TP)。
-  `nvidia-smi topo -m` 只用于 nvlink 的**校验/补缺**。yaml 没声明多卡 group →
-  `GET /api/v1/gpu/groups` 返回空 + hint,菜单里就没有「组合」项。要跨卡先去 yaml 加组。
+  **不是**代码枚举卡的组合。`nvidia-smi topo -m` 只用于 nvlink 的**校验/补缺**。yaml
+  没声明多卡 group(本机现状)→ `GET /api/v1/gpu/groups` 返回空 + hint,菜单里没有
+  「组合」项。要跨卡先去 yaml 加同型号组。
 - 组的硬性校验(`topology.validate_gpu_group`,HTTP 与 YAML 路径共用):≥2 张、去重、
   卡存在、**同型号**、大小是 **2 的幂**(tp 要整除注意力头数)。显示卡只 warning
   (与单卡路径一致)。YAML 里写了非法组 → log error 并忽略该字段,不阻塞启动。
@@ -125,11 +133,28 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   `model_not_ready`,不在请求路径上加载;`/v1/models` 与 Ollama 的 `/api/tags` 只列
   已加载的 model 类服务(共用 `routes/_readiness.py`,发现到的 == 现在就能调的);
   `resident: true` 是**唯一**的常驻手段,已发布工作流不再钉住模型。
-  `tests/test_data_plane_readonly.py` 静态锁住这五个路由模块。
+  `tests/test_data_plane_readonly.py` 静态锁住这五个路由模块;常驻集合按落卡汇总必须
+  放得进 `configs/hardware.yaml` 的容量减 `DEFAULT_RESERVED_GB`,由
+  `tests/test_resident_capacity.py` 在 CI 兜住(常驻不自洽合 PR 前就红,不等上线)。
   **例外(不在本不变式内)**:画布工作流的 `predictions` 经 `nodes/llm.py`、图像路径经
   `get_or_load_image_adapter`,仍会在执行期按需加载模型(待单开 spec)。
-  常驻集合按落卡汇总必须放得进 `configs/hardware.yaml` 的容量减 `DEFAULT_RESERVED_GB`,
-  由 `tests/test_resident_capacity.py` 在 CI 兜住(常驻不自洽合 PR 前就红,不等上线)。
+- **GPU 0(Pro 5000)常驻名单**(2026-09-20 迁移后实测,`vram_mb` 见各模型 yaml 注释):
+  MOSS ASR 9000 + qwen3.8-27B-AWQ 25500 + WeMM-Embedding-4B 24800 = 59300 MiB ≈
+  57.9 GiB,上限 72 − 4 = 68 GiB(见上条容量测)。**Unlimited-OCR 不设 resident**(四样全
+  常驻要 72.08 GiB 超卡),走 `ttl_seconds: 3600` 按需加载 —— 数据面不懒加载(见上条),
+  闲置卸载后调用方会先吃一个 503 `model_not_ready`,得从控制面手动重新加载,不会自动补起。
+- **各模型 `gpu_memory_utilization` 实测地板**(Pro 5000 71.12 GiB 开机可见口径,换卡/
+  改 `max_model_len`/`max_num_seqs` 必须重新标定,别照抄旧卡数字):qwen3.8 = 0.35
+  (0.34 实测 KV 差 0.44 GiB 起不来,真地板)、WeMM-Embedding-4B = 0.34、Unlimited-OCR =
+  0.20。**用户硬决定:qwen3.8-27B-AWQ 永不搬到 Pro 6000**(哪怕以后 Pro 6000 有空余量),
+  别再建议换卡。
+- **Pascal 卡在本机不可用**(2026-09-20 排查结论,别再重查):驱动 595 是开源内核模块,
+  要求 GPU 自带 GSP(Turing 及以后才有),Pascal(GTX 1060 等)probe 直接失败;而
+  Blackwell 必须 ≥595、Pascal 只支持 ≤580,一台机器只能装一个驱动版本,互斥无解。
+- **`model_runtime_overrides` 有个孤儿陷阱**:`qwen3_asr` 那行 `gpu=1` 残留至今(该
+  模型 2026-07-21 被 MOSS ASR 取代后 yaml 已移除,engine 不在 registry 里,API 会返回
+  `Unknown engine`,当前不生效,已裁定不动)。**将来若重新加回 `qwen3_asr` 的 yaml,这行
+  会立刻把它钉到 ComfyUI 独占的 GPU 1 上** —— 加回前必须先改掉或删掉这条 override。
 
 ## vLLM 参数透传 (`params.vllm_args`)
 
