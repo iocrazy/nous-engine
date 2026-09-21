@@ -33,21 +33,25 @@ paths:
 # 不常驻 = 下游(ComfyUI 反推 / nous-app)一律 503 model_not_ready。
 resident: true
 type: llm
-# 19.6GB 权重;单卡 29GB Pro 5000 充足。
-vram_mb: 20070
+# 19.32 GiB 权重 + 2.39 GiB 峰值激活 + 0.45 GiB CUDAGraph + 3.18 GiB KV
+# = ~25.34 GiB;Pro 5000 单卡 71.7 GiB 充足。原先 0.70 × 24GiB ≈ 16.8GB(两张 3090 TP=2)
+# 改单卡需重算:现在 0.35 × 71.12 ≈ 24.89 GiB。
+vram_mb: 25500
 gpu: 0
 params:
   # 262144 是模型上限,但两张 24G 卡装不下那么大的 KV;32k 是保守起点,
   # 跑顺了可按实际剩余显存往上调。
   max_model_len: 32768
-  # 显存预算(每卡比例)。上下两个夹逼,0.70 是唯一的安全区间:
-  #   下界:自动预算算出 0.55 → 每卡只剩 1.18GB 给 KV,而 32k 上下文 + MTP 的草稿 KV
-  #        需要 1.45GB → 启动即 ValueError(2026-09-05 实测)。
-  #   上界:0.85 → vLLM 每卡预留 20.4GB,只剩 3.5GB 空闲,低于 gpu_monitor 的
-  #        DEFAULT_RESERVED_GB=4.0 → 显存看门狗判定吃紧,加载完 4 秒就 LRU 驱逐
-  #        (实测:vLLM ready 后 4s 被 Auto-evicted)。**别再往上调**。
-  # 0.70 = 每卡 16.8GB(模型 ~9GB + KV 充裕),留 7.2GB 空闲,看门狗满意。
-  gpu_memory_utilization: 0.70
+  # 显存预算(每卡比例,不是占空闲也不是绝对值 —— 换卡必须重算)。
+  # 原先跨两张 24GiB 3090 TP=2 时 0.70 是安全区间(每卡 ~16.8GB);
+  # 现在单卡 Pro 5000 71.7 GiB,同数字会抓 50 GiB → OOM。
+  #
+  # Pro 5000 的实测地板(2026-09-20 Task 3):
+  #   - 0.35 = 24.89 GiB —— KV 3.18 GiB / 35,693 tokens,稳态 23900 MiB ✓
+  #   - 0.34 = 24.2 GiB —— KV 差 0.44 GiB 起不来 ✗
+  # 0.35 有失败样本作支撑,是真地板,别再往下调。
+  # 预留 4GB(DEFAULT_RESERVED_GB),余量充足。
+  gpu_memory_utilization: 0.35
   # 适配器没自己拼的 vLLM 参数从这里透传(键名下划线/连字符都认,dict/list 会被
   # json.dumps 成一个参数值)。--model/--port/--device/--tensor-parallel-size 是
   # 安全边界(路径/端口/落卡/tp 都由 manager + _placement 决定),写了直接报错 ——
