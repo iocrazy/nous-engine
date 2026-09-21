@@ -1,11 +1,17 @@
 # nous-moss-asr 生产 pipeline config —— sgl-omni serve --config 读它。
 # 基线 = 默认 MossTranscribeDiarizePipelineConfig,只改两处(SPIKE.md 真机验证):
 #
-#   1. mem_fraction_static: 0.15
+#   1. mem_fraction_static: 0.10
 #      语义(sglang server_args.py):(模型权重 + KV cache 池) / **整卡容量** 的比例,
 #      不是绝对值 —— 换卡不改这个数,占用就跟着卡容量走。
-#      2026-09-05 起本模型在 Pro 6000(96GB):0.15 × 96 ≈ 14.4GB,比它当年在 24GB 卡上
-#      跑稳的 12GB 还宽裕一点。别低于 0.13(≈12.5GB,已到当年的稳态线)。
+#      2026-09-20 起本模型在 Pro 5000(71.7GB)。起点按 3090 上 0.25 × 24 = 6.0GB 静态、
+#      KV 33,428 tokens、实测总占 7.5GB 稳态推算:6.0 / 71.7 ≈ 0.084,取 0.11 留余量
+#      理论算得 7.9GB。真机一试 0.11 → nvidia-smi 实占 9.44GB(9668MiB),超出
+#      7-9GB 目标区间(理论值与实占有固定 CUDA 上下文/CUDA graph 开销的差,不是纯线性
+#      比例能套准的),回调到 **0.10** 后实占稳定在 8.79GB(8996MiB),转写同一段 7.7min
+#      播客两轮都是 53 段、wall 8.08s / 7.63s,收进目标区间且功能正常,定案。
+#      2026-09-05~09-20 曾在 Pro 6000(96GB):0.15 × 96 ≈ 14.4GB,比它当年在 24GB 卡上
+#      跑稳的 12GB 还宽裕一点。
 #      【历史依据】当时在 24GB 的 3090(与桌面/ComfyUI 同卡,不能抢整卡),值是 0.5:
 #      spike 实测 0.25(=6GB)起得来但 KV 挤占后单请求都不够;0.5(=12GB)跑 7.7min
 #      双人播客稳,KV 余量覆盖长音频 max_new_tokens。
@@ -29,6 +35,6 @@ stages:
       encoder_cache_size_bytes: 4294967296
       request_build_max_workers: 8
       request_build_max_pending: 16
-      mem_fraction_static: 0.15
+      mem_fraction_static: 0.10
     gpu: 0
     terminal: true
