@@ -18,10 +18,9 @@ type: embedding
 # 直接 `No available memory for the cache blocks`(Available KV cache memory: -6.78GiB)。
 # 0.30 实测起得来,KV 7.66GiB / 176,872 tokens,8192 长度下并发 21.6x。
 vram_mb: 29000
-# Pro 6000(96G)。单卡足够:跨卡 tp 对 embedding(短序列、无生成)只多一笔 all-reduce,
-# 不划算;而两张 3090 组(llm-tp)被常驻的 27B 占着,每卡只剩 ~7.5G,塞不进
-# (2026-09-11 核过账)。
-gpu: 1
+# Pro 5000(72G)。2026-09-20 两张 3090 拔除后,推理服务统一落 GPU 0。
+# 单卡足够:跨卡 tp 对 embedding(短序列、无生成)只多一笔 all-reduce,不划算。
+gpu: 0
 # 2026-09-15 设为常驻:三档 WeMM 里选 4B 做建库主力(MMEB-v2 79.2 vs 2B 77.9 / 9B 80.6;
 # MMEB-v3 58.2 vs 56.0 / 59.5 —— 4B 是效果与显存的拐点)。
 #

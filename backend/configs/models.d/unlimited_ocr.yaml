@@ -28,9 +28,9 @@ type: understand
 # 推算:权重 6.21GiB + 视觉塔 profiling 峰值(双塔 + 1024×1024 分块,参考 WeMM 那边
 # 单塔就顶到 ~12GiB)+ KV。0.22 × 94.97 ≈ 20.9GiB 先跑通,再按实测收。
 vram_mb: 21000
-# Pro 6000(96G)。这张卡上已有 MOSS ASR 常驻 + WeMM-4B 常驻 + ComfyUI,
-# 加载前先看 nvidia-smi 有没有余量(本模型不常驻,按 ttl 自然卸载)。
-gpu: 1
+# Pro 5000(72G)。2026-09-20 两张 3090 拔除后,推理服务统一落 GPU 0。
+# 本模型不常驻,按 ttl 自然卸载;加载前先看 nvidia-smi 有没有余量。
+gpu: 0
 ttl_seconds: 3600
 params:
   # 生成式模型(CausalLM),不是 pooling —— 不要设 vllm_runner。

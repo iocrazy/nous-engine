@@ -10,9 +10,10 @@
 #     只量化 256 个 Linear(16 层注意力 × 4 + 64 层 MLP × 3);DeltaNet 投影、
 #     视觉塔、MTP 头保持 BF16 —— 这几处对量化极敏感。
 #
-# 放置:gpus [0, 2] = 两张 3090 经 NVLink 做 tp=2(hardware.yaml 的 llm-tp 组)。
-#   作者实测同款配置每卡约 9.4GB 权重;剩余显存给 KV cache。
-#   **不要开 --kv-cache-dtype fp8**:3090 是 Ampere,没有 fp8 张量核。
+# 放置:原先跨两张 RTX 3090(gpus: [0, 2])做 tp=2(hardware.yaml 的 llm-tp 组),
+#   2026-09-20 两张 3090 物理拔除,改为 Pro 5000 单卡(gpu: 0)。
+#   **用户决定该模型永不搬到 Pro 6000**,所以两张卡里只落 GPU 0。
+#   作者原实测同款配置每卡约 9.4GB 权重;单卡 29GB 显存充足。
 #
 # ⚠ 权重目录里改过一处(不在本仓库,重新下载模型会丢):tokenizer.json 的顶层
 #   `truncation` 被上传者烤进了 {"max_length": 1024}(应该是量化标定脚本调过
@@ -32,14 +33,13 @@ paths:
 # 不常驻 = 下游(ComfyUI 反推 / nous-app)一律 503 model_not_ready。
 resident: true
 type: llm
-# 19.6GB 权重跨两卡 ≈ 每卡 9.8GB;这里填整模型占用,manager 按组内均分预留。
+# 19.6GB 权重;单卡 29GB Pro 5000 充足。
 vram_mb: 20070
-gpus: [0, 2]
+gpu: 0
 params:
   # 262144 是模型上限,但两张 24G 卡装不下那么大的 KV;32k 是保守起点,
   # 跑顺了可按实际剩余显存往上调。
   max_model_len: 32768
-  tensor_parallel_size: 2
   # 显存预算(每卡比例)。上下两个夹逼,0.70 是唯一的安全区间:
   #   下界:自动预算算出 0.55 → 每卡只剩 1.18GB 给 KV,而 32k 上下文 + MTP 的草稿 KV
   #        需要 1.45GB → 启动即 ValueError(2026-09-05 实测)。
