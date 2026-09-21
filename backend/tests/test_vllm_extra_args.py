@@ -201,13 +201,13 @@ def test_instantiate_adapter_passes_vllm_args_through(tmp_path):
 
 
 def test_shipped_qwen38_yaml_declares_mtp_and_reasoning_parser():
-    """真配置文件:MTP 投机解码 + reasoning-parser 都在,且 tp 与 gpus 组一致。"""
+    """真配置文件:MTP 投机解码 + reasoning-parser 都在,单卡落位 gpu: 0(无 tp)。"""
     doc = yaml.safe_load((CONFIGS / "models.d" / "qwen3_8_27b_abliterated_awq.yaml").read_text())
     args = doc["params"]["vllm_args"]
     assert args["speculative-config"] == {"method": "mtp", "num_speculative_tokens": 3}
     assert args["reasoning-parser"] == "qwen3"
-    assert doc["gpus"] == [0, 2]
-    assert doc["params"]["tensor_parallel_size"] == len(doc["gpus"])
+    assert doc["gpu"] == 0
+    assert "gpus" not in doc
     # 渲染得出来(键名/类型都合法),且 JSON 值可解析
     argv = render_vllm_args(args)
     assert json.loads(argv[argv.index("--speculative-config") + 1])["method"] == "mtp"
