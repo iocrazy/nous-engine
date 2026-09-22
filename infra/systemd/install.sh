@@ -137,6 +137,12 @@ case "${1:-install}" in
     # ── 4. enginectl + sudoers ────────────────────────────────────────────
     step "安装 enginectl + sudoers drop-ins"
     install -m 0755 "$SCRIPT_DIR/enginectl" "$ENGINECTL_DST"; ok "enginectl → $ENGINECTL_DST"
+    # 内网地址单一真相源:给它一个**稳定路径**,内容仍是仓库那份(软链,不是拷贝)——
+    # 拷贝会分叉,软链让 git pull 改了 network.env 立刻生效。enginectl 装到
+    # /usr/local/bin/ 后按自身位置推不出仓库路径,就靠这个固定位置找到它。
+    install -d -m 0755 /etc/nous-engine
+    ln -sfn "$(readlink -f "$SCRIPT_DIR/../network.env")" /etc/nous-engine/network.env
+    ok "network.env → /etc/nous-engine/network.env(软链至仓库)"
     for sd in "${SUDOERS[@]}"; do
       src="$SCRIPT_DIR/../security/$sd.sudoers"; dst="/etc/sudoers.d/$sd"
       install -m 0440 "$src" "$dst"
