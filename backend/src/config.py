@@ -323,6 +323,34 @@ def resolve_vram_utilization(
     return auto_util
 
 
+#: `params.enable_prefix_caching`(适配器 kwarg)在 `params.vllm_args` 里的同义写法。
+#: 归一化前后两种都可能出现在 yaml 里(normalize_vllm_flag 把下划线换成连字符)。
+_PREFIX_CACHING_VLLM_ALIASES = ("enable-prefix-caching", "enable_prefix_caching")
+
+
+def drop_prefix_caching_vllm_alias(params: dict) -> dict:
+    """摘掉 `params.vllm_args` 里的 prefix-caching 别名,让适配器 kwarg 说了算。
+
+    prefix caching 有**两条**配法,而 `merge_vllm_args` 同名时**以 vllm_args 为准**
+    (适配器自己拼的那份会被摘掉)。本机 models.d 的 qwen3.8 两个变体走的正是 vllm_args
+    那条 —— 于是运行时覆盖 `enable_prefix_caching: false` 写进了库、GET 也照报 false,
+    load 时却又被 vllm_args 打开:开关是**单向的**,关不掉还不报错。
+
+    ⚠️ 返回**新 dict**(外层 + vllm_args 子 dict 都重建),绝不原地 pop:vllm_args 与
+    调用方的 TTL 缓存共享同一个对象(model_scanner._with_runtime_overrides),原地删会
+    写穿进缓存被烘死 —— 与 `copy_before_write` 堵的是同一个坑,只是深了一层。
+    """
+    va = params.get("vllm_args")
+    if not isinstance(va, dict) or not any(a in va for a in _PREFIX_CACHING_VLLM_ALIASES):
+        return params
+    return {
+        **params,
+        "vllm_args": {
+            k: v for k, v in va.items() if k not in _PREFIX_CACHING_VLLM_ALIASES
+        },
+    }
+
+
 def _apply_runtime_overrides(cfgs: dict, copy_before_write: bool = False) -> None:
     """把运行时覆盖(resident/gpu/gpus/vram_budget)叠加进 cfgs(原地改)。overlay 优先于 models.yaml。
 
@@ -339,20 +367,24 @@ def _apply_runtime_overrides(cfgs: dict, copy_before_write: bool = False) -> Non
             ov_params = ov.get("params") or {}
             if not applied and not ov_params:
                 continue
+            merged_params = None
+            if ov_params:
+                # ⚠️ **新建 dict**。只浅拷外层的话,params 子 dict 与调用方的 TTL 缓存
+                # 共享同一对象,原地改会写穿(见 docstring)。
+                merged_params = {**(cfgs[mid].get("params") or {}), **ov_params}
+                if "enable_prefix_caching" in ov_params:
+                    merged_params = drop_prefix_caching_vllm_alias(merged_params)
             if copy_before_write:
                 merged = {**cfgs[mid], **applied}
-                if ov_params:
-                    # ⚠️ 连 params 一起**新建 dict**。只浅拷外层的话,params 子 dict
-                    # 与调用方的 TTL 缓存共享同一对象,原地改会写穿(见 docstring)。
-                    merged["params"] = {**(cfgs[mid].get("params") or {}), **ov_params}
+                if merged_params is not None:
+                    merged["params"] = merged_params
                 cfgs[mid] = merged
             else:
                 cfgs[mid].update(applied)
-                if ov_params:
+                if merged_params is not None:
                     # 这里也是**赋一个新 dict**,不是 .update() 原 dict —— 保持与上面
                     # 同样的「不原地改 params」语义,免得两条分支行为分叉。
-                    cfgs[mid]["params"] = {
-                        **(cfgs[mid].get("params") or {}), **ov_params}
+                    cfgs[mid]["params"] = merged_params
 
 
 @lru_cache

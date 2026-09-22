@@ -414,6 +414,33 @@ class ModelManager:
         cls = getattr(module, class_name)
 
         params = dict(spec.params)
+
+        # 启动参数的运行时覆盖(spec 2026-09-22)。registry 的 _load 直读 yaml、不套 params
+        # overlay,且 ModelSpec 是**启动时**建的 frozen 快照 —— 在那儿合并的话 PATCH 之后
+        # 就算 unload + load 用的还是旧快照,必须重启后端,与端点「unload + load 生效」的
+        # 承诺对不上。所以在这里、**每次 load 时**合并,读的是 DB 的当前值。
+        # (2026-09-22 之前这一步整个不存在:端点写了库、GET 报「已生效」,适配器收到的
+        #  还是 yaml 原值 —— 特性对 models.d 定义的模型全程是 no-op。)
+        #
+        # 只认白名单,且与写端点**共用同一个对象**(绝不复制一份,两份迟早分叉):
+        # 放置与显存预算是**放置结论**,绝不能从 params 这条路渗回来(那正是 2026-09-11
+        # 「改落卡忘改 util」事故的形状)。
+        from src.api.routes.engines import _LAUNCH_PARAM_WHITELIST  # noqa: PLC0415
+        from src.config import (  # noqa: PLC0415
+            drop_prefix_caching_vllm_alias,
+            load_runtime_overrides,
+        )
+        ov = load_runtime_overrides().get(spec.id) or {}
+        ov_params = {
+            k: v for k, v in (ov.get("params") or {}).items()
+            if k in _LAUNCH_PARAM_WHITELIST
+        }
+        params.update(ov_params)
+        if "enable_prefix_caching" in ov_params:
+            # vllm_args 里的同义写法会在 merge_vllm_args 里盖住适配器 kwarg —— 不摘掉的话
+            # 这个开关是单向的(开得了、关不掉,且不报错)。摘的是新 dict,见该函数注释。
+            params = drop_prefix_caching_vllm_alias(params)
+
         if spec.model_type == "image" and "lora_paths" not in params:
             # Inject ALL scanned LoRAs (no arch filter). Pre-existing
             # workflows that reference an "incompatible" LoRA name should
@@ -437,8 +464,6 @@ class ModelManager:
         # image 等不接受的不传以免 unexpected-kwarg。
         import inspect
 
-        from src.config import load_runtime_overrides
-        ov = load_runtime_overrides().get(spec.id) or {}
         vb = ov.get("vram_budget")
         if (
             isinstance(vb, dict)
