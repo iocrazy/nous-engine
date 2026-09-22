@@ -734,6 +734,7 @@ function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: (
               engineName={engine.name}
               current={data.effective}
               editable={data.editable}
+              overridden={data.overridden}
             />
           </>
         )}

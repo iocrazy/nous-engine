@@ -35,6 +35,7 @@ export function LaunchParamsEditor({
   engineName,
   current,
   editable,
+  overridden,
 }: {
   engineName: string
   current: Record<string, unknown>
@@ -44,6 +45,8 @@ export function LaunchParamsEditor({
    * 引擎行为纹丝不动(MOSS ASR / TTS 的适配器用 `**kwargs` 收尾)。
    */
   editable: string[]
+  /** 哪几个键当前被运行时覆盖 —— 只有它们需要「恢复默认」。 */
+  overridden: string[]
 }) {
   const update = useUpdateLaunchParams()
   const [draft, setDraft] = useState<LaunchParamsBody>({})
@@ -79,6 +82,24 @@ export function LaunchParamsEditor({
 
   const can = (k: keyof LaunchParamsBody) => editable.includes(k)
 
+  /**
+   * 「恢复默认」= 发 `{key: null}` 清除该覆盖、回退 models.d 的 yaml 值。
+   * 三态的后端从 Task 2/4 起就支持,**前端一直没发过** —— 于是用户改了 max_model_len
+   * 之后没有任何办法退回默认,只能再猜一个值填回去(2026-09-22 复查 N5)。
+   */
+  const ResetButton = ({ k }: { k: keyof LaunchParamsBody }) =>
+    overridden.includes(k) ? (
+      <button
+        type="button"
+        aria-label={`恢复默认 ${k}`}
+        disabled={update.isPending}
+        onClick={() => saveAndDropDraft({ [k]: null } as LaunchParamsBody)}
+        style={{ fontSize: 11, color: 'var(--muted)' }}
+      >
+        恢复默认
+      </button>
+    ) : null
+
   const payload = sanitizeLaunchParams(draft)
   const canSave = Object.keys(payload).length > 0
 
@@ -107,6 +128,7 @@ export function LaunchParamsEditor({
               {p.label}
             </button>
           ))}
+          <ResetButton k="max_model_len" />
         </div>
         <p style={{ color: 'var(--muted)', marginTop: 4 }}>
           上下文与并发此消彼长:同样的 KV 池,长度减半则并发翻倍。
@@ -117,16 +139,21 @@ export function LaunchParamsEditor({
 
       {can('max_num_seqs') && (
       <>
-      <label>
-        最大并发序列 (max_num_seqs)
-        <input
-          type="number"
-          aria-label="max_num_seqs"
-          value={num('max_num_seqs')}
-          onChange={(e) => onNumChange('max_num_seqs')(e.target.value)}
-          style={{ width: 90, marginLeft: 6 }}
-        />
-      </label>
+      {/* 「恢复默认」一律放在 <label> **外面**:label 内的点击会转发给被标注的控件,
+          放进去等于点一下既清覆盖又顺手改了那个控件的值。 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label>
+          最大并发序列 (max_num_seqs)
+          <input
+            type="number"
+            aria-label="max_num_seqs"
+            value={num('max_num_seqs')}
+            onChange={(e) => onNumChange('max_num_seqs')(e.target.value)}
+            style={{ width: 90, marginLeft: 6 }}
+          />
+        </label>
+        <ResetButton k="max_num_seqs" />
+      </div>
       <p style={{ color: 'var(--muted)', marginTop: -6 }}>
         这是**调度上限,不是并发驱动力** —— 真实并发由 KV 池决定,只调大它不给 KV 没有提升。
       </p>
@@ -134,32 +161,38 @@ export function LaunchParamsEditor({
       )}
 
       {can('max_num_batched_tokens') && (
-      <label>
-        单批最大 token (max_num_batched_tokens)
-        <input
-          type="number"
-          aria-label="max_num_batched_tokens"
-          value={num('max_num_batched_tokens')}
-          onChange={(e) => onNumChange('max_num_batched_tokens')(e.target.value)}
-          style={{ width: 90, marginLeft: 6 }}
-        />
-      </label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label>
+          单批最大 token (max_num_batched_tokens)
+          <input
+            type="number"
+            aria-label="max_num_batched_tokens"
+            value={num('max_num_batched_tokens')}
+            onChange={(e) => onNumChange('max_num_batched_tokens')(e.target.value)}
+            style={{ width: 90, marginLeft: 6 }}
+          />
+        </label>
+        <ResetButton k="max_num_batched_tokens" />
+      </div>
       )}
 
       {can('enable_prefix_caching') && (
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input
-          type="checkbox"
-          checked={Boolean(
-            draft.enable_prefix_caching ?? current.enable_prefix_caching,
-          )}
-          disabled={update.isPending}
-          onChange={(e) =>
-            saveAndDropDraft({ enable_prefix_caching: e.target.checked })
-          }
-        />
-        Prefix Caching(共享 system prompt 时跳过重复 prefill)
-      </label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={Boolean(
+              draft.enable_prefix_caching ?? current.enable_prefix_caching,
+            )}
+            disabled={update.isPending}
+            onChange={(e) =>
+              saveAndDropDraft({ enable_prefix_caching: e.target.checked })
+            }
+          />
+          Prefix Caching(共享 system prompt 时跳过重复 prefill)
+        </label>
+        <ResetButton k="enable_prefix_caching" />
+      </div>
       )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

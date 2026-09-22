@@ -382,7 +382,14 @@ def _apply_runtime_overrides(cfgs: dict, copy_before_write: bool = False) -> Non
             applied = {k: ov[k] for k in _OVERRIDABLE_KEYS if k in ov}
             # params 是**嵌套**覆盖,不能进 _OVERRIDABLE_KEYS 那套浅合并 ——
             # 那会用覆盖里的几个键**整体替换**掉 yaml 的 params 块。
-            ov_params = ov.get("params") or {}
+            # 读路径也过白名单,与写路径(`_instantiate_adapter`)对称。端点今天拦得住
+            # `tensor_parallel_size`(两条集合不相交),但这里是**唯一**一条能让脏库里的
+            # 该键经 `add_from_scan` 渗进 `spec.params` 的路 —— 而 `_resolve_placement`
+            # 正读那个键,放置结论就被数据面改掉了(2026-09-22 复查 N2)。
+            ov_params = {
+                k: v for k, v in (ov.get("params") or {}).items()
+                if k in LAUNCH_PARAM_WHITELIST
+            }
             if not applied and not ov_params:
                 continue
             merged_params = None
