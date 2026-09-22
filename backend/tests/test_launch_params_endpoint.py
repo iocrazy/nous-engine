@@ -154,6 +154,32 @@ async def test_patch_rejects_engine_whose_adapter_cannot_consume(db_client):
         runtime_override_store.get_overrides().get(name, {}).get("params") or {})
 
 
+@pytest.mark.asyncio
+async def test_patch_null_allowed_even_when_adapter_cannot_consume(db_session, db_client):
+    """吃不下的键也要能**清**:`null` 是清除覆盖,不是设置。
+
+    拦住 null 的话,库里躺着的历史死数据(收窄之前存下的、到不了引擎的覆盖)就永远
+    清不掉 —— 面板不渲染它、PATCH 又拒绝它,只剩手改 DB。清除只会让状态更干净。
+    """
+    from src.config import load_model_configs
+    from src.services import runtime_override_store
+
+    name = "moss_transcribe_diarize"
+    if name not in load_model_configs():
+        pytest.skip(f"{name} 不在本机 models.d")
+
+    # 绕过端点直接种一条"历史死数据",模拟收窄之前存下的覆盖
+    await runtime_override_store.set_override(
+        db_session, name, "params", {"max_model_len": 4096})
+    assert runtime_override_store.get_overrides()[name]["params"]["max_model_len"] == 4096
+
+    r = await db_client.patch(f"/api/v1/engines/{name}/launch-params",
+                              json={"max_model_len": None})
+    assert r.status_code == 200, r.text
+    assert "max_model_len" not in (
+        runtime_override_store.get_overrides().get(name, {}).get("params") or {})
+
+
 def test_editable_launch_params_by_adapter_signature():
     """可编辑性按**适配器签名**判,不按模型 type 猜。
 
