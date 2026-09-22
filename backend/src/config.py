@@ -334,12 +334,25 @@ def _apply_runtime_overrides(cfgs: dict, copy_before_write: bool = False) -> Non
     for mid, ov in overrides.items():
         if mid in cfgs and isinstance(ov, dict):
             applied = {k: ov[k] for k in _OVERRIDABLE_KEYS if k in ov}
-            if not applied:
+            # params 是**嵌套**覆盖,不能进 _OVERRIDABLE_KEYS 那套浅合并 ——
+            # 那会用覆盖里的几个键**整体替换**掉 yaml 的 params 块。
+            ov_params = ov.get("params") or {}
+            if not applied and not ov_params:
                 continue
             if copy_before_write:
-                cfgs[mid] = {**cfgs[mid], **applied}
+                merged = {**cfgs[mid], **applied}
+                if ov_params:
+                    # ⚠️ 连 params 一起**新建 dict**。只浅拷外层的话,params 子 dict
+                    # 与调用方的 TTL 缓存共享同一对象,原地改会写穿(见 docstring)。
+                    merged["params"] = {**(cfgs[mid].get("params") or {}), **ov_params}
+                cfgs[mid] = merged
             else:
                 cfgs[mid].update(applied)
+                if ov_params:
+                    # 这里也是**赋一个新 dict**,不是 .update() 原 dict —— 保持与上面
+                    # 同样的「不原地改 params」语义,免得两条分支行为分叉。
+                    cfgs[mid]["params"] = {
+                        **(cfgs[mid].get("params") or {}), **ov_params}
 
 
 @lru_cache
