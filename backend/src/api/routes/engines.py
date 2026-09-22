@@ -834,57 +834,75 @@ async def set_resident(name: str, request: Request, resident: bool = True,
     return {"name": name, "resident": resident}
 
 
+#: 可运行时覆盖的启动参数。**刻意不含** gpu_memory_utilization 与 tensor_parallel_size:
+#:   - util 是「占该卡总量」的比例,换卡必须重算(2026-09-11 事故:改落卡忘改 util,
+#:     模型在 Pro 6000 上抓 53.3GiB 把 ComfyUI 挤到 19GiB)。显存走 vram-budget ——
+#:     它存绝对 GiB,在**加载时**按实际那张卡换算(llm_vllm.py 的预算优先级)。
+#:   - tp 是**放置结论**(_placement 定),不是调优旋钮。
+_LAUNCH_PARAM_WHITELIST = frozenset({
+    "max_model_len",
+    "max_num_seqs",
+    "max_num_batched_tokens",
+    "enable_prefix_caching",
+    "dtype",
+    "quantization",
+})
+
+#: 这些键单独给理由,不要混在"不在白名单"的通用报错里 —— 用户会以为是拼错了。
+_LAUNCH_PARAM_REDIRECTS = {
+    "gpu_memory_utilization":
+        "显存预算请改用 PATCH /engines/{name}/vram-budget(mode=absolute + 绝对 GiB)。"
+        "gpu_memory_utilization 是「占该卡总量」的比例,换卡必须重算,不作为可编辑项。",
+    "tensor_parallel_size":
+        "tp 由放置决定(ModelManager._resolve_placement),不是调优旋钮。"
+        "要换卡/换组请用 PATCH /engines/{name}/gpu。",
+}
+
+
 @router.patch("/{name}/launch-params", dependencies=[Depends(require_admin)])
-async def set_launch_params(name: str, body: dict):
-    """Edit the per-model `params` block in models.yaml.
+async def set_launch_params(
+    name: str,
+    body: dict,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """覆盖模型的启动参数,持久到 DB 的 model_runtime_overrides.params。
 
-    Whitelisted keys only. Changes affect the **next** load — existing running
-    instances keep their current launch parameters. Caller must unload + load
-    to apply.
+    **不写 configs/models.yaml** —— 2026-06-20 起模型定义在 models.d/,那个文件只剩
+    空锚点;而且写 git 跟踪的 yaml 会被 git checkout/pull 冲掉(同 resident 端点的理由)。
+
+    值为 `null` 的键 = **清除该覆盖**(回退 models.d 的 yaml 值)。
+    改动只在**下次 load** 时读到,所以 `applied` 恒为 false。
     """
-    import yaml
+    from src.config import load_model_configs
+    from src.services import runtime_override_store
 
-    allowed = {
-        "enable_prefix_caching",
-        "max_num_seqs",
-        "max_model_len",
-        "gpu_memory_utilization",
-        "tensor_parallel_size",
-        "quantization",
-        "dtype",
-    }
-    updates = {k: v for k, v in body.items() if k in allowed}
-    if not updates:
-        raise HTTPException(400, detail=f"no allowed keys; whitelist: {sorted(allowed)}")
+    if name not in load_model_configs():
+        raise HTTPException(404, detail=f"Unknown engine: {name}")
 
-    configs_path = Path(__file__).resolve().parent.parent.parent.parent / "configs" / "models.yaml"
-    with open(configs_path) as f:
-        data = yaml.safe_load(f)
+    for k, hint in _LAUNCH_PARAM_REDIRECTS.items():
+        if k in body:
+            raise HTTPException(400, detail=hint.format(name=name))
 
-    models = data.get("models", [])
-    if not isinstance(models, list):
-        raise HTTPException(500, detail="models.yaml is not in list-based format")
+    bad = [k for k in body if k not in _LAUNCH_PARAM_WHITELIST]
+    if bad:
+        raise HTTPException(
+            400,
+            detail=f"不可覆盖的参数 {bad};允许:{sorted(_LAUNCH_PARAM_WHITELIST)}",
+        )
+    if not body:
+        raise HTTPException(400, detail="body 为空;至少给一个参数")
 
-    found = False
-    for entry in models:
-        if entry.get("id") != name:
-            continue
-        params = entry.setdefault("params", {})
-        params.update(updates)
-        # Remove keys explicitly set to null (lets caller "unset" overrides)
-        for k, v in list(params.items()):
-            if v is None:
-                params.pop(k, None)
-        found = True
-        break
-    if not found:
-        raise HTTPException(404, detail=f"unknown engine: {name}")
-
-    with open(configs_path, "w") as f:
-        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    await runtime_override_store.set_override(session, name, "params", body)
 
     invalidate("engines")
-    return {"name": name, "params": updates, "applied": False, "hint": "unload + load to apply"}
+    merged = runtime_override_store.get_overrides().get(name, {}).get("params", {})
+    return {
+        "name": name,
+        "params": merged,
+        "applied": False,
+        "hint": "需重新加载模型生效(unload + load)",
+    }
 
 
 def _card_total_gb_for_engine(cfg: dict, loaded_gpu: int | None = None) -> float:
