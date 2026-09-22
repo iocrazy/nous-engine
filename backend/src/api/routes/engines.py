@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import time
-from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
