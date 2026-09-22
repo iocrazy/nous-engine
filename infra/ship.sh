@@ -14,8 +14,9 @@
 # 生产停在上一版直到下一次 ship —— deploy.sh 是 reset 到 origin/master,会把中间的一并带上。
 #
 # 环境变量:NOUS_SHIP_HOST(ssh 目标,默认 ubuntu)。2026-09-21 ZeroTier 换 Tailscale 后,
-#   **Mac 上的 ~/.ssh/config 里那条 Host ubuntu 要把 HostName 改成 100.124.149.118**
-#   (或 tailnet 名 heygo-ubuntu)—— 旧的 10.0.0.10 已不存在,不改这里 ship 会连不上。
+#   **Mac 上的 ~/.ssh/config 里那条 Host ubuntu 的 HostName 要指向生产机的 tailnet 地址**
+#   —— 取值见生产机 infra/network.env 的 NOUS_TS_HOST,或直接用 tailnet 名 heygo-ubuntu
+#   (推荐:名字不随重新分配 IP 而变)。旧的 ZeroTier 10.0.0.10 已不存在,不改连不上。
 #          NOUS_SHIP_PROD_DIR(生产检出,默认 /media/heygo/program/projects-code/repos/nous-engine)
 #          NOUS_SHIP_DISCORD_WEBHOOK(可选;设了就把结果一行 POST 过去)
 #

@@ -29,9 +29,11 @@ UNIT_FILES=(nous-engine-backend.service nous-engine-status.service \
             nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine-netprobe.service nous-engine.target)
 
 LOCAL_URL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
-# 2026-09-21 ZeroTier 退役换 Tailscale。IP 随节点固定;换 tailnet/重装节点
-# 用 NOUS_TS_URL 覆盖(旧名 NOUS_ZT_URL 仍兼容)。
-TS_URL="${NOUS_TS_URL:-${NOUS_ZT_URL:-http://100.124.149.118:8000}}"
+# 内网地址取自单一真相源 infra/network.env(换网只改那个文件)。
+# 仍可用 NOUS_TS_URL 临时覆盖;旧名 NOUS_ZT_URL 保留兼容。
+_NET_ENV="${NOUS_NETWORK_ENV:-$SCRIPT_DIR/../network.env}"
+[ -r "$_NET_ENV" ] && . "$_NET_ENV" || warn "读不到 $_NET_ENV,内网探测将跳过"
+TS_URL="${NOUS_TS_URL:-${NOUS_ZT_URL:-http://${NOUS_TS_HOST:-127.0.0.1}:8000}}"
 STATUS_URL="${NOUS_STATUS_URL:-http://127.0.0.1:8001}"
 
 # ── 样式 ──────────────────────────────────────────────────────────────────

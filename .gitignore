@@ -80,3 +80,6 @@ coverage.xml
 backend/tests/manual/_ocr_testdoc.png
 backend/tests/manual/_ocr_out.txt
 backend/tests/manual/_smoke_out/
+
+# SDD/subagent 临时 worktree —— 嵌套 git 仓库,绝不入库
+.claude/worktrees/

@@ -6,7 +6,7 @@ import wasm from 'vite-plugin-wasm'
 export default defineConfig({
   plugins: [react(), tailwindcss(), wasm()],
   server: {
-    // 监听 0.0.0.0 让 LAN / Tailscale 内（如 100.124.149.118）能直访；HMR 用 host 自适应。
+    // 监听 0.0.0.0 让 LAN / Tailscale 内能直访（地址见 infra/network.env）；HMR 用 host 自适应。
     host: true,
     // 端口固定 9999 — cloudflared / 各处链接对齐这个端口
     port: 9999,

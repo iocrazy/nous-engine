@@ -114,13 +114,79 @@ def test_uninstall_removes_the_privileged_libdir():
 _WILDCARD_BINDS = {"0.0.0.0", "::", "*", ""}
 
 
+def _net_env() -> dict[str, str]:
+    """解析 infra/network.env —— 内网地址的单一真相源。
+
+    systemd `EnvironmentFile=` 与 shell `source` 都吃这个格式:KEY=value,
+    无 export、无行尾注释、值不加引号。这里按同样的规则解析。
+    """
+    out: dict[str, str] = {}
+    for line in _read("infra/network.env").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        out[k.strip()] = v.strip()
+    return out
+
+
 def _comfy_listen_addrs() -> list[str]:
+    """ExecStart 里的 --listen 地址表,**解析到最终值**。
+
+    2026-09-21 起 unit 不再硬编码 IP,而是 `--listen ${NOUS_COMFY_LISTEN}`,
+    值来自 `infra/network.env`(EnvironmentFile)。所以这里必须把变量展开后再判 ——
+    否则守卫会退化成「看见 `${...}` 就放行」,有人把 network.env 写成 0.0.0.0 也照过。
+    """
     import re
 
     exec_start = _exec_start(_read("infra/systemd/nous-engine-comfyui.service"))
     m = re.search(r"--listen[= ]+(\S+)", exec_start)
     assert m, "ComfyUI 必须显式 --listen,不能靠默认值(默认就是 127.0.0.1,但别赌):" + exec_start
-    return [a.strip() for a in m.group(1).split(",")]
+    raw = m.group(1)
+
+    var = re.fullmatch(r"\$\{(\w+)\}|\$(\w+)", raw)
+    if var:
+        name = var.group(1) or var.group(2)
+        env = _net_env()
+        assert name in env, (
+            f"ExecStart 用了 ${{{name}}},但 infra/network.env 里没有这个键 —— "
+            f"systemd 会展开成空串,`--listen ` 空地址可能被当通配符绑全网卡"
+        )
+        raw = env[name]
+    return [a.strip() for a in raw.split(",")]
+
+
+def test_comfyui_env_file_is_fail_closed():
+    """`EnvironmentFile=` 不能带 `-` 前缀 —— 文件缺失时必须让单元起不来。
+
+    带 `-` 是"容错":文件读不到就当没有,于是 `${NOUS_COMFY_LISTEN}` 展开成空串,
+    `--listen ` 拿到空地址。ComfyUI 零鉴权,空地址被当通配符 = 全网卡开放。
+    宁可 fail-closed 起不来,也不能悄悄全开。
+    """
+    unit = _read("infra/systemd/nous-engine-comfyui.service")
+    lines = [ln.strip() for ln in unit.splitlines() if ln.strip().startswith("EnvironmentFile=")]
+    assert lines, "ComfyUI 单元应通过 EnvironmentFile 取 infra/network.env 的地址"
+    bad = [ln for ln in lines if ln.startswith("EnvironmentFile=-")]
+    assert not bad, (
+        f"EnvironmentFile 带了 `-`(容错)前缀:{bad}。文件缺失时地址会变成空串,"
+        "零鉴权的 ComfyUI 可能因此绑全网卡 —— 这里必须 fail-closed。"
+    )
+
+
+def test_net_env_host_and_listen_agree():
+    """`NOUS_COMFY_LISTEN` 必须包含 `NOUS_TS_HOST`。
+
+    systemd 不做嵌套展开,所以 network.env 里 IP 写了两遍(一遍单独给探测脚本用,
+    一遍在 listen 表里)。两者分叉 = 「改了一处忘另一处」,表现为 ComfyUI 绑在
+    旧地址上、enginectl 却探新地址,两边都不报错但界面打不开。这条就是防这个。
+    """
+    env = _net_env()
+    host, listen = env.get("NOUS_TS_HOST"), env.get("NOUS_COMFY_LISTEN")
+    assert host, "infra/network.env 缺 NOUS_TS_HOST"
+    assert listen, "infra/network.env 缺 NOUS_COMFY_LISTEN"
+    assert host in [a.strip() for a in listen.split(",")], (
+        f"NOUS_TS_HOST={host} 不在 NOUS_COMFY_LISTEN={listen} 里 —— 改了一处忘了另一处?"
+    )
 
 
 def test_comfyui_binds_no_wildcard_address():
