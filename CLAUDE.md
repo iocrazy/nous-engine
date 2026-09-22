@@ -184,21 +184,41 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   配套 `GET .../launch-params` 回 `{effective, overridden}`:前者是「下次 load 会用的值」
   (已过 `_apply_runtime_overrides` 深合并),后者标出其中哪几个键来自 DB 覆盖。
   UI 入口在**模型页右键菜单**「启动参数…」(`ModelsOverlay.tsx`,紧挨「显存预算…」)。
-- 白名单:`max_model_len` / `max_num_seqs` / `max_num_batched_tokens` /
-  `enable_prefix_caching` / `dtype` / `quantization`。
+- 白名单是 `src/config.py` 的 `LAUNCH_PARAM_WHITELIST`(**一个对象,两处消费**:写端点
+  与 `ModelManager._instantiate_adapter`;放在配置层是为了不让服务层反向 import API 层):
+  `max_model_len` / `max_num_seqs` / `max_num_batched_tokens` /
+  `enable_prefix_caching` / `dtype` / `quantization`。键名之外**还校验值域**
+  (三个数字键必须是 >0 的 int 且排除 bool;`enable_prefix_caching` 必须 bool;
+  两个字符串键必须非空 str)—— 否则前端一个空输入框就能把 `0` 写进 DB 且退不出来。
 - **`gpu_memory_utilization` 与 `tensor_parallel_size` 刻意不可覆盖**,PATCH 到会 400:
   util 是「占该卡总量」的比例、换卡必须重算(2026-09-11 事故:改落卡忘改 util,
   模型在 Pro 6000 上抓 53.3GiB 把 ComfyUI 挤到 19GiB),显存一律走
   `PATCH /engines/{name}/vram-budget`(存**绝对 GiB**,加载时按实际那张卡换算);
   tp 是放置结论,由 `_resolve_placement` 定。
-- 合并是**嵌套深合并**(`config.py::_apply_runtime_overrides`):只覆盖给定的键,
-  其余仍走 models.d 的 `params`。⚠️ `copy_before_write=True` 时必须**连 `params`
-  一起新建 dict** —— 只浅拷外层的话,`params` 子 dict 与 `model_scanner` 的 TTL
-  缓存共享同一对象,原地改会写穿(症状:改了 30 秒看不到,或改一次污染此后所有读)。
+- ⚠️ **合并点有两个,少一个就是 no-op**:
+  1. `config.py::_apply_runtime_overrides` —— 喂 `load_model_configs()`,也就是 GET 端点
+     报给 UI 的 `effective`。**只管显示。**
+  2. `ModelManager._instantiate_adapter` —— 每次 load 时合并进适配器构造参数。**只管行为。**
+
+  为什么不能只在 registry 的 `_load` 里合并:那里只在**启动时**跑一次、`ModelSpec` 是
+  frozen 快照,PATCH 之后就算 unload + load 用的还是旧值,非重启后端不可 —— 与端点
+  「unload + load 生效」的承诺对不上。2026-09-22 这支的 Critical 正是漏了第 2 点:
+  端点写了库、GET 照报「已生效」,适配器收到的还是 yaml 原值,整个特性对 `models.d/`
+  定义的模型全程是 no-op,**而且 UI 是绿的**(比旧的 404 更难发现)。
+  加新的覆盖键时,**两处都要过一遍**。
+- ⚠️ `_apply_runtime_overrides` 的 `copy_before_write=True` 时必须**连 `params` 一起
+  新建 dict** —— 只浅拷外层的话,`params` 子 dict 与 `model_scanner` 的 TTL 缓存共享
+  同一对象,原地改会写穿(症状:改了 30 秒看不到,或改一次污染此后所有读)。
+  `vllm_args` 子 dict 同理,深一层(见下条)。
 - ⚠️ **prefix caching 有两条配法**:`params.enable_prefix_caching`(适配器 kwarg)与
-  `params.vllm_args["enable-prefix-caching"]`(透传,同名时以它为准)。本机 qwen3.8
-  两个变体走的是后者,所以读端点**两处都读**;只读前者的话 UI 复选框显示「没开」而
-  实际开着,用户一点就把真实状态反转。加白名单键时留意有没有同类的双写路径。
+  `params.vllm_args["enable-prefix-caching"]`(透传,`merge_vllm_args` 同名时**以
+  vllm_args 为准**)。本机 qwen3.8 两个变体走的是后者,于是:
+  - 读端点**两处都读**,否则 UI 复选框显示「没开」而实际开着,用户一点就反转真实状态;
+  - 显式覆盖 `enable_prefix_caching` 时,`config.drop_prefix_caching_vllm_alias()`
+    会把 `vllm_args` 里的两个别名**摘掉**(返回新 dict,不原地 pop —— 同上条写穿),
+    读写两条路径共用这一个实现。不摘的话这个开关是**单向的**:开得了、关不掉、不报错。
+
+  加白名单键时先查有没有同类的双写路径(另外 5 个键今天没有 yaml 用到,是潜伏项)。
 - `kv_cache_dtype` **不在白名单**:本机没有 nvcc,fp8 KV 会在 FlashInfer JIT 处起不来
   (2026-09-21 两次实测),加进去等于给一个「点了会起不来」的按钮。
 

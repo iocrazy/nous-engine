@@ -328,6 +328,24 @@ def resolve_vram_utilization(
 _PREFIX_CACHING_VLLM_ALIASES = ("enable-prefix-caching", "enable_prefix_caching")
 
 
+#: 可运行时覆盖的启动参数(`PATCH /engines/{name}/launch-params` 与
+#: `ModelManager._instantiate_adapter` **共用同一个对象** —— 两份迟早分叉)。
+#: **刻意不含** gpu_memory_utilization 与 tensor_parallel_size:
+#:   - util 是「占该卡总量」的比例,换卡必须重算(2026-09-11 事故:改落卡忘改 util,
+#:     模型在 Pro 6000 上抓 53.3GiB 把 ComfyUI 挤到 19GiB)。显存走 vram-budget ——
+#:     它存绝对 GiB,在**加载时**按实际那张卡换算(llm_vllm.py 的预算优先级)。
+#:   - tp 是**放置结论**(_placement 定),不是调优旋钮。
+#: `tests/test_launch_params_endpoint.py` 有机检盯着这两类键别混进来。
+LAUNCH_PARAM_WHITELIST = frozenset({
+    "max_model_len",
+    "max_num_seqs",
+    "max_num_batched_tokens",
+    "enable_prefix_caching",
+    "dtype",
+    "quantization",
+})
+
+
 def drop_prefix_caching_vllm_alias(params: dict) -> dict:
     """摘掉 `params.vllm_args` 里的 prefix-caching 别名,让适配器 kwarg 说了算。
 
