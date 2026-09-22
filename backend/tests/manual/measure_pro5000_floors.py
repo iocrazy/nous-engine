@@ -13,22 +13,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import yaml
 from src.services.inference.llm_vllm import VLLMAdapter
 
-DEVICE = "cuda:0"          # Pro 5000
+     # 默认量 Pro 5000(GPU 0);要在另一张卡上测就用环境变量覆盖,例如在空闲的
+# Pro 6000 上给大模型探地板(2026-09-21 三个 3.8 变体就是这么测的,因为 Pro 5000
+# 被常驻占满、腾不出 34~57 GiB):
+#   MEASURE_DEVICE=cuda:1 MEASURE_UUID=d24ed424 MEASURE_CARD_GIB=95.6 \
+#     uv run python tests/manual/measure_pro5000_floors.py <model>=<util>
+#
+# ⚠️ **换卡测出来的 util 不能直接抄回另一张卡** —— 比例是「占该卡总量」。
+# 能搬的是**绝对预算(GiB)**:在 A 卡测得 budget_gib,落到 B 卡就是
+# util_B = budget_gib / B卡可见GiB。别把 95.6 卡上的 0.36 抄成 71.12 卡上的 0.36。
+DEVICE = os.environ.get("MEASURE_DEVICE", "cuda:0")
 # 只用来在标题里给个**粗略**预算。别引用这行打印出来的数字做判定:开机可见显存
 # (vLLM 日志里的 71.12 GiB)比 nvidia-smi 的 total 小,util 越大偏差越大(实测
 # 0.08~0.2 GiB)。真值取 vLLM 自己那行 "Desired GPU memory utilization"。
-CARD_GIB = 71.7
+CARD_GIB = float(os.environ.get("MEASURE_CARD_GIB", "71.7"))
 
 KEYS = ("KV cache", "model weights", "memory profiling", "GPU KV cache size",
         "Maximum concurrency", "non-torch memory", "peak activation", "Free memory on device")
 
 
-def gpu_used_mib(uuid_frag="f4334111"):
+def gpu_used_mib(uuid_frag=None):
     """按 UUID 片段汇总某张卡上所有进程的显存。默认值是 Pro 5000 的 UUID 片段。
 
     先确认这块 UUID 真在机器上 —— 否则「没有匹配行」与「卡上没进程」都返回 0,
     换卡/重装驱动后会静默给出全错的增量,而不是报错。
     """
+    if uuid_frag is None:
+        uuid_frag = os.environ.get("MEASURE_UUID", "f4334111")
     listing = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True).stdout
     if uuid_frag not in listing:
         raise RuntimeError(f"nvidia-smi -L 里没有 UUID 片段 {uuid_frag};卡换了?\n{listing}")

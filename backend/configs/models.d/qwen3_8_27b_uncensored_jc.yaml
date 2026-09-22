@@ -1,0 +1,63 @@
+# qwen3_8_27b_uncensored_jc — LLM(视觉语言,破限版,BF16 未量化)
+# 一模型一文件(configs/models.d/);改此模型只动本文件。
+#
+# 模型:JonathanColetti/Qwen3.8-27B-Uncensored(2026-09-19 从外置盘导入)
+#   - 基座 Qwen3.8-27B(`Qwen3_5ForConditionalGeneration`,64 层里 16 层全注意力
+#     + 48 层 Gated DeltaNet 线性注意力,`full_attention_interval: 4`;hidden 5120,
+#     24 注意力头 / 4 KV 头;原生视觉塔 333 个权重)。
+#   - 破限:Heretic abliteration,**BF16 未量化**。现有 AWQ 版的破限就来自这个作者
+#     (twolven 拿它的 bf16 成果再做 W4A16 量化)—— 所以这份是 **AWQ 版的未量化上游**。
+#   - 权重 **51.75 GiB**(index 声明值;含独立的 model-mtp.safetensors)。
+#   - 唯一自带**独立 `model-mtp.safetensors`** 的变体,MTP 投机解码最有戏。
+#
+# ⚠️ **导入时这份是不完整的**:外置盘上缺 `model-00011-of-00012.safetensors`
+#   (文件和 47.12 GiB vs index 声明 51.75,差 4.63 GiB)。该片已于 2026-09-21
+#   从 HuggingFace 补下(4,965,228,032 bytes)。**首次加载前请先跑完整性校验**:
+#     python3 - <<'EOF'
+#     import json,glob,os
+#     p='/media/heygo/program/models/nous/llm/Qwen3.8-27B-Uncensored-JonathanColetti'
+#     d=json.load(open(glob.glob(p+'/*.index.json')[0]))
+#     refs=sorted(set(d['weight_map'].values()))
+#     miss=[r for r in refs if not os.path.exists(os.path.join(p,r))]
+#     tot=sum(os.path.getsize(os.path.join(p,r)) for r in refs if not miss)
+#     print('缺片:',miss or '无'); print('和/声明:',tot,d['metadata']['total_size'])
+#     EOF
+adapter: src.services.inference.llm_vllm.VLLMAdapter
+id: qwen3_8_27b_uncensored_jc
+paths:
+  main: llm/Qwen3.8-27B-Uncensored-JonathanColetti
+type: llm
+# Pro 5000(72G)。Pro 6000 由 ComfyUI 独占,LLM 不上那张(CLAUDE.md 的用户硬决定)。
+gpu: 0
+# **不常驻,按需加载,加载前必须腾卡**(同 huihui 那份:权重 51.75 GiB,
+# 三常驻只剩 25.2 GiB 装不下,得先卸 AWQ + WeMM-4B 只留 MOSS ASR)。
+ttl_seconds: 3600
+# 2026-09-21 真机标定。**测量在空闲的 Pro 6000 上做的**(Pro 5000 被常驻占满,
+# 腾不出 57 GiB)。Pro 6000 可见 94.97 GiB,util 0.60:
+#   权重+non-torch 51.69 + 峰值激活 2.05 + KV 3.24 = **56.98 GiB = 预算** ✓
+#   (CUDAGraph 另计 0.16 GiB,不在等式里)
+#   KV 3.24 GiB = 45,738 tokens,32768 上下文下并发仅 **1.40x**;稳态 56970 MiB;
+#   加载 165.6s。
+# 与 qwen3_8_27b_abliterated_huihui **实测数字完全一致**(同基座同破限,只是打包
+# 方式不同:本份带独立 model-mtp.safetensors)—— 两者只留一个即可。
+#
+# ⚠️ **换算,不是照抄**:绝对预算 56.98 GiB 落到 Pro 5000(可见 71.12 GiB)
+# = 56.98 / 71.12 = **0.80**。别把上面那个 0.60 抄过来。
+#
+# ⚠️ **落到 Pro 5000 后余量极小**:57.06(含 CUDAGraph)+ MOSS ASR 8.68 = 65.74 GiB,
+# 卡 71.69 → 只剩 ~5.9 GiB。高于 DEFAULT_RESERVED_GB=4.0 但很紧,
+# **且必须先卸掉 AWQ 与 WeMM-4B**。
+vram_mb: 58300
+params:
+  max_model_len: 32768
+  # 比例是**每卡占总量**。BF16 不量化,所以和 huihui 一样高。
+  gpu_memory_utilization: 0.80
+  vllm_args:
+    reasoning-parser: qwen3
+    enable-auto-tool-choice: true
+    tool-call-parser: qwen3_xml
+    # ⚠️ 未开 speculative-config(MTP)。**这份是四个变体里最该试 MTP 的**
+    # (唯一带独立 model-mtp.safetensors,与 AWQ 版同一作者血统,AWQ 版实测
+    #  83 → 111 tok/s)。但先把模型跑通、util 标定完再开 —— 草稿 KV 要额外显存,
+    # 而这个变体已经贴顶。开的时候照抄 AWQ 版:
+    #   speculative-config: {"method": "mtp", "num_speculative_tokens": 3}

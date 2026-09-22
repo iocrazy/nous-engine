@@ -69,14 +69,41 @@ def test_resident_models_are_pinned_and_fit():
 
 
 def test_qwen3_6_is_retired():
-    """spec §10:3.6 退役,目录唯一 LLM 是 3.8。
+    """spec §10:3.6 退役,目录里的 LLM 只能是 3.8 系。
 
     断言的是**目录**(configs/models.d/*.yaml),不是 scan_models():权重目录
     `llm/Qwen3.6-35B-A3B-FP8` 按设计留盘不动,而 scan_models 会把任何带 config.json 的
     目录自动探测成 llm(auto_detected,resident 恒 False),所以它那边这个 key 永远还在。
     退役的含义是「不再由目录声明、不再可常驻/被服务引用」,这正是 load_model_configs 的口径。
+
+    2026-09-21 起目录里有 4 个 3.8 变体(AWQ / FP8 / huihui BF16 / JonathanColetti BF16),
+    所以不再断言"唯一",改断言"都是 3.8 系" —— 原意是挡住 3.6 回归和别的模型家族混进来,
+    同基座的破限/量化变体不违背这条。**并存限制由下面那个测试守**。
     """
     catalog = load_model_configs(apply_overrides=False)
-    assert "qwen3_6_35b_a3b_fp8" not in catalog, "spec §10:3.6 退役,目录唯一 LLM 是 3.8"
+    assert "qwen3_6_35b_a3b_fp8" not in catalog, "spec §10:3.6 退役"
     llms = sorted(k for k, v in catalog.items() if v.get("type") == "llm")
-    assert llms == ["qwen3_8_27b_abliterated_awq"], f"目录唯一 LLM 应是 3.8,实际 {llms}"
+    assert llms, "目录里至少要有一个 LLM"
+    strays = [k for k in llms if not k.startswith("qwen3_8_27b")]
+    assert not strays, f"目录里的 LLM 只能是 3.8 系(qwen3_8_27b*),多出来的:{strays}"
+
+
+def test_at_most_one_resident_llm():
+    """4 个 3.8 变体互为替代,**同时只能有一个常驻** —— 两个一起必爆卡。
+
+    2026-09-21 真机实测(Pro 5000 可见 71.12 GiB):最小的 AWQ 变体预算就要 24.89 GiB,
+    两个 BF16 变体各要约 56.9 GiB(权重 51.75 不量化)。而三常驻(ASR + AWQ + WeMM-4B)
+    已占 45.9 GiB 稳态,只剩 25.2 GiB。任意两个 LLM 变体同时常驻都放不下。
+
+    上面的 test_resident_models_are_pinned_and_fit 按 vram_mb 求和核容量,理论上也会
+    拦住;但这条把原因写明,红的时候一眼看懂是"选了两个互斥的变体",而不是去怀疑容量账。
+    """
+    catalog = load_model_configs(apply_overrides=False)
+    resident_llms = sorted(
+        k for k, v in catalog.items()
+        if v.get("type") == "llm" and v.get("resident")
+    )
+    assert len(resident_llms) <= 1, (
+        f"同时常驻了多个 LLM 变体:{resident_llms}。它们互为替代,只能留一个 "
+        f"resident: true,其余走 ttl_seconds 按需加载。"
+    )
