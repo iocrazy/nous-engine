@@ -6,7 +6,14 @@ vLLM 会报 "No available memory for the cache blocks" 直接起不来。
 
 只加载不推理,逐个来(共存测试在 Task 4)。每个测完立即卸载。
 """
-import asyncio, os, subprocess, sys, time
+import asyncio
+import os
+import subprocess
+import sys
+import time
+
+# ⚠️ 必须在 import torch / vllm **之前**:否则 torch 按算力排序(FASTEST_FIRST),
+# 两张卡会对调,cuda:0 落到本该空闲的那张上。
 os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -45,7 +52,8 @@ def gpu_used_mib(uuid_frag=None):
         raise RuntimeError(f"nvidia-smi -L 里没有 UUID 片段 {uuid_frag};卡换了?\n{listing}")
     out = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,gpu_uuid",
                           "--format=csv,noheader"], capture_output=True, text=True).stdout
-    return sum(int(l.split(",")[1].strip().split()[0]) for l in out.splitlines() if uuid_frag in l)
+    return sum(int(ln.split(",")[1].strip().split()[0])
+               for ln in out.splitlines() if uuid_frag in ln)
 
 
 async def measure(model_id: str, util: float):
