@@ -61,6 +61,55 @@ async def test_patch_unknown_engine_404(db_client):
     assert r.status_code == 404
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["max_model_len", "max_num_seqs", "max_num_batched_tokens"])
+@pytest.mark.parametrize("value", [0, -1, "8192", 1.5, True])
+async def test_patch_rejects_bad_numeric_values(db_client, key, value):
+    """只校验键名不校验值是不够的:前端 `Number('')` 是 `0`,清空输入框就会把 0 写进库,
+    而 0 让 vLLM 起不来 —— 库里躺着一个起不来的值,还得人去 DB 里捞。
+
+    `True` 单独要紧:`bool` 是 `int` 的子类,不显式排除会被当成 1 存下去。
+    """
+    r = await db_client.patch(
+        "/api/v1/engines/qwen3_8_27b_abliterated_awq/launch-params",
+        json={key: value})
+    assert r.status_code == 400, r.text
+    assert key in r.text          # 报错要点名是哪个键
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_non_bool_prefix_caching(db_client):
+    r = await db_client.patch(
+        "/api/v1/engines/qwen3_8_27b_abliterated_awq/launch-params",
+        json={"enable_prefix_caching": 1})
+    assert r.status_code == 400
+    assert "enable_prefix_caching" in r.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["", "   ", 8, True])
+async def test_patch_rejects_bad_dtype(db_client, value):
+    r = await db_client.patch(
+        "/api/v1/engines/qwen3_8_27b_abliterated_awq/launch-params",
+        json={"dtype": value})
+    assert r.status_code == 400
+    assert "dtype" in r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_accepts_valid_values(db_client):
+    """值域校验不能误伤正常输入(含 null = 清除)。"""
+    name = "qwen3_8_27b_abliterated_awq"
+    r = await db_client.patch(f"/api/v1/engines/{name}/launch-params", json={
+        "max_model_len": 32768, "max_num_seqs": 8, "max_num_batched_tokens": 8192,
+        "enable_prefix_caching": False, "dtype": "auto",
+    })
+    assert r.status_code == 200, r.text
+    r = await db_client.patch(f"/api/v1/engines/{name}/launch-params",
+                              json={"dtype": None, "max_model_len": None})
+    assert r.status_code == 200, r.text
+
+
 def test_whitelist_excludes_placement_and_vram_knobs():
     """白名单绝不能混进放置/显存参数 —— 它们是放置结论,不是调优旋钮。
     靠注释守不住:将来有人图省事往白名单里加一个,这条会红。
