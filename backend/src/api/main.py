@@ -88,6 +88,9 @@ _MICRO_MIGRATIONS: tuple[str, ...] = (
     # 但生产启动仍走 create_all —— create_all 不给**已存在**的表加列,没这条的话
     # 线上重启后 model_runtime_overrides 查询全炸 UndefinedColumn。幂等,可共存。
     "ALTER TABLE model_runtime_overrides ADD COLUMN IF NOT EXISTS gpus JSONB",
+    # 启动参数覆盖(spec 2026-09-22)。与 alembic f3b8c1d4e207 双写 —— 没跑 alembic 的
+    # 环境(测试临时库 / 老部署)也能有这一列。
+    "ALTER TABLE model_runtime_overrides ADD COLUMN IF NOT EXISTS params JSONB",
 )
 
 

@@ -33,6 +33,12 @@ class ModelRuntimeOverride(Base):
     gpus = Column(JSONB, nullable=True)
     vram_budget_mode = Column(String(20), nullable=True)   # auto | percent | absolute
     vram_budget_value = Column(Float, nullable=True)
+    # 启动参数覆盖(spec 2026-09-22)。只存**被覆盖的键**,其余回退 models.d 的 params。
+    #   NULL / {} = 未覆盖;{"max_model_len": 262144} = 只覆盖这一个键
+    # 不需要 gpus 那种 `[]` 哨兵:params 是 dict,清某个键就是把它从 dict 里删掉,
+    # 全清就是整列回 NULL —— 不存在「显式清空」与「未设置」语义冲突。
+    # JSONB 而非 typed 多列:白名单会随 vLLM 版本增减,用 dict 才不用每次改 schema。
+    params = Column(JSONB, nullable=True)
     updated_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -40,7 +46,7 @@ class ModelRuntimeOverride(Base):
     )
 
     def to_overrides(self) -> dict:
-        """→ 与旧 overlay 同形状的 dict:{resident?, gpu?, vram_budget?}(只含已设字段)。
+        """→ 与旧 overlay 同形状的 dict:{resident?, gpu?, vram_budget?, params?}(只含已设字段)。
         消费方(load_model_configs / registry / resolve_vram_utilization)契约不变,只换存储。"""
         out: dict = {}
         if self.resident is not None:
@@ -55,4 +61,6 @@ class ModelRuntimeOverride(Base):
             if self.vram_budget_value is not None:
                 vb["value"] = self.vram_budget_value
             out["vram_budget"] = vb
+        if self.params:
+            out["params"] = dict(self.params)
         return out
