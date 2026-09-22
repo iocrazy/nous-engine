@@ -150,6 +150,21 @@ def test_prefix_caching_alias_drop_does_not_write_through_cache(monkeypatch):
     assert cached_params["vllm_args"] is cached_vllm_args
 
 
+def test_params_merge_filters_non_whitelisted_keys(monkeypatch):
+    """读路径也要过白名单,与写路径(`_instantiate_adapter`)对称。
+
+    端点今天拦得住 `tensor_parallel_size`,但库里要是**已经**躺着一条(手写 SQL /
+    历史脏数据),这里是唯一一条让它经 `add_from_scan` 渗进 `spec.params` 的路 ——
+    而 `_resolve_placement` 正读那个键,放置结论就被数据面改掉了。
+    """
+    monkeypatch.setattr(
+        "src.config.load_runtime_overrides",
+        lambda: {"m": {"params": {"tensor_parallel_size": 8, "max_model_len": 4096}}})
+    cfgs = {"m": {"id": "m", "params": {}}}
+    _apply_runtime_overrides(cfgs)
+    assert cfgs["m"]["params"] == {"max_model_len": 4096}
+
+
 def test_params_override_on_cfg_without_params_key(monkeypatch):
     """yaml 里没有 params 块的模型也要能被覆盖(别 KeyError)。"""
     monkeypatch.setattr(
