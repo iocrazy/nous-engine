@@ -10,7 +10,7 @@ import {
 } from '../../api/engines'
 import { useDashboardSummary, type AlertItem, type TopServiceRow } from '../../api/dashboard'
 import { useRuntimeMetrics, type RuntimeSnapshot } from '../../api/observability'
-import { useVLLMMetrics, useUpdateLaunchParams } from '../../api/vllm'
+import { useVLLMMetrics } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { confirmDialog } from '../../stores/confirm'
 import { sortProcesses, formatRate, type ProcSortKey, type ProcSortDir } from './processSort'
@@ -1485,7 +1485,6 @@ function fmtTimeAgo(iso: string | null): string {
 // Pulled from each instance's :PORT/metrics by the backend, polled every 3s.
 function VLLMPanel() {
   const { data, isLoading, error } = useVLLMMetrics()
-  const update = useUpdateLaunchParams()
   const instances = data?.instances ?? []
 
   const subtitle = isLoading
@@ -1610,46 +1609,8 @@ function VLLMPanel() {
                   />
                 </div>
 
-                {/* Toggle: prefix caching (next-load apply) */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    marginTop: 12,
-                    paddingTop: 10,
-                    borderTop: '1px solid var(--border)',
-                  }}
-                >
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: 11,
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={prefixOn}
-                      disabled={update.isPending}
-                      onChange={(e) =>
-                        update.mutate({
-                          name: inst.name,
-                          body: { enable_prefix_caching: e.target.checked },
-                        })
-                      }
-                    />
-                    Prefix Caching
-                  </label>
-                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>
-                    {update.isPending && '保存中…'}
-                    {!update.isPending &&
-                      '改后下次 load 生效（需 unload + load 重启 vLLM）'}
-                  </span>
-                </div>
+                {/* 启动参数编辑移到引擎页的 LaunchParamsEditor —— 两处编辑同一份状态会打架,
+                    且这些是**模型级**参数,不属于 Dashboard 的实例监控面板。 */}
               </>
             )}
           </div>

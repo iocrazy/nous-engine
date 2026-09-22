@@ -60,7 +60,6 @@ vi.mock('../../api/dashboard', () => ({ useDashboardSummary: () => ({ data: unde
 vi.mock('../../api/observability', () => ({ useRuntimeMetrics: () => ({ data: undefined, isLoading: false, error: null }) }))
 vi.mock('../../api/vllm', () => ({
   useVLLMMetrics: () => ({ data: { instances: [] }, isLoading: false, error: null }),
-  useUpdateLaunchParams: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 vi.mock('../../api/engines', () => ({
   useEngines: () => ({ data: [] }),

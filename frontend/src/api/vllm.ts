@@ -41,14 +41,17 @@ export function useVLLMMetrics(opts?: { refetchInterval?: number }) {
   })
 }
 
+// 与后端 _LAUNCH_PARAM_WHITELIST 一一对应。
+// **刻意不含 gpu_memory_utilization / tensor_parallel_size** —— 后端会 400:
+//   显存走 vram-budget(绝对 GiB,加载时按实际那张卡换算);tp 由放置决定。
+// null = 清除该覆盖,回退 models.d 的 yaml 值。
 export type LaunchParamsBody = {
-  enable_prefix_caching?: boolean | null
-  max_num_seqs?: number | null
   max_model_len?: number | null
-  gpu_memory_utilization?: number | null
-  tensor_parallel_size?: number | null
-  quantization?: string | null
+  max_num_seqs?: number | null
+  max_num_batched_tokens?: number | null
+  enable_prefix_caching?: boolean | null
   dtype?: string | null
+  quantization?: string | null
 }
 
 export function useUpdateLaunchParams() {
