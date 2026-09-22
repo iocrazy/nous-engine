@@ -3,7 +3,7 @@
 Single-admin inference infra (推理算力层). Repo/product renamed **nous-center →
 nous-engine** (裸 `nous-` 前缀让给上层平台;systemd 单元全套 `nous-engine-*`,CLI
 `enginectl`). Production deploy = `backend serve frontend/dist` on `:8000`, reachable **only
-on this host / LAN / ZeroTier (10.0.0.10)** — the Cloudflare tunnel (`api.iocrazy.com`,
+on this host / LAN / Tailscale (100.124.149.118, tailnet 名 `heygo-ubuntu`)** — the Cloudflare tunnel (`api.iocrazy.com`,
 `nous-engine-cloudflared`) was **retired 2026-09-06 by the user's decision**: 不要再给
 nous-engine 加任何对外暴露的入口(隧道/反代/端口映射),上层平台 nous-app 有自己的隧道,
 它只经内网调 nous-engine。vite dev (`:9999`) is **local-only** for frontend hot reload.
@@ -24,7 +24,7 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   squash 合并 → ssh 到生产机跑闸门(`infra/autodeploy-guard.sh`:开关关着 / ComfyUI 渲染
   进行中 → **只合并不上线**,exit 5)→ `deploy.sh` → 校验生产 HEAD 含本次 merge commit。
   被闸门拒过之后 `./infra/ship.sh --deploy-only` 重试;`enginectl autodeploy off|on` 是开关。
-  仓库是 public,**不挂 self-hosted runner、不轮询**:扳机就是合并本身,Mac 经 ZeroTier
+  仓库是 public,**不挂 self-hosted runner、不轮询**:扳机就是合并本身,Mac 经 Tailscale
   ssh 过去。不经 ship 的合并(网页/dependabot)不会自动上线,下次 ship 一并带上。
 - **Python 3.13.14**(`.python-version`,2026-09-09 起;CI/生产/开发机统一)。生产 `.venv` 只装
   `--extra inference`,**没有 diffusers**(在 `image` extra,出图走 ComfyUI 桥),不是 bug。

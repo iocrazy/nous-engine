@@ -19,7 +19,7 @@ ENGINECTL_DST=/usr/local/bin/enginectl
 PRIV_LIBDIR=/usr/local/lib/nous-engine
 
 # 长驻服务。公网隧道 nous-engine-cloudflared 已于 2026-09-06 退役(用户决定:nous-engine
-# 只在本机/局域网/ZeroTier 可达,不再对外暴露);下面第 2 步会主动清掉旧单元并 mask。
+# 只在本机/局域网/Tailscale 可达,不再对外暴露);下面第 2 步会主动清掉旧单元并 mask。
 SERVICES=(nous-engine-backend.service nous-engine-status.service)
 TIMERS=(nous-engine-healthprobe.timer nous-engine-dbbackup.timer)
 TARGETS=(nous-engine.target)
@@ -29,7 +29,9 @@ UNIT_FILES=(nous-engine-backend.service nous-engine-status.service \
             nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine-netprobe.service nous-engine.target)
 
 LOCAL_URL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
-ZT_URL="${NOUS_ZT_URL:-http://10.0.0.10:8000}"
+# 2026-09-21 ZeroTier 退役换 Tailscale。IP 随节点固定;换 tailnet/重装节点
+# 用 NOUS_TS_URL 覆盖(旧名 NOUS_ZT_URL 仍兼容)。
+TS_URL="${NOUS_TS_URL:-${NOUS_ZT_URL:-http://100.124.149.118:8000}}"
 STATUS_URL="${NOUS_STATUS_URL:-http://127.0.0.1:8001}"
 
 # ── 样式 ──────────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ case "${1:-install}" in
       warn "  前置:ComfyUI 安装在 WorkingDirectory + venv + CUDA_VISIBLE_DEVICES 验证"
       warn "  ① 核对 GPU: nvidia-smi --query-gpu=index,name --format=csv(PCI_BUS_ID 排序)"
       warn "  ② 编辑 $(realpath "$SCRIPT_DIR/nous-engine-comfyui.service") → 设 WorkingDirectory + CUDA_VISIBLE_DEVICES"
-      warn "  ③ 核对 --listen:回环给后端桥,另一个地址是本机 ZeroTier IP,换机器要改"
+      warn "  ③ 核对 --listen:回环给后端桥,另一个地址是本机 Tailscale IP,换机器要改"
       warn "  ④ sudo systemctl daemon-reload && sudo systemctl enable --now nous-engine-comfyui"
     fi
 
@@ -160,12 +162,12 @@ case "${1:-install}" in
       bad "本机 /healthz  → $code(后端可能还在预加载常驻模型,稍等再 enginectl status)"
     fi
 
-    zt="$(probe "$ZT_URL/healthz")";     [[ "$zt" == 200 ]] && ok "ZeroTier /healthz → 200" || warn "ZeroTier /healthz → $zt(10.0.0.10 未分配?)"
+    ts="$(probe "$TS_URL/healthz")";     [[ "$ts" == 200 ]] && ok "Tailscale /healthz → 200" || warn "Tailscale /healthz → $ts(Tailscale 未连/IP 变了?用 NOUS_TS_URL 覆盖)"
 
     # ── 访问地址 + 收尾 ─────────────────────────────────────────────────
     printf '\n%s╭─ 访问地址 ────────────────────────────────────────────────%s\n' "$B" "$RST"
     printf   '%s│%s  本机管理台   %s%s%s\n'   "$B" "$RST" "$CYN" "$LOCAL_URL"  "$RST"
-    printf   '%s│%s  ZeroTier 内网 %s%s%s\n'  "$B" "$RST" "$CYN" "$ZT_URL"     "$RST"
+    printf   '%s│%s  Tailscale 内网 %s%s%s\n' "$B" "$RST" "$CYN" "$TS_URL"    "$RST"
     printf   '%s│%s  独立状态页   %s%s%s\n'   "$B" "$RST" "$CYN" "$STATUS_URL" "$RST"
     printf   '%s╰──────────────────────────────────────────────────────────%s\n' "$B" "$RST"
 

@@ -12,7 +12,7 @@
 # load_failures)→ 0 但日志 WARN。
 #
 # 公网隧道探针与自愈已于 2026-09-06 随 nous-engine-cloudflared 退役一并移除(用户决定:
-# nous-engine 不再对外暴露,只在本机/局域网/ZeroTier 可达)。
+# nous-engine 不再对外暴露,只在本机/局域网/Tailscale 可达)。
 #
 # 手动单跑:infra/monitoring/nous-healthprobe.sh
 set -uo pipefail

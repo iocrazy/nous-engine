@@ -6,7 +6,7 @@
 #   enginectl down      停应用栈(后端/状态/comfyui)。DB(postgresql)保持运行
 #   enginectl restart   重启应用栈(后端/状态;comfyui 仅在 enabled 时)并打印重启报告:
 #                       重启了谁 / 后端多久真的能收请求 / 自检 banner / 常驻模型加载进度 / 栈状态
-#   enginectl status    各 unit active? + 端口 + ZeroTier/ComfyUI,一屏
+#   enginectl status    各 unit active? + 端口 + Tailscale/ComfyUI,一屏
 #   enginectl logs [u]  journalctl -f(u 缺省 backend;可 status/healthprobe/netprobe/comfyui/postgresql)
 #   enginectl autodeploy on|off|status
 #                       infra/ship.sh 上线闸门的开关:off 落一个 .nous-autodeploy-off 标记到生产检出
@@ -33,7 +33,7 @@ c_ylw() { printf '\033[33m%s\033[0m' "$*"; }
 # 关心的是整栈现状,不只是被操作的那几个。
 STACK_UNITS=(postgresql nous-engine-backend nous-engine-status nous-engine-netprobe nous-engine-comfyui)
 
-# 后端本地就绪探针(与 cmd_status 的 ZeroTier 探测同一个 /healthz,只是走回环)。
+# 后端本地就绪探针(与 cmd_status 的 Tailscale 探测同一个 /healthz,只是走回环)。
 HEALTHZ_URL=http://127.0.0.1:8000/healthz
 HEALTH_URL=http://127.0.0.1:8000/health
 # 等后端「真的能收请求」的上限秒数。默认 180 而不是 60:重启的**停**这一半可能很久 ——
@@ -85,29 +85,31 @@ _status_units() {
 _status_endpoints() {
   printf '\n监听端口:\n'
   ss -ltn 2>/dev/null | awk 'NR>1 {print $4}' | grep -E ':(8000|8001|5432|8888)$' | sort -u | sed 's/^/  /' || true
-  printf '\nZeroTier 内网访问:\n'
-  # 后端 bind 0.0.0.0 → ZeroTier 网卡(10.0.0.10)同样可达。探一下 /healthz 确认内网入口活着。
-  local zt_code cq depth code
-  zt_code="$(_http_code http://10.0.0.10:8000/healthz)"
+  printf '\nTailscale 内网访问:\n'
+  # 后端 bind 0.0.0.0 → Tailscale 网卡同样可达。探一下 /healthz 确认内网入口活着。
+  # 2026-09-21 ZeroTier 退役换 Tailscale;IP 随节点固定,换 tailnet/重装节点用 NOUS_TS_HOST 覆盖。
+  local ts_host zt_code cq depth code
+  ts_host="${NOUS_TS_HOST:-100.124.149.118}"
+  zt_code="$(_http_code "http://${ts_host}:8000/healthz")"
   if [ "$zt_code" = 200 ]; then
-    printf '  http://10.0.0.10:8000  %s\n' "$(c_grn 'HTTP 200')"
+    printf '  http://%s:8000  %s\n' "$ts_host" "$(c_grn 'HTTP 200')"
   else
-    printf '  http://10.0.0.10:8000  %s %s\n' "$(c_red "HTTP ${zt_code}")" "$(c_dim '(ZeroTier 未连/未分配 10.0.0.10?)')"
+    printf '  http://%s:8000  %s %s\n' "$ts_host" "$(c_red "HTTP ${zt_code}")" "$(c_dim '(Tailscale 未连/IP 变了?用 NOUS_TS_HOST 覆盖)')"
   fi
   # ComfyUI sidecar(桥):直探 /queue 拿队列深度;未启用/没起时给暗色提示不刷红。
-  # 两个地址都要探,因为单元是**双绑** 127.0.0.1,10.0.0.10(见 nous-engine-comfyui.service):
-  # 回环那条是后端桥的命脉(NOUS_COMFY_URL),ZeroTier 那条是用户在别的机器开网页用的。
+  # 两个地址都要探,因为单元是**双绑** 127.0.0.1,<Tailscale IP>(见 nous-engine-comfyui.service):
+  # 回环那条是后端桥的命脉(NOUS_COMFY_URL),Tailscale 那条是用户在别的机器开网页用的。
   # 任一条红了都说明 --listen 被改窄或网卡没起,这里分开印以便一眼定位是哪半边断了。
   printf '\nComfyUI 桥:\n'
   cq="$(curl -s -m 4 --noproxy '*' http://127.0.0.1:8888/queue 2>/dev/null || true)"
   if [ -n "$cq" ]; then
     depth="$(printf '%s' "$cq" | grep -o '"queue_\(running\|pending\)": *\[[^]]*\]' | grep -c 'prompt' || true)"
     printf '  http://127.0.0.1:8888  %s %s\n' "$(c_grn '在线')" "$(c_dim "队列 ${depth:-0}")"
-    zt_code="$(_http_code http://10.0.0.10:8888/system_stats)"
+    zt_code="$(_http_code "http://${ts_host}:8888/system_stats")"
     if [ "$zt_code" = 200 ]; then
-      printf '  http://10.0.0.10:8888  %s %s\n' "$(c_grn 'HTTP 200')" "$(c_dim '(从别的机器开界面用这个)')"
+      printf '  http://%s:8888  %s %s\n' "$ts_host" "$(c_grn 'HTTP 200')" "$(c_dim '(从别的机器开界面用这个)')"
     else
-      printf '  http://10.0.0.10:8888  %s %s\n' "$(c_red "HTTP ${zt_code}")" "$(c_dim '(--listen 少了 10.0.0.10?或 ZeroTier 没起)')"
+      printf '  http://%s:8888  %s %s\n' "$ts_host" "$(c_red "HTTP ${zt_code}")" "$(c_dim '(--listen 少了该 IP?或 Tailscale 没起)')"
     fi
   else
     printf '  http://127.0.0.1:8888  %s\n' "$(c_dim '离线(单元未启用或未启动)')"
@@ -317,7 +319,7 @@ cmd_restart() {
 
   if [ "$READY" = 1 ]; then _models_section; fi
 
-  # 收尾用 status 的同一份报告(端口/ZeroTier/ComfyUI 桥),单元表带上本次动作标注,
+  # 收尾用 status 的同一份报告(端口/Tailscale/ComfyUI 桥),单元表带上本次动作标注,
   # 免得同样的单元行在一屏里出现两遍格式还不一样。
   echo
   # 注意:键要跟 STACK_UNITS 里的写法一致(不带 .service 后缀)。

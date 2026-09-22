@@ -1,5 +1,5 @@
 // crypto.randomUUID() 只在**安全上下文**(HTTPS 或 http://localhost / 127.0.0.1)可用。
-// 本机部署常经明文 HTTP 的内网 IP 访问(ZeroTier http://10.0.0.10:8000 / LAN),那不是安全
+// 本机部署常经明文 HTTP 的内网 IP 访问(Tailscale http://100.124.149.118:8000 / LAN),那不是安全
 // 上下文 → crypto.randomUUID 为 undefined → 首次调用(toast/uid/NodeEditor 建边建节点)整个
 // app 崩,表现为**黑屏**。crypto.getRandomValues 在非安全上下文仍可用,用它补一个 RFC4122
 // v4 polyfill。必须在任何调用点之前执行 —— 在 main.tsx 作为首个 import 引入(side-effect)。

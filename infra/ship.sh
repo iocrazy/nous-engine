@@ -7,13 +7,15 @@
 #
 # 为什么是这个形状:仓库是 public,self-hosted runner 挂上去等于把生产机交给任何 fork;
 # 轮询式又要在生产机上多养一个 timer。而合并这个动作本来就发生在 Mac 上,Mac 已能经
-# ZeroTier ssh 到生产机 —— 扳机就是合并本身,合完直接 ssh 过去跑 deploy.sh。
+# 经 Tailscale ssh 到生产机 —— 扳机就是合并本身,合完直接 ssh 过去跑 deploy.sh。
 # 零轮询、零新入口、零新凭据,生产机上什么都不用装。
 #
 # 接受的代价:不经本脚本的合并(手机点网页、dependabot auto-merge)不会自动上线,
 # 生产停在上一版直到下一次 ship —— deploy.sh 是 reset 到 origin/master,会把中间的一并带上。
 #
-# 环境变量:NOUS_SHIP_HOST(ssh 目标,默认 ubuntu = ~/.ssh/config 里的 10.0.0.10)
+# 环境变量:NOUS_SHIP_HOST(ssh 目标,默认 ubuntu)。2026-09-21 ZeroTier 换 Tailscale 后,
+#   **Mac 上的 ~/.ssh/config 里那条 Host ubuntu 要把 HostName 改成 100.124.149.118**
+#   (或 tailnet 名 heygo-ubuntu)—— 旧的 10.0.0.10 已不存在,不改这里 ship 会连不上。
 #          NOUS_SHIP_PROD_DIR(生产检出,默认 /media/heygo/program/projects-code/repos/nous-engine)
 #          NOUS_SHIP_DISCORD_WEBHOOK(可选;设了就把结果一行 POST 过去)
 #
