@@ -1,34 +1,42 @@
 import { useState } from 'react'
 import { useUpdateLaunchParams, type LaunchParamsBody } from '../../api/vllm'
-
-// 常用上下文档位。256K = Qwen3.8 系列原生上限(max_position_embeddings 262144)。
-const CTX_PRESETS = [
-  { label: '32K', value: 32768 },
-  { label: '128K', value: 131072 },
-  { label: '256K', value: 262144 },
-]
-
-const NUMERIC_KEYS = [
-  'max_model_len',
-  'max_num_seqs',
-  'max_num_batched_tokens',
-] as const
-type NumericKey = (typeof NUMERIC_KEYS)[number]
+// 常量与纯函数放同目录的 launchParams.ts:本文件只导出组件。
+// 组件文件里再导出别的东西会让 Fast Refresh 失效(react-refresh/only-export-components,
+// CI 的 lint 是 error 不是 warning)。
+import { CTX_PRESETS, sanitizeLaunchParams, type NumericKey } from './launchParams'
 
 /**
- * 保存前过滤 draft:数字键只放行正整数。
+ * 「恢复默认」= 发 `{key: null}` 清除该覆盖、回退 models.d 的 yaml 值。
+ * 三态的后端从 Task 2/4 起就支持,**前端一直没发过** —— 于是用户改了 max_model_len
+ * 之后没有任何办法退回默认,只能再猜一个值填回去(2026-09-22 复查 N5)。
  *
- * `Number('')` 是 **0** —— 清空输入框会把 0 存进 draft,点保存就写进 DB,而 0 让 vLLM
- * 起不来;更糟的是之后 `num()` 一直读到这个 0,用户在 UI 上再也退不出来,得去 DB 里捞。
- * 后端也有一道值域校验(400),这里是"根本别发出去"的那道。
+ * ⚠️ **定义在模块顶层,不在 LaunchParamsEditor 的函数体里**:在 render 期间定义组件,
+ * 每次渲染都是一个新的组件类型,React 会卸载重建整棵子树(状态丢失 + 闪烁);
+ * eslint 的 `Cannot create components during render` 就是 error 级别拦这个。
  */
-export function sanitizeLaunchParams(draft: LaunchParamsBody): LaunchParamsBody {
-  const out: LaunchParamsBody = { ...draft }
-  for (const k of NUMERIC_KEYS) {
-    const v = out[k]
-    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) delete out[k]
-  }
-  return out
+function ResetButton({
+  k,
+  overridden,
+  disabled,
+  onReset,
+}: {
+  k: keyof LaunchParamsBody
+  overridden: string[]
+  disabled: boolean
+  onReset: (k: keyof LaunchParamsBody) => void
+}) {
+  if (!overridden.includes(k)) return null
+  return (
+    <button
+      type="button"
+      aria-label={`恢复默认 ${k}`}
+      disabled={disabled}
+      onClick={() => onReset(k)}
+      style={{ fontSize: 11, color: 'var(--muted)' }}
+    >
+      恢复默认
+    </button>
+  )
 }
 
 export function LaunchParamsEditor({
@@ -82,23 +90,10 @@ export function LaunchParamsEditor({
 
   const can = (k: keyof LaunchParamsBody) => editable.includes(k)
 
-  /**
-   * 「恢复默认」= 发 `{key: null}` 清除该覆盖、回退 models.d 的 yaml 值。
-   * 三态的后端从 Task 2/4 起就支持,**前端一直没发过** —— 于是用户改了 max_model_len
-   * 之后没有任何办法退回默认,只能再猜一个值填回去(2026-09-22 复查 N5)。
-   */
-  const ResetButton = ({ k }: { k: keyof LaunchParamsBody }) =>
-    overridden.includes(k) ? (
-      <button
-        type="button"
-        aria-label={`恢复默认 ${k}`}
-        disabled={update.isPending}
-        onClick={() => saveAndDropDraft({ [k]: null } as LaunchParamsBody)}
-        style={{ fontSize: 11, color: 'var(--muted)' }}
-      >
-        恢复默认
-      </button>
-    ) : null
+  const onReset = (k: keyof LaunchParamsBody) =>
+    saveAndDropDraft({ [k]: null } as LaunchParamsBody)
+  // 四个 ResetButton 的公共入参,免得每处重复三行。
+  const resetProps = { overridden, disabled: update.isPending, onReset }
 
   const payload = sanitizeLaunchParams(draft)
   const canSave = Object.keys(payload).length > 0
@@ -128,7 +123,7 @@ export function LaunchParamsEditor({
               {p.label}
             </button>
           ))}
-          <ResetButton k="max_model_len" />
+          <ResetButton k="max_model_len" {...resetProps} />
         </div>
         <p style={{ color: 'var(--muted)', marginTop: 4 }}>
           上下文与并发此消彼长:同样的 KV 池,长度减半则并发翻倍。
@@ -152,7 +147,7 @@ export function LaunchParamsEditor({
             style={{ width: 90, marginLeft: 6 }}
           />
         </label>
-        <ResetButton k="max_num_seqs" />
+        <ResetButton k="max_num_seqs" {...resetProps} />
       </div>
       <p style={{ color: 'var(--muted)', marginTop: -6 }}>
         这是**调度上限,不是并发驱动力** —— 真实并发由 KV 池决定,只调大它不给 KV 没有提升。
@@ -172,7 +167,7 @@ export function LaunchParamsEditor({
             style={{ width: 90, marginLeft: 6 }}
           />
         </label>
-        <ResetButton k="max_num_batched_tokens" />
+        <ResetButton k="max_num_batched_tokens" {...resetProps} />
       </div>
       )}
 
@@ -191,7 +186,7 @@ export function LaunchParamsEditor({
           />
           Prefix Caching(共享 system prompt 时跳过重复 prefill)
         </label>
-        <ResetButton k="enable_prefix_caching" />
+        <ResetButton k="enable_prefix_caching" {...resetProps} />
       </div>
       )}
 
