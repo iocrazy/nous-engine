@@ -56,6 +56,39 @@ async def test_get_launch_params_reads_prefix_caching_from_vllm_args(db_client):
 
 
 @pytest.mark.asyncio
+async def test_get_launch_params_editable_lists_what_adapter_accepts(db_client):
+    """`editable` = 该引擎的适配器真吃得下的键。前端据此决定渲染哪些控件。"""
+    from src.config import load_model_configs
+
+    name = "qwen3_8_27b_uncensored_fp8"
+    if name not in load_model_configs():
+        pytest.skip(f"{name} 不在本机 models.d")
+
+    r = await db_client.get(f"/api/v1/engines/{name}/launch-params")
+    assert r.status_code == 200
+    editable = set(r.json()["editable"])
+    assert editable >= {
+        "max_model_len", "max_num_seqs", "max_num_batched_tokens",
+        "enable_prefix_caching", "dtype", "quantization",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_launch_params_editable_empty_for_kwargs_adapter(db_client):
+    """MOSS ASR 的 `SGLangOmniAdapter.__init__` 以 `**kwargs` 收尾,一个都不消费 →
+    `editable` 空 → 前端整个面板不渲染(而不是给一堆点了不管用的输入框)。"""
+    from src.config import load_model_configs
+
+    name = "moss_transcribe_diarize"
+    if name not in load_model_configs():
+        pytest.skip(f"{name} 不在本机 models.d")
+
+    r = await db_client.get(f"/api/v1/engines/{name}/launch-params")
+    assert r.status_code == 200
+    assert r.json()["editable"] == []
+
+
+@pytest.mark.asyncio
 async def test_get_launch_params_marks_overridden_keys(db_session, db_client):
     from src.config import load_model_configs
 

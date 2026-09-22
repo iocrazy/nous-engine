@@ -34,9 +34,16 @@ export function sanitizeLaunchParams(draft: LaunchParamsBody): LaunchParamsBody 
 export function LaunchParamsEditor({
   engineName,
   current,
+  editable,
 }: {
   engineName: string
   current: Record<string, unknown>
+  /**
+   * 该引擎的适配器**真正消费得了**的键(后端 GET 的 `editable`)。不在里面的控件
+   * 一律不渲染 —— 渲染了就是"点了不管用的按钮":写得进库、GET 报「已覆盖」、
+   * 引擎行为纹丝不动(MOSS ASR / TTS 的适配器用 `**kwargs` 收尾)。
+   */
+  editable: string[]
 }) {
   const update = useUpdateLaunchParams()
   const [draft, setDraft] = useState<LaunchParamsBody>({})
@@ -70,11 +77,14 @@ export function LaunchParamsEditor({
   const num = (k: NumericKey) =>
     (draft[k] as number | undefined) ?? (current[k] as number | undefined) ?? ''
 
+  const can = (k: keyof LaunchParamsBody) => editable.includes(k)
+
   const payload = sanitizeLaunchParams(draft)
   const canSave = Object.keys(payload).length > 0
 
   return (
     <div style={{ display: 'grid', gap: 10, fontSize: 12 }}>
+      {can('max_model_len') && (
       <div>
         <label style={{ display: 'block', marginBottom: 4 }}>
           上下文长度 (max_model_len)
@@ -103,7 +113,10 @@ export function LaunchParamsEditor({
           调大可能因 KV 装不下而**起不来**(vLLM 启动时会拒绝)。
         </p>
       </div>
+      )}
 
+      {can('max_num_seqs') && (
+      <>
       <label>
         最大并发序列 (max_num_seqs)
         <input
@@ -117,7 +130,10 @@ export function LaunchParamsEditor({
       <p style={{ color: 'var(--muted)', marginTop: -6 }}>
         这是**调度上限,不是并发驱动力** —— 真实并发由 KV 池决定,只调大它不给 KV 没有提升。
       </p>
+      </>
+      )}
 
+      {can('max_num_batched_tokens') && (
       <label>
         单批最大 token (max_num_batched_tokens)
         <input
@@ -128,7 +144,9 @@ export function LaunchParamsEditor({
           style={{ width: 90, marginLeft: 6 }}
         />
       </label>
+      )}
 
+      {can('enable_prefix_caching') && (
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
           type="checkbox"
@@ -142,6 +160,7 @@ export function LaunchParamsEditor({
         />
         Prefix Caching(共享 system prompt 时跳过重复 prefill)
       </label>
+      )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button
