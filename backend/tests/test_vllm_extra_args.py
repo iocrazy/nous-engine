@@ -272,6 +272,54 @@ async def test_launch_argv_has_no_duplicate_flag_when_overriding(tmp_path):
     assert cmd[cmd.index("--max-model-len") + 1] == "8192"
 
 
+async def test_launch_argv_carries_max_num_batched_tokens(tmp_path):
+    """I2 回归:`max_num_batched_tokens` 曾经不在 __init__ 参数表里,被 **kwargs 吞掉 ——
+    yaml 里写了也从没进过 argv。本机 256K 的 uncensored_fp8 就靠它把 prefill 切块,
+    不生效 = 一个 batch 按 max_model_len 取 262144,prefill 显存峰值直接爆。"""
+    a = VLLMAdapter(paths={"main": str(tmp_path)}, vllm_port=19999,
+                    max_num_batched_tokens=8192)
+    cmd, _ = await _capture_argv(a)
+    assert cmd[cmd.index("--max-num-batched-tokens") + 1] == "8192"
+
+
+async def test_launch_argv_omits_max_num_batched_tokens_when_unset(tmp_path):
+    """没给就不传(交给 vLLM 自动挡)—— 不能像 max_num_seqs 那样凭空造个默认值。"""
+    a = VLLMAdapter(paths={"main": str(tmp_path)}, vllm_port=19999)
+    cmd, _ = await _capture_argv(a)
+    assert "--max-num-batched-tokens" not in cmd
+
+
+async def test_max_num_batched_tokens_not_duplicated_by_vllm_args(tmp_path):
+    """该 flag 必须在 VLLM_ADAPTER_OWNED_FLAGS 里:yaml 同时用 vllm_args 配它时,
+    适配器那份要被摘掉,否则同一个 flag 出现两次、vLLM 行为不确定。"""
+    a = VLLMAdapter(paths={"main": str(tmp_path)}, vllm_port=19999,
+                    max_num_batched_tokens=8192,
+                    vllm_args={"max-num-batched-tokens": 4096})
+    cmd, _ = await _capture_argv(a)
+    assert cmd.count("--max-num-batched-tokens") == 1
+    assert cmd[cmd.index("--max-num-batched-tokens") + 1] == "4096"
+
+
+def test_shipped_256k_yaml_max_num_batched_tokens_reaches_adapter():
+    """真配置文件 → 适配器 kwarg。这行 yaml 自写下起就没生效过,修完必须真的接上。"""
+    from src.services.inference.registry import ModelSpec
+    from src.services.model_manager import ModelManager
+
+    doc = yaml.safe_load(
+        (CONFIGS / "models.d" / "qwen3_8_27b_uncensored_fp8.yaml").read_text())
+    assert doc["params"]["max_num_batched_tokens"] == 8192
+
+    spec = ModelSpec(
+        id="m1", model_type="llm",
+        adapter_class="src.services.inference.llm_vllm.VLLMAdapter",
+        paths={"main": "/m/x"}, vram_mb=0,
+        params={"vllm_port": 19999,
+                "max_num_batched_tokens": doc["params"]["max_num_batched_tokens"]},
+    )
+    adapter = ModelManager._instantiate_adapter(MagicMock(), spec)
+    assert adapter._max_num_batched_tokens == 8192
+
+
 async def test_no_vllm_args_leaves_argv_unchanged(tmp_path):
     """零回归:没配 vllm_args 的模型命令行一个字节都不变。"""
     plain = VLLMAdapter(paths={"main": str(tmp_path)}, vllm_port=19999)

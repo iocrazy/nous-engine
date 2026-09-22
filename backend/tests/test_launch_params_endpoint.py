@@ -61,6 +61,21 @@ async def test_patch_unknown_engine_404(db_client):
     assert r.status_code == 404
 
 
+def test_whitelist_excludes_placement_and_vram_knobs():
+    """白名单绝不能混进放置/显存参数 —— 它们是放置结论,不是调优旋钮。
+    靠注释守不住:将来有人图省事往白名单里加一个,这条会红。
+
+    尤其要紧的是 `tensor_parallel_size`:`_resolve_placement` 会读
+    `spec.params["tensor_parallel_size"]`,而适配器构造参数现在真的会被 params 覆盖
+    叠加(2026-09-22 的 C1 修复)—— 白名单一旦放行,放置结论就能从 UI 上被改。
+    """
+    from src.api.routes.engines import _LAUNCH_PARAM_WHITELIST
+
+    forbidden = {"gpu", "gpus", "device", "tensor_parallel_size", "gpu_memory_utilization",
+                 "vram_budget", "vram_mb", "kv_cache_dtype"}
+    assert not (_LAUNCH_PARAM_WHITELIST & forbidden)
+
+
 @pytest.mark.asyncio
 async def test_patch_null_clears_single_key(db_client):
     name = "qwen3_8_27b_abliterated_awq"

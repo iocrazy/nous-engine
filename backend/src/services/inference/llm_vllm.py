@@ -93,6 +93,7 @@ VLLM_ADAPTER_OWNED_FLAGS = frozenset({
     "--max-model-len",
     "--gpu-memory-utilization",
     "--max-num-seqs",
+    "--max-num-batched-tokens",
     "--limit-mm-per-prompt",
     "--enable-auto-tool-choice",
     "--tool-call-parser",
@@ -242,6 +243,7 @@ class VLLMAdapter(InferenceAdapter):
         quantization: str | None = None,
         dtype: str | None = None,
         max_num_seqs: int | None = None,
+        max_num_batched_tokens: int | None = None,
         enable_prefix_caching: bool | None = None,
         vllm_runner: str | None = None,
         vram_budget: dict | None = None,
@@ -265,6 +267,11 @@ class VLLMAdapter(InferenceAdapter):
         self._gpu_mem_util = gpu_memory_utilization
         self._quantization = quantization
         self._max_num_seqs = max_num_seqs
+        # 单批最大 token(分块 prefill 的块大小)。None = 不传,走 vLLM 自动挡
+        # (自动挡按 max_model_len 取,长上下文模型会让一个 batch 想塞满 256K token,
+        # prefill 显存峰值直接爆 —— 所以 256K 的模型 yaml 里显式给了 8192)。
+        # 2026-09-22 之前这个 kwarg 不在参数表里,被 **kwargs 吞掉、从没生效过。
+        self._max_num_batched_tokens = max_num_batched_tokens
         self._dtype = dtype
         # If True, vLLM is launched with --enable-prefix-caching.
         # Per-model override; reads from models.yaml `params` block.
@@ -508,6 +515,10 @@ class VLLMAdapter(InferenceAdapter):
             cmd += ["--dtype", dtype]
         if max_num_seqs:
             cmd += ["--max-num-seqs", str(max_num_seqs)]
+        if self._max_num_batched_tokens:
+            # 没有 auto 兜底:不给就不传,交给 vLLM 自己按 max_model_len 定
+            # (与 max_num_seqs 不同,这里没有本仓库自己算的保守值)。
+            cmd += ["--max-num-batched-tokens", str(self._max_num_batched_tokens)]
         if self._enable_prefix_caching:
             # Repeated system prompts / few-shot examples reuse cached KV
             # blocks instead of re-prefilling. Memory cost is tiny metadata;
