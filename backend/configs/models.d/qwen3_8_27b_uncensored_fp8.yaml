@@ -17,37 +17,67 @@ id: qwen3_8_27b_uncensored_fp8
 paths:
   main: llm/Qwen3.8-27B-Uncensored-FP8-orcarouter
 type: llm
-# Pro 5000(72G)。2026-09-20 两卡布局后推理服务统一落 GPU 0;
-# Pro 6000 由 ComfyUI 独占,LLM 不上那张(CLAUDE.md 的用户硬决定)。
-gpu: 0
+# **Pro 6000(GPU 1)** —— 2026-09-22 用户要 256K 长上下文,本变体是唯一做得到的。
+# 用户既定规则是按**体积**分:19 GiB 的 AWQ 量化版留 Pro 5000 常驻;
+# 大的上 Pro 6000。本变体 28.75 GiB 虽不算"大",但 256K 的 KV 要 30+ GiB,
+# Pro 5000(常驻已占 45.9,只剩 25)放不下,只能上 Pro 6000。
+#
+# ⚠️ 与同卡的 ComfyUI 是**此消彼长**:按下面的 util 0.65 吃 61.7 GiB,
+# ComfyUI 剩 ~33 GiB —— 够常规出图,但 minimax-h3 那类 62GB 权重的大视频模型装不下。
+# 要跑大视频工作流就先 unload 本模型。
+gpu: 1
 # **不常驻,按需加载**。常驻名额已给 qwen3_8_27b_abliterated_awq(AWQ, 25500 MiB)。
 # 实测账(2026-09-21):Pro 5000 可见 71.12 GiB,现有三常驻(MOSS ASR 8.7 + AWQ 23.2
 # + WeMM-4B 12.8)稳态占 45.9 GiB,只剩 25.2 GiB —— 本模型光权重就 28.75 GiB,
 # **装不进常驻之外的余量**。要用它必须先卸掉 AWQ 那个(两者是替代关系)。
 ttl_seconds: 3600
-# 2026-09-21 真机标定。**测量在空闲的 Pro 6000 上做的**(Pro 5000 被常驻占满,
-# 腾不出 34 GiB;ComfyUI 当时 queue 空)。Pro 6000 可见 94.97 GiB,util 0.36:
-#   权重+non-torch 29.09 + 峰值激活 2.02 + KV 3.08 = **34.19 GiB = 预算** ✓
-#   (CUDAGraph 另计 0.16 GiB,不在这个等式里 —— 见 AWQ 那份 yaml 的说明)
-#   KV 3.08 GiB = 43,690 tokens,32768 上下文下并发仅 **1.33x**;稳态 33562 MiB;
-#   加载 130.2s(含 35.2s 编译)。
+# 2026-09-21/22 真机标定,两轮,都在 Pro 6000(可见 94.97 GiB)上:
 #
-# ⚠️ **换算,不是照抄**:util 是「占该卡总量」的比例。绝对预算 34.19 GiB 落到
-# Pro 5000(可见 71.12 GiB)= 34.19 / 71.12 = **0.48**。别把上面那个 0.36 抄过来。
-vram_mb: 35000
+# 第一轮 util 0.36 → 预算 34.19 = 权重+non-torch 29.09 + 峰值激活 2.02 + KV 3.08 ✓
+#   (CUDAGraph 另计 0.16,不在这个等式里 —— 见 AWQ 那份 yaml 的说明)
+#
+# 第二轮 util 0.88 + max_model_len 262144 + max_num_seqs 8 → **256K 真的跑得起来**:
+#   Available KV cache memory: 52.5 GiB
+#   GPU KV cache size: 843,319 tokens,262,144 上下文下并发 3.22x
+#   固定开销只有 29.09 + 1.99 = 31.08 GiB,**剩下全是 KV**
+#   由此得出本模型的 KV 单价:52.5 GiB / 843,319 = **65.3 KiB/token**
+#
+# ⚠️ 别用 vLLM 日志那行 "GPU KV cache size" 在**低 util** 下反推单价 —— 混合注意力
+# 模型上它算得不准(vllm#40691:按 KV-cache group 均分 block + 取最小 block size,
+# full-attention + Mamba 混合时偏差很大)。65.3 是大 KV 池下测的,可信。
+#
+# **选 0.65 而不是实测的 0.88**:0.88 吃 83.6 GiB,同卡的 ComfyUI 只剩 11 GiB 等于废掉。
+# 0.65 = 61.73 GiB 预算 → KV 30.65 GiB ≈ 492,000 tokens:
+#   256K → 1.88x   128K → 3.76x   32K → 15x   8K → 60x
+# ComfyUI 还剩 ~33 GiB。要更高并发就抬 util,但先想清楚 ComfyUI 还要不要用。
+vram_mb: 63300
 params:
   # 262144 是模型原生上限(text_config.max_position_embeddings)。
   # 混合线性注意力 → KV 仅 ~64 KiB/token,但 util 0.48 的预算扣掉权重后 KV 不多,
   # 32768 与 AWQ 版对齐。往上调必须**同步抬 util**,否则 KV 不够直接起不来。
-  # 262144 是原生上限。实测 util 0.48 下 KV 只有 ~3.0 GiB ≈ 43,000 tokens,
-  # 32768 的上下文**并发只有 1.33x** —— 单路够用,并发要更高就得抬 util,
-  # 而 Pro 5000 上抬 util 得先有余量(见上面的腾卡说明)。往上调 max_model_len
-  # 必须同步抬 util,否则 KV 不够直接起不来。
-  max_model_len: 32768
-  # 比例是**每卡占总量**,不是占空闲、不是绝对值。换卡必须重算。
-  # 0.48 = 34.14 GiB @ Pro 5000(71.12 可见),对应实测的 34.19 GiB 绝对预算。
-  gpu_memory_utilization: 0.48
+  # **262144 = 256K,模型原生上限**(text_config.max_position_embeddings),不用 YaRN。
+  # vLLM 启动时硬性检查「KV 池至少装得下一条 max_model_len 的序列」,装不下直接拒绝启动 ——
+  # 所以这个数和 util 是**绑死的一对**,往上调必须同步抬 util。
+  # 当前 util 0.65 的 KV ≈ 492,000 tokens,装得下 1.88 条 256K 序列。
+  max_model_len: 262144
+  # 比例是**每卡占总量**(GPU 1 = 94.97 GiB 可见),不是占空闲、不是绝对值。
+  # 0.65 = 61.73 GiB。换卡必须重算(绝对预算 ÷ 目标卡可见 GiB)。
+  gpu_memory_utilization: 0.65
+  # 调度器并发上限,**不是并发的驱动力** —— 真实并发由 KV 池决定(vLLM 官方
+  # Optimization 页点名说明),光调大它不给 KV 没有任何提升。
+  # 256K 场景单条序列就吃 16.3 GiB KV,给 8 足够;调大只会抬高启动 profiling 的
+  # 峰值激活(峰值按 max_num_seqs × max_model_len 带多模态 dummy 输入算)。
+  max_num_seqs: 8
+  # 256K 下**必须显式给**:vLLM 要求 max_num_batched_tokens ≥ max(max_num_seqs,
+  # max_model_len)。不给的话自动挡会按 max_model_len 取 262144,一个 batch 就想塞
+  # 26 万 token,prefill 显存峰值直接爆。8192 是分块 prefill 的块大小,长输入会被
+  # 切成多块流水处理(enable_chunked_prefill 默认已开)。
+  max_num_batched_tokens: 8192
   vllm_args:
+    # 前缀缓存:多请求共享同一段 system prompt 时跳过重复 prefill。256K 长上下文下
+    # 收益尤其大(重算一次 26 万 token 的 prefill 很贵)。不吃额外显存(复用 KV 块)。
+    # vLLM 对这个架构会自动配 `mamba_cache_mode=align`(日志里会打),不用手动加。
+    enable-prefix-caching: true
     # 思考内容分离到 `reasoning_content`,**不是关思考**(同 AWQ 版的处理)。
     reasoning-parser: qwen3
     # 工具调用:nous-app 的 agent_runner 会传 tools。qwen3_xml = Qwen3.5+ 的格式。
