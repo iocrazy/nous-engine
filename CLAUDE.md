@@ -175,6 +175,33 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   (MTP 投机解码 `speculative-config` 实测 83 → 111 tok/s;`reasoning-parser: qwen3`
   把思考分离到 `reasoning_content`,**不是关思考**)。
 
+## 启动参数的运行时覆盖 (launch-params)
+
+- `PATCH /api/v1/engines/{name}/launch-params` 把启动参数写进 DB 的
+  `model_runtime_overrides.params`(JSONB,只存被覆盖的键),**不写 yaml** ——
+  写 git 跟踪的文件会被 `git checkout/pull` 冲掉(同 `resident` 端点的理由)。
+  值为 `null` = 清除该覆盖回退 yaml。改动**下次 load 才生效**(`applied` 恒 false)。
+  配套 `GET .../launch-params` 回 `{effective, overridden}`:前者是「下次 load 会用的值」
+  (已过 `_apply_runtime_overrides` 深合并),后者标出其中哪几个键来自 DB 覆盖。
+  UI 入口在**模型页右键菜单**「启动参数…」(`ModelsOverlay.tsx`,紧挨「显存预算…」)。
+- 白名单:`max_model_len` / `max_num_seqs` / `max_num_batched_tokens` /
+  `enable_prefix_caching` / `dtype` / `quantization`。
+- **`gpu_memory_utilization` 与 `tensor_parallel_size` 刻意不可覆盖**,PATCH 到会 400:
+  util 是「占该卡总量」的比例、换卡必须重算(2026-09-11 事故:改落卡忘改 util,
+  模型在 Pro 6000 上抓 53.3GiB 把 ComfyUI 挤到 19GiB),显存一律走
+  `PATCH /engines/{name}/vram-budget`(存**绝对 GiB**,加载时按实际那张卡换算);
+  tp 是放置结论,由 `_resolve_placement` 定。
+- 合并是**嵌套深合并**(`config.py::_apply_runtime_overrides`):只覆盖给定的键,
+  其余仍走 models.d 的 `params`。⚠️ `copy_before_write=True` 时必须**连 `params`
+  一起新建 dict** —— 只浅拷外层的话,`params` 子 dict 与 `model_scanner` 的 TTL
+  缓存共享同一对象,原地改会写穿(症状:改了 30 秒看不到,或改一次污染此后所有读)。
+- ⚠️ **prefix caching 有两条配法**:`params.enable_prefix_caching`(适配器 kwarg)与
+  `params.vllm_args["enable-prefix-caching"]`(透传,同名时以它为准)。本机 qwen3.8
+  两个变体走的是后者,所以读端点**两处都读**;只读前者的话 UI 复选框显示「没开」而
+  实际开着,用户一点就把真实状态反转。加白名单键时留意有没有同类的双写路径。
+- `kv_cache_dtype` **不在白名单**:本机没有 nvcc,fp8 KV 会在 FlashInfer JIT 处起不来
+  (2026-09-21 两次实测),加进去等于给一个「点了会起不来」的按钮。
+
 ## Embedding 模型
 
 - 模型都在 **`embedding/<MODEL>`**(LOCAL_MODELS_PATH 下的顶层桶,depth-2)。
