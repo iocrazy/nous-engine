@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # 允许的覆盖键(与旧 config._OVERRIDABLE_KEYS 一致)。
-VALID_KEYS = ("resident", "gpu", "gpus", "vram_budget")
+VALID_KEYS = ("resident", "gpu", "gpus", "vram_budget", "params")
 
 # 进程内缓存:{model_id: {resident?, gpu?, gpus?, vram_budget?}}。DB 的同步可读镜像。
 _CACHE: dict[str, dict] = {}
@@ -83,6 +83,21 @@ async def set_override(session, model_id: str, key: str, value) -> None:
         # value = {"mode": auto|percent|absolute, "value": float?}
         row.vram_budget_mode = (value or {}).get("mode")
         row.vram_budget_value = (value or {}).get("value")
+    elif key == "params":
+        # value = {"max_model_len": 262144} → **合并**进既有 dict(不是整体替换):
+        # 端点每次只传用户改动的那几个键,整体替换会把之前设过的其它键冲掉。
+        # 某键的值为 None = **删除该键**(回退 models.d 的 yaml 值);
+        # 整个 value 为空({} / None)= 清空整列。
+        if not value:
+            row.params = None
+        else:
+            merged = dict(row.params or {})
+            for k, v in value.items():
+                if v is None:
+                    merged.pop(k, None)
+                else:
+                    merged[k] = v
+            row.params = merged or None
     await session.commit()
     await session.refresh(row)
     ov = row.to_overrides()
