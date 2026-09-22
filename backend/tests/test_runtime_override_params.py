@@ -62,3 +62,46 @@ async def test_set_override_params_empty_clears_column(db_session):
         db_session, "m3", "params", {"max_model_len": 262144})
     await runtime_override_store.set_override(db_session, "m3", "params", {})
     assert "params" not in runtime_override_store.get_overrides().get("m3", {})
+
+
+from src.config import _apply_runtime_overrides
+
+
+def test_params_deep_merge_keeps_unoverridden_keys(monkeypatch):
+    """只覆盖 max_model_len,max_num_seqs 必须仍是 yaml 的值(不能整体替换 params)。"""
+    monkeypatch.setattr(
+        "src.config.load_runtime_overrides",
+        lambda: {"m": {"params": {"max_model_len": 262144}}})
+    cfgs = {"m": {"id": "m", "params": {"max_model_len": 32768, "max_num_seqs": 16}}}
+    _apply_runtime_overrides(cfgs)
+    assert cfgs["m"]["params"] == {"max_model_len": 262144, "max_num_seqs": 16}
+
+
+def test_params_merge_does_not_write_through_cache(monkeypatch):
+    """copy_before_write=True 时**绝不能**改到原 params dict。
+
+    调用方(model_scanner._with_runtime_overrides)传进来的是某个 TTL 缓存结构的浅拷贝:
+    外层 dict 是新的,但 params 子 dict 与缓存共享同一个对象。写穿的症状很阴 ——
+    「改了参数 30 秒内看不到」或「改一次污染此后所有读」,难查。
+    """
+    monkeypatch.setattr(
+        "src.config.load_runtime_overrides",
+        lambda: {"m": {"params": {"max_model_len": 262144}}})
+    cached_params = {"max_model_len": 32768, "max_num_seqs": 16}
+    cached_cfg = {"id": "m", "params": cached_params}
+    shallow = {"m": dict(cached_cfg)}          # 模拟调用方的浅拷贝
+
+    _apply_runtime_overrides(shallow, copy_before_write=True)
+
+    assert shallow["m"]["params"]["max_model_len"] == 262144, "覆盖没生效"
+    assert cached_params["max_model_len"] == 32768, "写穿了缓存里的原 params dict"
+
+
+def test_params_override_on_cfg_without_params_key(monkeypatch):
+    """yaml 里没有 params 块的模型也要能被覆盖(别 KeyError)。"""
+    monkeypatch.setattr(
+        "src.config.load_runtime_overrides",
+        lambda: {"m": {"params": {"max_model_len": 4096}}})
+    cfgs = {"m": {"id": "m"}}
+    _apply_runtime_overrides(cfgs)
+    assert cfgs["m"]["params"] == {"max_model_len": 4096}
