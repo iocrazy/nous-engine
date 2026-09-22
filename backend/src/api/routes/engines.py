@@ -858,6 +858,45 @@ _LAUNCH_PARAM_REDIRECTS = {
 }
 
 
+#: 白名单内每个键的值域。只校验键名不校验值是不够的:前端 `Number('')` 是 `0`,
+#: 清空输入框就会把 `max_model_len: 0` 写进库,而 0 让 vLLM 起不来 —— 库里躺着一个
+#: 起不来的值,还得人去 DB 里捞。"哪个键、收到了什么、要求是什么"三样都要说清楚,
+#: 否则前端只能把 422/400 原样弹给用户。
+_LAUNCH_PARAM_VALIDATORS: dict[str, tuple] = {
+    # (判定, 人话要求)。None(清除覆盖)在调用处统一放行,不进这里。
+    "max_model_len": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+                      "正整数"),
+    "max_num_seqs": (lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+                     "正整数"),
+    "max_num_batched_tokens": (
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0, "正整数"),
+    "enable_prefix_caching": (lambda v: isinstance(v, bool), "布尔值"),
+    "dtype": (lambda v: isinstance(v, str) and v.strip() != "", "非空字符串"),
+    "quantization": (lambda v: isinstance(v, str) and v.strip() != "", "非空字符串"),
+}
+
+
+def _validate_launch_param_values(body: dict) -> None:
+    """值域校验。`None` = 清除该覆盖,任何键都放行。违反 → 400。
+
+    ⚠️ `bool` 是 `int` 的子类:`isinstance(True, int)` 为真,不显式排除的话
+    `max_num_seqs: true` 会被当成 1 存下去。
+    """
+    for k, v in body.items():
+        if v is None:
+            continue
+        check = _LAUNCH_PARAM_VALIDATORS.get(k)
+        if check is None:      # 白名单已经拦过未知键,这里是双保险
+            continue
+        ok, want = check
+        if not ok(v):
+            raise HTTPException(
+                400,
+                detail=f"{k} 的值非法:收到 {v!r}({type(v).__name__}),要求 {want};"
+                       f"传 null 表示清除该覆盖、回退 models.d 的 yaml 值",
+            )
+
+
 @router.patch("/{name}/launch-params", dependencies=[Depends(require_admin)])
 async def set_launch_params(
     name: str,
@@ -871,6 +910,7 @@ async def set_launch_params(
     空锚点;而且写 git 跟踪的 yaml 会被 git checkout/pull 冲掉(同 resident 端点的理由)。
 
     值为 `null` 的键 = **清除该覆盖**(回退 models.d 的 yaml 值)。
+    其余值过 `_LAUNCH_PARAM_VALIDATORS` 的值域校验(数字键必须 > 0)。
     改动只在**下次 load** 时读到,所以 `applied` 恒为 false。
     """
     from src.config import load_model_configs
@@ -891,6 +931,7 @@ async def set_launch_params(
         )
     if not body:
         raise HTTPException(400, detail="body 为空;至少给一个参数")
+    _validate_launch_param_values(body)
 
     await runtime_override_store.set_override(session, name, "params", body)
 
