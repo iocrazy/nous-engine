@@ -24,3 +24,41 @@ def test_to_overrides_params_coexists_with_placement():
     out = row.to_overrides()
     assert out["gpu"] == 1
     assert out["params"] == {"max_num_seqs": 8}
+
+
+import pytest
+
+from src.services import runtime_override_store
+
+
+@pytest.mark.asyncio
+async def test_set_override_params_writes_and_merges(db_session):
+    await runtime_override_store.set_override(
+        db_session, "m1", "params", {"max_model_len": 262144})
+    assert runtime_override_store.get_overrides()["m1"]["params"] == {
+        "max_model_len": 262144}
+
+    # 再写第二个键:**合并**而不是替换整个 dict
+    await runtime_override_store.set_override(
+        db_session, "m1", "params", {"max_num_seqs": 8})
+    assert runtime_override_store.get_overrides()["m1"]["params"] == {
+        "max_model_len": 262144, "max_num_seqs": 8}
+
+
+@pytest.mark.asyncio
+async def test_set_override_params_none_value_deletes_key(db_session):
+    await runtime_override_store.set_override(
+        db_session, "m2", "params", {"max_model_len": 262144, "max_num_seqs": 8})
+    # 显式 None = 删这个键(回退 yaml),不是"把它设成 null"
+    await runtime_override_store.set_override(
+        db_session, "m2", "params", {"max_num_seqs": None})
+    assert runtime_override_store.get_overrides()["m2"]["params"] == {
+        "max_model_len": 262144}
+
+
+@pytest.mark.asyncio
+async def test_set_override_params_empty_clears_column(db_session):
+    await runtime_override_store.set_override(
+        db_session, "m3", "params", {"max_model_len": 262144})
+    await runtime_override_store.set_override(db_session, "m3", "params", {})
+    assert "params" not in runtime_override_store.get_overrides().get("m3", {})
