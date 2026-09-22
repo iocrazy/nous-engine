@@ -13,6 +13,8 @@ import { useToastStore } from '../../stores/toast'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu'
 import DeleteModelDialog from '../models/DeleteModelDialog'
 import { buildGpuAssignSubmenu } from '../models/gpuAssignMenu'
+import { LaunchParamsEditor } from '../engines/LaunchParamsEditor'
+import { useLaunchParams } from '../../api/vllm'
 
 const TYPE_LABELS: Record<string, string> = {
   llm: '语言模型 LLM',
@@ -88,6 +90,9 @@ export default function ModelsOverlay() {
   const [activeTab, setActiveTab] = useState<TabId>('all')
   // 显存预算弹窗目标(vLLM 类引擎),null = 关闭。
   const [budgetTarget, setBudgetTarget] = useState<EngineInfo | null>(null)
+  // 启动参数弹窗目标(vLLM 类引擎),null = 关闭。与显存预算分开两栏:
+  // 前者写 params(上下文/并发),后者写绝对 GiB —— 两条端点、两套语义。
+  const [paramsTarget, setParamsTarget] = useState<EngineInfo | null>(null)
   // 物理删除确认框目标,null = 关闭。
   const [deleteTarget, setDeleteTarget] = useState<EngineInfo | null>(null)
   // 图像 tab 下的二级子 tab —— 按**文件夹/角色**分:整模型 / 超分 / diffusion_models / clip / vae / loras。
@@ -306,6 +311,11 @@ export default function ModelsOverlay() {
               {
                 label: '显存预算…',
                 onClick: () => setBudgetTarget(ctxMenu.model!),
+                disabled: false,
+              } as MenuItem,
+              {
+                label: '启动参数…',
+                onClick: () => setParamsTarget(ctxMenu.model!),
                 disabled: false,
               } as MenuItem,
             ]
@@ -628,6 +638,10 @@ export default function ModelsOverlay() {
         <VramBudgetModal engine={budgetTarget} onClose={() => setBudgetTarget(null)} />
       )}
 
+      {paramsTarget && (
+        <LaunchParamsModal engine={paramsTarget} onClose={() => setParamsTarget(null)} />
+      )}
+
       {deleteTarget && (
         <DeleteModelDialog engine={deleteTarget} onClose={() => setDeleteTarget(null)} />
       )}
@@ -666,6 +680,50 @@ function VramBudgetModal({ engine, onClose }: { engine: EngineInfo; onClose: () 
         ) : (
           // data 就绪后才挂表单 → 初值用 useState initializer 一次性读取,免 set-state-in-effect。
           <VramBudgetForm name={engine.name} data={data} onClose={onClose} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 启动参数弹窗(spec 2026-09-22):上下文长度 / 并发 / prefix caching。
+ *  显存**不在这里** —— 走隔壁「显存预算…」(绝对 GiB,加载时按实际那张卡换算)。 */
+function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: () => void }) {
+  const { data, isLoading } = useLaunchParams(engine.name)
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="rounded-lg"
+        style={{
+          width: 460, maxWidth: '92vw', background: 'var(--bg-elevated, #1a1a1a)',
+          border: '1px solid var(--border)', padding: 20,
+          display: 'flex', flexDirection: 'column', gap: 14,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>启动参数 · {engine.display_name}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}>
+            <X size={16} />
+          </button>
+        </div>
+        {isLoading || !data ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>加载中…</div>
+        ) : (
+          <>
+            {data.overridden.length > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--warn)' }}>
+                已被运行时覆盖:{data.overridden.join(', ')}(其余为 models.d 的 yaml 默认)
+              </div>
+            )}
+            <LaunchParamsEditor engineName={engine.name} current={data.effective} />
+          </>
         )}
       </div>
     </div>

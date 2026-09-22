@@ -904,6 +904,44 @@ async def set_launch_params(
     }
 
 
+@router.get("/{name}/launch-params", dependencies=[Depends(require_admin)])
+async def get_launch_params(name: str):
+    """读该引擎**当前生效**的启动参数 + 哪几个键是运行时覆盖的。
+
+    `effective` 已经过 `_apply_runtime_overrides` 的深合并(load_model_configs 内),
+    所以它就是"下次 load 会用的值";`overridden` 标出其中哪些来自 DB 覆盖、
+    哪些还是 models.d 的 yaml 值 —— UI 靠它显示"已改"标记 / 提供"恢复默认"。
+
+    只回白名单内的键:露出 gpu_memory_utilization 这类不可编辑项,迟早有人给它加输入框。
+    """
+    from src.config import load_model_configs
+    from src.services import runtime_override_store
+
+    cfg = load_model_configs().get(name)
+    if cfg is None:
+        raise HTTPException(404, detail=f"Unknown engine: {name}")
+
+    params = cfg.get("params") or {}
+    effective = {k: v for k, v in params.items() if k in _LAUNCH_PARAM_WHITELIST}
+    # prefix caching 有**两条**配法:`params.enable_prefix_caching`(适配器 kwarg)和
+    # `params.vllm_args["enable-prefix-caching"]`(透传,同名时以它为准)。
+    # 本机 models.d 里的 qwen3.8 两个变体走的都是后者 —— 只读前者的话 UI 复选框会显示
+    # "没开",而实际是开着的,用户一点就把真实状态改掉了。所以补读 vllm_args。
+    va = params.get("vllm_args") or {}
+    for alias in ("enable-prefix-caching", "enable_prefix_caching"):
+        if alias in va:
+            effective["enable_prefix_caching"] = bool(va[alias])
+            break
+    ov_params = runtime_override_store.get_overrides().get(name, {}).get("params") or {}
+    overridden = sorted(k for k in ov_params if k in _LAUNCH_PARAM_WHITELIST)
+    return {
+        "name": name,
+        "effective": effective,
+        "overridden": overridden,
+        "hint": "改动需重新加载模型生效(unload + load)",
+    }
+
+
 def _card_total_gb_for_engine(cfg: dict, loaded_gpu: int | None = None) -> float:
     """预算分母 = 目标卡的总显存(GB)。优先级:**真实落卡(已加载)> 配置钉的卡/组 >
     detector 推断** → 回退 24。

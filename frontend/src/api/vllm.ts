@@ -54,6 +54,23 @@ export type LaunchParamsBody = {
   quantization?: string | null
 }
 
+export interface LaunchParamsInfo {
+  name: string
+  /** 下次 load 会用的值(yaml 深合并 DB 覆盖后)。只含白名单内的键。 */
+  effective: Record<string, unknown>
+  /** effective 里哪几个键来自运行时覆盖(其余是 models.d 的 yaml 默认)。 */
+  overridden: string[]
+  hint: string
+}
+
+export function useLaunchParams(name: string | null) {
+  return useQuery({
+    queryKey: ['launch-params', name],
+    queryFn: () => apiFetch<LaunchParamsInfo>(`/api/v1/engines/${name}/launch-params`),
+    enabled: !!name,
+  })
+}
+
 export function useUpdateLaunchParams() {
   const qc = useQueryClient()
   return useMutation({
@@ -64,6 +81,7 @@ export function useUpdateLaunchParams() {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['engines'] })
+      qc.invalidateQueries({ queryKey: ['launch-params'] })
     },
   })
 }
