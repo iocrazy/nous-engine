@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from src.api.deps_admin import require_admin
 from src.api.response_cache import cached, invalidate
+from src.config import LAUNCH_PARAM_WHITELIST
 from src.errors import ConflictError, EngineUnloadRefusedError
 from src.services.model_scanner import scan_models, _VLLM_ADAPTER
 from src.gpu.detector import gpu_summary
@@ -833,19 +834,11 @@ async def set_resident(name: str, request: Request, resident: bool = True,
     return {"name": name, "resident": resident}
 
 
-#: 可运行时覆盖的启动参数。**刻意不含** gpu_memory_utilization 与 tensor_parallel_size:
-#:   - util 是「占该卡总量」的比例,换卡必须重算(2026-09-11 事故:改落卡忘改 util,
-#:     模型在 Pro 6000 上抓 53.3GiB 把 ComfyUI 挤到 19GiB)。显存走 vram-budget ——
-#:     它存绝对 GiB,在**加载时**按实际那张卡换算(llm_vllm.py 的预算优先级)。
-#:   - tp 是**放置结论**(_placement 定),不是调优旋钮。
-_LAUNCH_PARAM_WHITELIST = frozenset({
-    "max_model_len",
-    "max_num_seqs",
-    "max_num_batched_tokens",
-    "enable_prefix_caching",
-    "dtype",
-    "quantization",
-})
+#: 白名单的定义在 `src/config.py`(配置层),这里只是本模块内的短名。
+#: 定义搬过去的理由:消费方除了本路由,还有 `ModelManager._instantiate_adapter`
+#: (服务层)—— 让服务层反向 import API 层,方向是反的,且将来 engines.py 顶层多一个
+#: import 就可能变成真循环,而报错会落在「加载模型」这条完全无关的路径上。
+_LAUNCH_PARAM_WHITELIST = LAUNCH_PARAM_WHITELIST
 
 #: 这些键单独给理由,不要混在"不在白名单"的通用报错里 —— 用户会以为是拼错了。
 _LAUNCH_PARAM_REDIRECTS = {

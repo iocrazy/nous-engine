@@ -119,10 +119,13 @@ def test_whitelist_excludes_placement_and_vram_knobs():
     叠加(2026-09-22 的 C1 修复)—— 白名单一旦放行,放置结论就能从 UI 上被改。
     """
     from src.api.routes.engines import _LAUNCH_PARAM_WHITELIST
+    from src.config import LAUNCH_PARAM_WHITELIST
 
     forbidden = {"gpu", "gpus", "device", "tensor_parallel_size", "gpu_memory_utilization",
                  "vram_budget", "vram_mb", "kv_cache_dtype"}
-    assert not (_LAUNCH_PARAM_WHITELIST & forbidden)
+    assert not (LAUNCH_PARAM_WHITELIST & forbidden)
+    # 路由层的短名必须就是配置层那一个对象 —— 复制一份的话这条机检就只守住了半边。
+    assert _LAUNCH_PARAM_WHITELIST is LAUNCH_PARAM_WHITELIST
 
 
 @pytest.mark.asyncio

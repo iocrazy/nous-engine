@@ -425,15 +425,15 @@ class ModelManager:
         # 只认白名单,且与写端点**共用同一个对象**(绝不复制一份,两份迟早分叉):
         # 放置与显存预算是**放置结论**,绝不能从 params 这条路渗回来(那正是 2026-09-11
         # 「改落卡忘改 util」事故的形状)。
-        from src.api.routes.engines import _LAUNCH_PARAM_WHITELIST  # noqa: PLC0415
         from src.config import (  # noqa: PLC0415
+            LAUNCH_PARAM_WHITELIST,
             drop_prefix_caching_vllm_alias,
             load_runtime_overrides,
         )
         ov = load_runtime_overrides().get(spec.id) or {}
         ov_params = {
             k: v for k, v in (ov.get("params") or {}).items()
-            if k in _LAUNCH_PARAM_WHITELIST
+            if k in LAUNCH_PARAM_WHITELIST
         }
         params.update(ov_params)
         if "enable_prefix_caching" in ov_params:
