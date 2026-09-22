@@ -960,7 +960,11 @@ async def set_launch_params(
         raise HTTPException(400, detail="body 为空;至少给一个参数")
 
     editable = _editable_launch_params(cfg)
-    unusable = sorted(k for k in body if k not in editable)
+    # `null` = **清除覆盖**,任何键都放行,哪怕该适配器吃不下它。
+    # 否则库里躺着的历史死数据(收窄之前的 200 存下的、到不了引擎的覆盖)就永远清不掉:
+    # 面板不渲染它、PATCH 又拒绝它,只剩手改 DB 一条路。清除只会让状态更干净,
+    # 不可能让引擎收到它不认识的参数 —— 拦它没有任何收益。
+    unusable = sorted(k for k, v in body.items() if v is not None and k not in editable)
     if unusable:
         adapter = cfg.get("adapter") or "(无)"
         if editable:

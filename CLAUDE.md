@@ -190,6 +190,15 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   `enable_prefix_caching` / `dtype` / `quantization`。键名之外**还校验值域**
   (三个数字键必须是 >0 的 int 且排除 bool;`enable_prefix_caching` 必须 bool;
   两个字符串键必须非空 str)—— 否则前端一个空输入框就能把 `0` 写进 DB 且退不出来。
+- ⚠️ **白名单之外还有第二道闸:该引擎的适配器接不接受这个键**
+  (`_editable_launch_params`,按 `inspect.signature(cls.__init__).parameters` 判,
+  **`**kwargs` 不算接受**)。吃不下就 400,不静静存起来 —— 存了也到不了引擎。
+  与旁边「只有 `supports_gpu_group = True` 的适配器能吃组」是同一条原则:
+  **按能力判,不按 type 猜**。MOSS ASR(`SGLangOmniAdapter`)与 TTS 那几个都是
+  `**kwargs` 收尾,`editable` 为空,UI 上显示「没有可调项」。GET 响应里的
+  `editable` 就是给前端用来隐藏控件的。
+  **例外**:值为 `null`(清除覆盖)**任何键都放行** —— 否则收窄之前存下的死数据
+  永远清不掉(面板不渲染、PATCH 又拒),只剩手改 DB。
 - **`gpu_memory_utilization` 与 `tensor_parallel_size` 刻意不可覆盖**,PATCH 到会 400:
   util 是「占该卡总量」的比例、换卡必须重算(2026-09-11 事故:改落卡忘改 util,
   模型在 Pro 6000 上抓 53.3GiB 把 ComfyUI 挤到 19GiB),显存一律走
