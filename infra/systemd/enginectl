@@ -36,9 +36,19 @@ STACK_UNITS=(postgresql nous-engine-backend nous-engine-status nous-engine-netpr
 # 从 infra/network.env 读一个键 —— 内网地址的单一真相源(见该文件头部说明)。
 # 文件缺失/键不存在时返回空,调用方各自决定怎么降级(status 探测会显示连不上,不致命)。
 _net_env() {
-  local f="${NOUS_NETWORK_ENV:-$(dirname "$(dirname "$(readlink -f "$0")")")/network.env}"
-  [ -r "$f" ] || return 0
-  sed -n "s/^$1=//p" "$f" | head -1
+  # 候选路径按优先级:显式覆盖 → 安装位置 → 仓库内(直接从 checkout 里跑时)。
+  # **不能只用「脚本自身位置往上推」**:本脚本装到 /usr/local/bin/ 后那样会推成
+  # /usr/local/network.env(不存在)→ 取值为空 → 探测地址变成 http://:8000。
+  # install.sh 会把 /etc/nous-engine/network.env 做成指向仓库那份的软链,
+  # 所以装完之后 git pull 改了 network.env 这里立刻跟着变,不会有两份分叉。
+  local f
+  for f in "${NOUS_NETWORK_ENV:-}" \
+           /etc/nous-engine/network.env \
+           "$(dirname "$(dirname "$(readlink -f "$0")")")/network.env"; do
+    [ -n "$f" ] && [ -r "$f" ] || continue
+    sed -n "s/^$1=//p" "$f" | head -1
+    return 0
+  done
 }
 
 # 后端本地就绪探针(与 cmd_status 的 Tailscale 探测同一个 /healthz,只是走回环)。
