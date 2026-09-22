@@ -15,8 +15,17 @@ id: qwen3_8_27b_abliterated_huihui
 paths:
   main: llm/Qwen3.8-27B-abliterated-Huihui
 type: llm
-# Pro 5000(72G)。Pro 6000 由 ComfyUI 独占,LLM 不上那张(CLAUDE.md 的用户硬决定)。
-gpu: 0
+# **Pro 6000(GPU 1)** —— 用户 2026-09-21 明确:
+#   「**小的 qwen3.8(量化版)不上 6000,这种 50 多 G 的大的可以上**」。
+# 所以那条「qwen3.8 永不搬到 Pro 6000」**只约束 `qwen3_8_27b_abliterated_awq`
+# 那个 19 GiB 的 AWQ 量化版**(它留在 Pro 5000 做常驻主力),不约束本模型。
+# 判据是**体积**:小的量化版待在 Pro 5000 与 ASR/embedding 共存;
+# 50+ GiB 的 BF16 大版本 Pro 5000 根本放不下,本来就只能上 Pro 6000。
+#
+# 代价:本模型按下面的 util 吃掉约 66.5 GiB,同卡的 ComfyUI 只剩 ~29 GiB ——
+# **minimax-h3 那类 62GB 权重的大视频模型之后装不下**。两者只能错峰:
+# 要跑大视频工作流就先 unload 本模型。
+gpu: 1
 # **不常驻,按需加载,而且加载前必须腾卡**。实测账(2026-09-21,Pro 5000 可见 71.12 GiB):
 #   三常驻(MOSS ASR 8.7 + AWQ 23.2 + WeMM-4B 12.8)稳态 45.9 GiB,只剩 25.2 GiB。
 #   本模型光权重 51.75 GiB —— 连 WeMM-4B 一起卸掉(剩 62.4 GiB)才装得下,
@@ -32,24 +41,53 @@ ttl_seconds: 3600
 # 与 qwen3_8_27b_uncensored_jc **实测数字完全一致**(同基座,1199 个张量同样多)——
 # 两者只留一个即可;那份带独立 model-mtp.safetensors,想试 MTP 就留那份。
 #
-# ⚠️ **换算,不是照抄**:绝对预算 56.98 GiB 落到 Pro 5000(可见 71.12 GiB)
-# = 56.98 / 71.12 = **0.80**。别把上面那个 0.60 抄过来。
+# **现在落 GPU 1(Pro 6000,可见 94.97 GiB),所以 util 用这张卡的口径。**
+# 标定时 0.60 = 56.98 GiB 只够 KV 3.24 GiB(并发 1.40x),对外服务太低,
+# 故抬到 **0.70 = 66.48 GiB**:固定开销 53.74(权重 51.69 + 峰值激活 2.05)不变,
+# 多出来的全进 KV → KV ≈ 12.7 GiB ≈ 179,000 tokens ≈ 32768 上下文下并发 **~5.5x**。
+# (若换回 Pro 5000,这个 0.70 **必须重算**:绝对预算 66.48 / 71.12 = 0.93,
+#  那已经贴死上界,实际上 Pro 5000 装不下调优后的本模型。)
 #
-# ⚠️ **落到 Pro 5000 后余量极小**:57.06(含 CUDAGraph)+ MOSS ASR 8.68 = 65.74 GiB,
-# 卡 71.69 → 只剩 ~5.9 GiB。高于 DEFAULT_RESERVED_GB=4.0 但很紧,
-# **且必须先卸掉 AWQ 与 WeMM-4B**。起不来就往下调 util 换小 KV;
-# **别往上调**,超过约 0.94 会触发看门狗驱逐(见 AWQ yaml 那条与卡型无关的上界机制)。
-vram_mb: 58300
+# ⚠️ 别往上调过头:剩余空闲低于 gpu_monitor 的 DEFAULT_RESERVED_GB=4.0 会触发看门狗,
+# 且要给同卡的 ComfyUI 留活路(0.70 时它还有 ~29 GiB)。
+vram_mb: 68100
 params:
-  # 262144 是原生上限,但这个变体几乎没有 KV 预算余量,32768 已是乐观值。
-  # 往上调必须同步抬 util,而 util 已经贴顶 —— 实际上这个 BF16 变体注定是短上下文用法。
+  # 262144 是原生上限。KV 是 **64 KiB/token**(64 层里只有 16 层全注意力,其余是
+  # Gated DeltaNet 线性注意力,不占 KV),所以 32768 上下文 ≈ 2 GiB/路。
+  # **上下文与并发是直接的此消彼长**:同样的 KV 池,max_model_len 减半 → 并发翻倍。
   max_model_len: 32768
-  # 比例是**每卡占总量**。0.80 是四个 3.8 变体里最高的,因为 BF16 不量化。
-  gpu_memory_utilization: 0.80
+  # 比例是**每卡占总量**(GPU 1 = 94.97 GiB 可见)。0.70 = 66.48 GiB。
+  gpu_memory_utilization: 0.70
+  # 调度器并发上限。**它不是并发的驱动力** —— 真实并发由 KV 池大小决定,
+  # 光调大这个数不给 KV 不会有任何提升(vLLM 官方 Optimization 页点名说明)。
+  # 这里给 64 是为了让 **KV 成为约束**而不是调度器:util 0.70 的 KV 约能撑
+  # 32768 下 5.5 路 / 8192 下 22 路,64 足够不挡路。
+  # ⚠️ 它会抬高启动 profiling 的峰值激活(峰值按 max_num_seqs × max_model_len 带
+  # 多模态 dummy 输入算),改大要重新看 vLLM 日志里的 "peak activation"。
+  max_num_seqs: 64
   vllm_args:
     # 思考内容分离到 `reasoning_content`,**不是关思考**(同 AWQ 版)。
     reasoning-parser: qwen3
     enable-auto-tool-choice: true
     tool-call-parser: qwen3_xml
+    # ── 并发优化(2026-09-21 按 vLLM 官方 Optimization 指南加)──────────────
+    # 前缀缓存:多请求共享同一段系统提示时跳过重复 prefill。对外服务几乎总是
+    # 同一个 system prompt,收益直接。不吃额外显存(复用同一 KV 块)。
+    enable-prefix-caching: true
+    # ❌ **`kv-cache-dtype: fp8` 本机起不来,别再加**(2026-09-21 真机实测两次)。
+    # 它会把注意力路由到 FlashInfer,而 FlashInfer 要**现场 JIT 编译 kernel**,
+    # 本机没有 `/usr/local/cuda`:
+    #   flashinfer/jit/cpp_ext.py:61 get_cuda_path →
+    #   RuntimeError: Could not find nvcc and default cuda_home='/usr/local/cuda'
+    #     doesn't exist
+    # → EngineCore 初始化失败,vLLM exit 1。**与 GPU 架构无关**(两张卡都是
+    # Blackwell,默认路径有预编译 kernel 不触发 JIT;是 fp8 KV 这个特性本身要 JIT)。
+    #
+    # 想拿到 fp8 KV 那**约两倍的 KV 容量**(32768 下并发 ~5.5x → ~11x,且不牺牲
+    # 上下文),得先给 venv 装 nvcc —— 配方见记忆 [[sm86-jit-toolchain-broken]]:
+    #   uv pip install "cuda-toolkit[nvcc]==13.0.2"  再整链升 13.3
+    # 那是动生产 venv 的操作,单独评估,别顺手做(参见「绝不裸 uv sync」那条)。
+    # 同理 Blackwell 的 `nvfp4` 也走 JIT,现在一样起不来。
     # ⚠️ 未开 speculative-config(MTP):index 里有 15 个 mtp 权重键但无独立
-    # model-mtp.safetensors,能否吃到未验证;且这个变体显存已贴顶,草稿 KV 加不起。
+    # model-mtp.safetensors,能否吃到未验证。要试 MTP 优先用 uncensored_jc 那份
+    # (它带独立 model-mtp.safetensors)。
