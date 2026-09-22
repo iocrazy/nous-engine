@@ -97,19 +97,22 @@
   这里以前是无条件 `systemctl disable`,每次重装都把「前置条件已核对过」的结论推翻,
   且不带 `--now` → 进程照跑、当场零征兆,**要等下次重启才发现 sidecar 没回来**
   (2026-09-07 就这么踩了一次:16:37 跑 install.sh,21:31 重启才显形)。
-- **单元 `--listen` 是逐个点名网卡,不是通配符**:`127.0.0.1,100.124.149.118` —— 回环给
-  后端桥(`NOUS_COMFY_URL`)+ 本机浏览器,Tailscale 那个给「从别的机器开 ComfyUI 界面」。
+- **单元 `--listen` 是逐个点名网卡,不是通配符** —— 回环给后端桥(`NOUS_COMFY_URL`)
+  + 本机浏览器,Tailscale 那个给「从别的机器开 ComfyUI 界面」。
+  **具体地址在 `infra/network.env` 的 `NOUS_COMFY_LISTEN`(单一真相源,换网只改它)**,
+  unit 里是 `--listen ${NOUS_COMFY_LISTEN}` + `EnvironmentFile=`(**无 `-` 前缀,
+  fail-closed**:文件缺失就让单元起不来,而不是展开成空地址绑全网卡)。
   LAN(`192.168.8.x`)、docker0/br-*(`172.x`)、mihomo 的 Meta(`198.18.x`)一个口都不开。
   **别图省事改回 `0.0.0.0`**:ComfyUI 自身零鉴权,而它的节点能读写任意文件、执行自定义
   代码,绑通配符 = 把这台机器交给能路由到它的任何人(2026-09-07 收紧,#725/#727)。
   这条由 `tests/test_infra_privilege_boundary.py` **逐个地址**兜住(任一项是
   `0.0.0.0`/`::`/`*`/空就红,且回环不能摘 —— 摘了后端桥 Connection refused)。
-  换机器要改那个硬编码的内网 IP。`main.py` 对 `--listen` 做 `split(",")`,每个地址
+  `main.py` 对 `--listen` 做 `split(",")`,每个地址
   各起一个 TCPSite;网卡晚起会 bind 失败,靠 `Restart=on-failure` 重试收敛
   (`After=tailscaled.service` 只能缓解 —— 网卡 up ≠ 地址已配)。
   **2026-09-21:ZeroTier 换成 Tailscale**,原 `10.0.0.10` 已不在任何网卡上。换网当时
   ComfyUI 进程还绑着旧 socket(`ss` 看得到 LISTEN 但收不到流量),属于「一重启就
-  `EADDRNOTAVAIL`」的待爆状态 —— 换 tailnet / 重装节点后记得同步改这里。
+  `EADDRNOTAVAIL`」的待爆状态 —— 换 tailnet / 重装节点后改 `infra/network.env` 即可。
 - 真机 smoke(非 CI,需 sidecar 已跑 + 权重已入 ComfyUI models):
   `cd backend && uv run python tests/manual/smoke_comfy_h3.py --base http://127.0.0.1:8000
   --admin-token $ADMIN_TOKEN --workflow /path/to/xxx-api.json --mapping /path/to/mapping.json`

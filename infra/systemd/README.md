@@ -5,7 +5,7 @@
 
 > **公网隧道已退役(2026-09-06)**:`nous-engine-cloudflared`(Cloudflare 隧道 `api.iocrazy.com`)
 > 已从仓库删除,`install.sh` 会主动 `disable + rm + mask` 它。nous-engine **只在本机 / 局域网 /
-> Tailscale(100.124.149.118)可达**,这是用户的明确决定:不要再给它加任何对外暴露的入口。
+> Tailscale(地址见 `infra/network.env`)可达**,这是用户的明确决定:不要再给它加任何对外暴露的入口。
 
 ## 一次性安装
 

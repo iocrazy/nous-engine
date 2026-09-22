@@ -3,7 +3,7 @@
 Single-admin inference infra (推理算力层). Repo/product renamed **nous-center →
 nous-engine** (裸 `nous-` 前缀让给上层平台;systemd 单元全套 `nous-engine-*`,CLI
 `enginectl`). Production deploy = `backend serve frontend/dist` on `:8000`, reachable **only
-on this host / LAN / Tailscale (100.124.149.118, tailnet 名 `heygo-ubuntu`)** — the Cloudflare tunnel (`api.iocrazy.com`,
+on this host / LAN / Tailscale (tailnet 名 `heygo-ubuntu`;地址见 `infra/network.env`)** — the Cloudflare tunnel (`api.iocrazy.com`,
 `nous-engine-cloudflared`) was **retired 2026-09-06 by the user's decision**: 不要再给
 nous-engine 加任何对外暴露的入口(隧道/反代/端口映射),上层平台 nous-app 有自己的隧道,
 它只经内网调 nous-engine。vite dev (`:9999`) is **local-only** for frontend hot reload.

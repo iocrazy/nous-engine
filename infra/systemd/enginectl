@@ -33,6 +33,14 @@ c_ylw() { printf '\033[33m%s\033[0m' "$*"; }
 # 关心的是整栈现状,不只是被操作的那几个。
 STACK_UNITS=(postgresql nous-engine-backend nous-engine-status nous-engine-netprobe nous-engine-comfyui)
 
+# 从 infra/network.env 读一个键 —— 内网地址的单一真相源(见该文件头部说明)。
+# 文件缺失/键不存在时返回空,调用方各自决定怎么降级(status 探测会显示连不上,不致命)。
+_net_env() {
+  local f="${NOUS_NETWORK_ENV:-$(dirname "$(dirname "$(readlink -f "$0")")")/network.env}"
+  [ -r "$f" ] || return 0
+  sed -n "s/^$1=//p" "$f" | head -1
+}
+
 # 后端本地就绪探针(与 cmd_status 的 Tailscale 探测同一个 /healthz,只是走回环)。
 HEALTHZ_URL=http://127.0.0.1:8000/healthz
 HEALTH_URL=http://127.0.0.1:8000/health
@@ -87,9 +95,9 @@ _status_endpoints() {
   ss -ltn 2>/dev/null | awk 'NR>1 {print $4}' | grep -E ':(8000|8001|5432|8888)$' | sort -u | sed 's/^/  /' || true
   printf '\nTailscale 内网访问:\n'
   # 后端 bind 0.0.0.0 → Tailscale 网卡同样可达。探一下 /healthz 确认内网入口活着。
-  # 2026-09-21 ZeroTier 退役换 Tailscale;IP 随节点固定,换 tailnet/重装节点用 NOUS_TS_HOST 覆盖。
+  # 地址取自单一真相源 infra/network.env(换网只改那个文件);环境变量仍可临时覆盖。
   local ts_host zt_code cq depth code
-  ts_host="${NOUS_TS_HOST:-100.124.149.118}"
+  ts_host="${NOUS_TS_HOST:-$(_net_env NOUS_TS_HOST)}"
   zt_code="$(_http_code "http://${ts_host}:8000/healthz")"
   if [ "$zt_code" = 200 ]; then
     printf '  http://%s:8000  %s\n' "$ts_host" "$(c_grn 'HTTP 200')"
