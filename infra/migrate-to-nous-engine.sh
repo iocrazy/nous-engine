@@ -173,7 +173,7 @@ main() {
     ok "cloudflared 已从 $CF_SRC 安装到 /usr/local/bin/cloudflared(0755)"
   else
     warn "缺 /usr/local/bin/cloudflared 且未给 --cloudflared <path> → 跳过(公网隧道暂不可用,"
-    warn "  不阻塞迁移;本机 + ZeroTier 正常)。补:sudo install -m0755 <cloudflared> /usr/local/bin/"
+    warn "  不阻塞迁移;本机 + Tailscale 正常)。补:sudo install -m0755 <cloudflared> /usr/local/bin/"
   fi
 
   # ── ⑧ 迁移 Claude 记忆目录(以 heygo 身份)───────────────────────────────

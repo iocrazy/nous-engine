@@ -5,7 +5,7 @@
 
 > **公网隧道已退役(2026-09-06)**:`nous-engine-cloudflared`(Cloudflare 隧道 `api.iocrazy.com`)
 > 已从仓库删除,`install.sh` 会主动 `disable + rm + mask` 它。nous-engine **只在本机 / 局域网 /
-> ZeroTier(10.0.0.10)可达**,这是用户的明确决定:不要再给它加任何对外暴露的入口。
+> Tailscale(100.124.149.118)可达**,这是用户的明确决定:不要再给它加任何对外暴露的入口。
 
 ## 一次性安装
 
@@ -34,7 +34,7 @@ nous-engine-backend` —— 装过 `install.sh` 的机器**免密**(`nous-deploy
 enginectl up        # 拉起全栈(DB→后端→状态)并打印启动自检 banner
 enginectl down      # 停应用栈(后端/状态/comfyui);postgresql 保持运行
 enginectl restart   # 重启应用栈 + 打印重启报告(见下)
-enginectl status    # 各 unit active? + 端口 + ZeroTier/ComfyUI,一屏
+enginectl status    # 各 unit active? + 端口 + Tailscale/ComfyUI,一屏
 enginectl logs [u]  # journalctl -f(u 缺省 backend;可 status/healthprobe/netprobe/comfyui/postgresql)
 ```
 

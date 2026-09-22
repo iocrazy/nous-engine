@@ -8,7 +8,7 @@
    任何进到 master 的提交 → deploy.sh 的 `git reset --hard` → 下次单元启动 =
    免密 root 代码执行(仓库是 public、master 可直推,放大器齐全)。
 2. ComfyUI 不监听 0.0.0.0 —— 它自身零鉴权,而节点能读写任意文件、执行代码,
-   暴露到局域网/ZeroTier 等于把这台机器交出去。后端桥走 127.0.0.1,绑回环不影响它。
+   暴露到局域网/Tailnet 等于把这台机器交出去。后端桥走 127.0.0.1,绑回环不影响它。
 3. deploy.sh 在 `git reset --hard` 前必须先挡住脏工作树 —— 静默销毁与本仓库
    别处的 fail-loud 风格(dist 时间戳校验、`import vllm` 校验)不一致。
 
@@ -127,14 +127,14 @@ def test_comfyui_binds_no_wildcard_address():
     """零鉴权 + 节点可执行任意代码 → 每个绑定地址都必须是具体网卡,绝不能是通配符。
 
     #725 的原判定是 `"--listen 0.0.0.0" not in exec_start`,#727 把参数改成逗号表
-    (`127.0.0.1,10.0.0.10`)之后就有了盲区:`--listen 127.0.0.1,0.0.0.0` 同样能过 ——
+    (`127.0.0.1,<内网 IP>`)之后就有了盲区:`--listen 127.0.0.1,0.0.0.0` 同样能过 ——
     子串里 `--listen 0.0.0.0` 并不出现。逐个地址判定才咬得住。
     """
     addrs = _comfy_listen_addrs()
     bad = [a for a in addrs if a in _WILDCARD_BINDS]
     assert not bad, (
         f"ComfyUI 零鉴权且节点可执行任意代码,绑定里不能有通配地址 {bad}(当前 {addrs});"
-        "要逐个点名网卡 —— 回环给后端桥,另一个给 ZeroTier。"
+        "要逐个点名网卡 —— 回环给后端桥,另一个给 Tailscale。"
     )
 
 

@@ -2,7 +2,7 @@
 #
 # 每个 provider 是一个账号登录态外部 CLI(即梦 dreamina / codex),经 subprocess 转发生成。
 # 护栏(concurrency/rate_per_min/min_interval_s/queue_capacity)把单账号在云侧的请求形态
-# 锁在「单人低频串行」——这是规避封号的核心,**勿轻易调高**。仅供 ZeroTier 内网自用,
+# 锁在「单人低频串行」——这是规避封号的核心,**勿轻易调高**。仅供 Tailscale 内网自用,
 # 不对公网多租户暴露。
 #
 # executable: 留空走 PATH 查找(dreamina/codex);也可填绝对路径。
