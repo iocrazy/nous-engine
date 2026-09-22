@@ -129,6 +129,65 @@ def test_whitelist_excludes_placement_and_vram_knobs():
 
 
 @pytest.mark.asyncio
+async def test_patch_rejects_engine_whose_adapter_cannot_consume(db_client):
+    """适配器吃不下这些键的引擎 → 400,而不是静静存进库。
+
+    MOSS ASR 走 `SGLangOmniAdapter`,`__init__` 以 `**kwargs` 收尾,6 个白名单键
+    **一个都不消费**。此前 PATCH 是 200:写得进库、GET 报「已覆盖」、引擎行为纹丝不动
+    —— 正是这一支从头在修的那类 bug(2026-09-22 复查 N1)。
+    """
+    from src.config import load_model_configs
+
+    name = "moss_transcribe_diarize"
+    if name not in load_model_configs():
+        pytest.skip(f"{name} 不在本机 models.d")
+
+    r = await db_client.patch(f"/api/v1/engines/{name}/launch-params",
+                              json={"max_model_len": 4096})
+    assert r.status_code == 400, r.text
+    assert name in r.text                      # 点名是哪个引擎
+    assert "SGLangOmniAdapter" in r.text       # 点名是哪个适配器
+
+    # 被拒的请求不能留下痕迹
+    from src.services import runtime_override_store
+    assert "max_model_len" not in (
+        runtime_override_store.get_overrides().get(name, {}).get("params") or {})
+
+
+def test_editable_launch_params_by_adapter_signature():
+    """可编辑性按**适配器签名**判,不按模型 type 猜。
+
+    只读签名,不实例化、不 load —— 测试绝不能真起推理服务碰 GPU。
+    """
+    from src.api.routes.engines import _editable_launch_params
+    from src.config import LAUNCH_PARAM_WHITELIST
+
+    vllm = _editable_launch_params(
+        {"adapter": "src.services.inference.llm_vllm.VLLMAdapter"})
+    assert vllm == LAUNCH_PARAM_WHITELIST      # 6 个键全接
+
+    asr = _editable_launch_params(
+        {"adapter": "src.services.inference.asr_sglang.SGLangOmniAdapter"})
+    assert asr == frozenset()                  # `**kwargs` 不算接受
+
+    assert _editable_launch_params({}) == frozenset()          # 没有 adapter
+    assert _editable_launch_params({"adapter": "nodots"}) == frozenset()
+
+
+def test_editable_launch_params_fails_open_when_signature_unavailable():
+    """取不到签名就别拦:拦错了用户连改都改不了,比多给一个无效按钮更糟。"""
+    from src.api.routes.engines import _editable_launch_params
+    from src.config import LAUNCH_PARAM_WHITELIST
+
+    assert _editable_launch_params(
+        {"adapter": "src.no_such_module_at_all.NoSuchAdapter"}
+    ) == LAUNCH_PARAM_WHITELIST
+    assert _editable_launch_params(
+        {"adapter": "src.config.NoSuchClassInThisModule"}
+    ) == LAUNCH_PARAM_WHITELIST
+
+
+@pytest.mark.asyncio
 async def test_patch_null_clears_single_key(db_client):
     name = "qwen3_8_27b_abliterated_awq"
     await db_client.patch(f"/api/v1/engines/{name}/launch-params",

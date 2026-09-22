@@ -60,6 +60,12 @@ export interface LaunchParamsInfo {
   effective: Record<string, unknown>
   /** effective 里哪几个键来自运行时覆盖(其余是 models.d 的 yaml 默认)。 */
   overridden: string[]
+  /**
+   * 该引擎的**适配器真吃得下**的键(判据是 `__init__` 的形参表,不是模型 type)。
+   * 不在里面的控件一律不渲染 —— MOSS ASR / TTS 那几个引擎用 `**kwargs` 收尾,
+   * 参数写得进库、GET 也报「已覆盖」,引擎行为却纹丝不动。空数组 = 没有可调项。
+   */
+  editable: string[]
   hint: string
 }
 

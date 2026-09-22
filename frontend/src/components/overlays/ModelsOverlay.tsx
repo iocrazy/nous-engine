@@ -715,6 +715,14 @@ function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: (
         </div>
         {isLoading || !data ? (
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>加载中…</div>
+        ) : data.editable.length === 0 ? (
+          /* 该引擎的适配器一个白名单键都不消费(MOSS ASR / TTS 的 __init__ 以 `**kwargs`
+             收尾)。渲染编辑器就是给一个点了不管用的按钮:写得进库、GET 报「已覆盖」、
+             引擎行为纹丝不动 —— 后端也会 400 拒。2026-09-22 复查 N1。 */
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            该引擎的适配器不消费这些启动参数,没有可调项。
+            要调它的启动配置,改它自己的配置文件(models.d 的 yaml / 引擎侧 config)后重新加载。
+          </div>
         ) : (
           <>
             {data.overridden.length > 0 && (
@@ -722,7 +730,11 @@ function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: (
                 已被运行时覆盖:{data.overridden.join(', ')}(其余为 models.d 的 yaml 默认)
               </div>
             )}
-            <LaunchParamsEditor engineName={engine.name} current={data.effective} />
+            <LaunchParamsEditor
+              engineName={engine.name}
+              current={data.effective}
+              editable={data.editable}
+            />
           </>
         )}
       </div>

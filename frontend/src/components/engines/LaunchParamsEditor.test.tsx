@@ -17,6 +17,16 @@ const CURRENT = {
   enable_prefix_caching: true,
 }
 
+// vLLM 类引擎的 editable(后端按适配器 __init__ 的形参表算出来的全集)。
+const ALL = [
+  'max_model_len',
+  'max_num_seqs',
+  'max_num_batched_tokens',
+  'enable_prefix_caching',
+  'dtype',
+  'quantization',
+]
+
 describe('sanitizeLaunchParams', () => {
   it('丢掉非正数的数字键 —— `Number("")` 是 0,清空输入框不能把 0 写进 DB', () => {
     expect(sanitizeLaunchParams({ max_model_len: 0 })).toEqual({})
@@ -34,7 +44,7 @@ describe('sanitizeLaunchParams', () => {
 
 describe('LaunchParamsEditor', () => {
   it('清空输入框 → 该键从 draft 里删掉(回落 current),不会存成 0', () => {
-    render(<LaunchParamsEditor engineName="m" current={CURRENT} />)
+    render(<LaunchParamsEditor engineName="m" current={CURRENT} editable={ALL} />)
     const input = screen.getByLabelText('max_num_seqs') as HTMLInputElement
 
     fireEvent.change(input, { target: { value: '' } })
@@ -45,7 +55,7 @@ describe('LaunchParamsEditor', () => {
   })
 
   it('输入正整数 → 保存发出去的就是它', () => {
-    render(<LaunchParamsEditor engineName="m" current={CURRENT} />)
+    render(<LaunchParamsEditor engineName="m" current={CURRENT} editable={ALL} />)
     fireEvent.change(screen.getByLabelText('max_num_seqs'), {
       target: { value: '16' },
     })
@@ -54,7 +64,7 @@ describe('LaunchParamsEditor', () => {
   })
 
   it('I5:先在输入框敲值、再点预设,预设不会被随后的"保存"悄悄回滚', () => {
-    render(<LaunchParamsEditor engineName="m" current={CURRENT} />)
+    render(<LaunchParamsEditor engineName="m" current={CURRENT} editable={ALL} />)
     // 用户先敲了个值(只进 draft,没发请求)
     fireEvent.change(screen.getByLabelText('max_model_len'), {
       target: { value: '4096' },
@@ -73,7 +83,7 @@ describe('LaunchParamsEditor', () => {
   })
 
   it('I5:勾选 prefix caching 同样即时保存 + 摘掉自己的 draft 键', () => {
-    render(<LaunchParamsEditor engineName="m" current={CURRENT} />)
+    render(<LaunchParamsEditor engineName="m" current={CURRENT} editable={ALL} />)
     const box = screen.getByRole('checkbox')
     fireEvent.click(box)
     expect(mutate).toHaveBeenCalledWith({
@@ -83,8 +93,22 @@ describe('LaunchParamsEditor', () => {
     expect(screen.getByText('保存')).toBeDisabled()
   })
 
+  it('N1:不在 editable 里的键不渲染控件 —— 适配器吃不下,渲染了就是无效按钮', () => {
+    render(
+      <LaunchParamsEditor
+        engineName="m"
+        current={CURRENT}
+        editable={['max_model_len']}
+      />,
+    )
+    expect(screen.getByLabelText('max_model_len')).toBeInTheDocument()
+    expect(screen.queryByLabelText('max_num_seqs')).toBeNull()
+    expect(screen.queryByLabelText('max_num_batched_tokens')).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+  })
+
   it('预设不吃掉输入框里**别的**键的待存值', () => {
-    render(<LaunchParamsEditor engineName="m" current={CURRENT} />)
+    render(<LaunchParamsEditor engineName="m" current={CURRENT} editable={ALL} />)
     fireEvent.change(screen.getByLabelText('max_num_seqs'), {
       target: { value: '4' },
     })

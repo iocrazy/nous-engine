@@ -869,6 +869,36 @@ _LAUNCH_PARAM_VALIDATORS: dict[str, tuple] = {
 }
 
 
+def _editable_launch_params(cfg: dict) -> frozenset[str]:
+    """该引擎的适配器**真正消费得了**的白名单键。
+
+    判据是适配器 `__init__` 的形参表,不是模型的 type —— MOSS ASR(type=asr)走
+    `SGLangOmniAdapter`,签名以 `**kwargs` 收尾,6 个键一个都不接;TTS 那几个引擎同理。
+    按 type 猜的话面板对它们是开着的:写得进库、GET 报「已覆盖」、引擎行为纹丝不动
+    ——正是这一支从头在修的那类 bug(2026-09-22 复查 N1)。
+
+    同形状的先例:`ModelManager._instantiate_adapter` 也是按
+    `inspect.signature(cls.__init__).parameters` 决定要不要传 `vram_budget` / `gpus`。
+
+    `**kwargs` **不算**接受:它只是把参数吞掉,不会有任何效果。
+    """
+    import importlib
+    import inspect
+
+    dotted = cfg.get("adapter") or ""
+    if "." not in dotted:
+        return frozenset()
+    module_path, _, class_name = dotted.rpartition(".")
+    try:
+        cls = getattr(importlib.import_module(module_path), class_name)
+        sig = inspect.signature(cls.__init__)
+    except (ImportError, AttributeError, ValueError, TypeError) as e:
+        # 取不到签名就别拦(fail-open):拦错了用户连改都改不了,比多给一个无效按钮更糟。
+        logger.warning("launch-params: 取不到 %s 的签名,不做可编辑性收窄:%s", dotted, e)
+        return _LAUNCH_PARAM_WHITELIST
+    return frozenset(k for k in _LAUNCH_PARAM_WHITELIST if k in sig.parameters)
+
+
 def _validate_launch_param_values(body: dict) -> None:
     """值域校验。`None` = 清除该覆盖,任何键都放行。违反 → 400。
 
@@ -905,11 +935,15 @@ async def set_launch_params(
     值为 `null` 的键 = **清除该覆盖**(回退 models.d 的 yaml 值)。
     其余值过 `_LAUNCH_PARAM_VALIDATORS` 的值域校验(数字键必须 > 0)。
     改动只在**下次 load** 时读到,所以 `applied` 恒为 false。
+
+    白名单之外还有第二道:该引擎的**适配器**接不接受这个键(`_editable_launch_params`)。
+    不接受就 400,不是静静存起来 —— 存了也到不了引擎。
     """
     from src.config import load_model_configs
     from src.services import runtime_override_store
 
-    if name not in load_model_configs():
+    cfg = load_model_configs().get(name)
+    if cfg is None:
         raise HTTPException(404, detail=f"Unknown engine: {name}")
 
     for k, hint in _LAUNCH_PARAM_REDIRECTS.items():
@@ -924,6 +958,24 @@ async def set_launch_params(
         )
     if not body:
         raise HTTPException(400, detail="body 为空;至少给一个参数")
+
+    editable = _editable_launch_params(cfg)
+    unusable = sorted(k for k in body if k not in editable)
+    if unusable:
+        adapter = cfg.get("adapter") or "(无)"
+        if editable:
+            detail = (
+                f"引擎 {name} 的适配器({adapter})不接受 {unusable};"
+                f"它能接受的是 {sorted(editable)}"
+            )
+        else:
+            detail = (
+                f"引擎 {name} 不支持运行时调整启动参数 —— 它的适配器({adapter})"
+                f"的 __init__ 一个白名单键都不接受,写进库也到不了引擎。"
+                f"要调它的启动配置请改该引擎自己的配置文件后重新加载。"
+            )
+        raise HTTPException(400, detail=detail)
+
     _validate_launch_param_values(body)
 
     await runtime_override_store.set_override(session, name, "params", body)
@@ -945,6 +997,9 @@ async def get_launch_params(name: str):
     `effective` 已经过 `_apply_runtime_overrides` 的深合并(load_model_configs 内),
     所以它就是"下次 load 会用的值";`overridden` 标出其中哪些来自 DB 覆盖、
     哪些还是 models.d 的 yaml 值 —— UI 靠它显示"已改"标记 / 提供"恢复默认"。
+
+    `editable` 是**这个引擎的适配器真吃得下**的那几个键(见 `_editable_launch_params`),
+    前端据此决定渲染哪些控件 —— 空列表 = 这个引擎没有可调项,面板整个不该出现。
 
     只回白名单内的键:露出 gpu_memory_utilization 这类不可编辑项,迟早有人给它加输入框。
     """
@@ -972,6 +1027,7 @@ async def get_launch_params(name: str):
         "name": name,
         "effective": effective,
         "overridden": overridden,
+        "editable": sorted(_editable_launch_params(cfg)),
         "hint": "改动需重新加载模型生效(unload + load)",
     }
 
