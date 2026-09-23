@@ -9,7 +9,9 @@ vi.mock('../../api/vllm', () => ({
   useUpdateLaunchParams: () => ({ mutate, isPending: false }),
 }))
 
-beforeEach(() => mutate.mockClear())
+beforeEach(() => {
+  mutate.mockClear() // 花括号不能省:返回值会被 vitest 当清理钩子调用(见 ModelPlayground.test.tsx)
+})
 
 const CURRENT = {
   max_model_len: 262144,
