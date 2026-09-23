@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  ClipboardList,
   Copy,
   Eye,
   EyeOff,
@@ -28,9 +29,11 @@ import {
   type ApiKeyCreated,
   type GrantSummary,
 } from '../api/keys'
-import { useServices, type ServiceRow } from '../api/services'
+import { useServices, type ServiceCapabilities, type ServiceRow } from '../api/services'
 import { useSettingsStore } from '../stores/settings'
 import { copyTextOrToast } from '../utils/clipboard'
+import ServiceCapabilityChips from '../components/services/ServiceCapabilityChips'
+import { buildClientConfigText } from '../components/services/serviceCapabilities'
 
 // 人话模态标签(按 service_category)——用于「用 OpenAI SDK」那块按模态列服务名。
 const MODALITY_LABEL: Record<string, string> = {
@@ -58,6 +61,13 @@ export default function ApiKeyDetail() {
   const remove = useDeleteApiKey()
   const toggleGrant = useToggleGrant()
   const removeGrant = useRemoveGrant()
+  // grant 摘要里没有能力信息 → 按 service_id 从服务列表取(同一份 react-query 缓存,
+  // AddGrantPicker 也在用)。
+  const { data: services } = useServices()
+  const capsByServiceId = useMemo(
+    () => new Map((services ?? []).map((s) => [s.id, s.capabilities ?? null])),
+    [services],
+  )
 
   const [showSecret, setShowSecret] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
@@ -525,6 +535,10 @@ export default function ApiKeyDetail() {
                 <GrantRow
                   key={g.id}
                   g={g}
+                  capabilities={capsByServiceId.get(g.service_id) ?? null}
+                  clientUrl={
+                    Object.values(endpointsFor(g.service_name, exampleBase, g.service_category))[0]?.url ?? ''
+                  }
                   onToggle={() =>
                     toggleGrant.mutate({
                       grantId: g.id,
@@ -678,13 +692,26 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function GrantRow({
   g,
+  capabilities,
+  clientUrl,
   onToggle,
   onRemove,
 }: {
   g: GrantSummary
+  capabilities: ServiceCapabilities | null
+  /** 与页面 Base URL 同源(exampleBase + endpointsFor),不硬编码主机名 */
+  clientUrl: string
   onToggle: () => void
   onRemove: () => void
 }) {
+  const [copied, setCopied] = useState(false)
+  const copyClientConfig = async () => {
+    if (!capabilities) return
+    const text = buildClientConfigText({ url: clientUrl, model: g.service_name, caps: capabilities })
+    if (!(await copyTextOrToast(text))) return
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
   return (
     <div
       style={{
@@ -702,6 +729,9 @@ function GrantRow({
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
           {g.service_category ?? '—'} · grant #{g.id}
+        </div>
+        <div style={{ marginTop: 4 }}>
+          <ServiceCapabilityChips capabilities={capabilities} />
         </div>
       </div>
       <div style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -724,6 +754,11 @@ function GrantRow({
         </span>
       </div>
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        {capabilities && (
+          <IconBtn title="复制客户端配置(接口地址 / 模型名 / 工具 / 图片 / 思考 / 上下文 / 提供商)" onClick={copyClientConfig}>
+            {copied ? <Check size={12} /> : <ClipboardList size={12} />}
+          </IconBtn>
+        )}
         <IconBtn title={g.status === 'active' ? '暂停' : '恢复'} onClick={onToggle}>
           {g.status === 'active' ? <Pause size={12} /> : <Play size={12} />}
         </IconBtn>

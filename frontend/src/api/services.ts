@@ -30,6 +30,22 @@ export interface ServiceModelRef {
   engine_key: string | null
 }
 
+/** model 服务的能力(后端 services/model_capabilities.py 从模型配置推导)。推不出的项为 null/false。 */
+export interface ServiceCapabilities {
+  /** 上下文窗口(tokens)= max_model_len;null = 引擎自动定 */
+  context: number | null
+  /** null = 无单独上限,vLLM 默认「上下文 − 输入」 */
+  max_output: number | null
+  tools: boolean
+  /** 思考默认开启,思考内容在 reasoning_content 字段 */
+  thinking: boolean
+  vision: boolean
+  /** source 的 org 段 */
+  provider: string | null
+  /** 上游仓库 org/name */
+  source: string | null
+}
+
 export interface ServiceRow {
   id: string
   name: string
@@ -48,6 +64,8 @@ export interface ServiceRow {
   /** 开机启动:开机会预加载本服务引用的模型。默认 false —— 没开的服务开机不占显存。 */
   autostart: boolean
   models: ServiceModelRef[]
+  /** 只有 model 服务、且在列表端点里才有 */
+  capabilities?: ServiceCapabilities | null
   created_at: string
   updated_at: string
 }
