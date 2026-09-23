@@ -127,7 +127,7 @@ export function LaunchParamsEditor({
         </div>
         <p style={{ color: 'var(--muted)', marginTop: 4 }}>
           上下文与并发此消彼长:同样的 KV 池,长度减半则并发翻倍。
-          调大可能因 KV 装不下而**起不来**(vLLM 启动时会拒绝)。
+          调大可能因 KV 装不下而<strong>起不来</strong>(vLLM 启动时会拒绝),失败原因会显示在本窗口顶部。
         </p>
       </div>
       )}
@@ -150,7 +150,7 @@ export function LaunchParamsEditor({
         <ResetButton k="max_num_seqs" {...resetProps} />
       </div>
       <p style={{ color: 'var(--muted)', marginTop: -6 }}>
-        这是**调度上限,不是并发驱动力** —— 真实并发由 KV 池决定,只调大它不给 KV 没有提升。
+        这是<strong>调度上限,不是并发驱动力</strong> —— 真实并发由 KV 池决定,只调大它不给 KV 没有提升。
       </p>
       </>
       )}
@@ -204,7 +204,7 @@ export function LaunchParamsEditor({
         <span style={{ color: 'var(--muted)' }}>
           {update.isPending
             ? '保存中…'
-            : '改后需 unload + load 才生效'}
+            : '已保存的改动需 unload + load 才生效;起不来时失败原因会显示在本窗口顶部'}
         </span>
       </div>
 

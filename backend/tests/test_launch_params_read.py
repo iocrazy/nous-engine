@@ -105,3 +105,26 @@ async def test_get_launch_params_marks_overridden_keys(db_session, db_client):
         assert body["overridden"] == ["max_num_seqs"]
     finally:
         await runtime_override_store.set_override(db_session, name, "params", {})
+
+
+@pytest.mark.asyncio
+async def test_get_launch_params_defaults_are_yaml_values_under_override(db_session, db_client):
+    """覆盖之后 `defaults` 仍是 yaml 原值 —— UI 靠它显示「已覆盖为 X(yaml 默认 Y)」。
+
+    2026-09-22 huihui 被点成 256K 起不来,面板上看不出它原本是 32K、该退回哪里。
+    """
+    from src.config import load_model_configs
+
+    name = "qwen3_8_27b_uncensored_fp8"
+    raw = load_model_configs(apply_overrides=False)
+    if name not in raw:
+        pytest.skip(f"{name} 不在本机 models.d")
+    yaml_len = raw[name]["params"]["max_model_len"]
+
+    await runtime_override_store.set_override(db_session, name, "params", {"max_model_len": 4096})
+    try:
+        body = (await db_client.get(f"/api/v1/engines/{name}/launch-params")).json()
+        assert body["effective"]["max_model_len"] == 4096
+        assert body["defaults"]["max_model_len"] == yaml_len
+    finally:
+        await runtime_override_store.set_override(db_session, name, "params", {})

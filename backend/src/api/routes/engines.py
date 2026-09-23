@@ -995,6 +995,23 @@ async def set_launch_params(
     }
 
 
+def _launch_params_view(params: dict) -> dict:
+    """params → 只含白名单键的视图(effective 与 defaults 共用同一口径)。
+
+    prefix caching 有**两条**配法:`params.enable_prefix_caching`(适配器 kwarg)和
+    `params.vllm_args["enable-prefix-caching"]`(透传,同名时以它为准)。本机 models.d 里的
+    qwen3.8 变体走的都是后者 —— 只读前者的话 UI 复选框会显示"没开",而实际是开着的,
+    用户一点就把真实状态改掉了。所以补读 vllm_args。
+    """
+    view = {k: v for k, v in params.items() if k in _LAUNCH_PARAM_WHITELIST}
+    va = params.get("vllm_args") or {}
+    for alias in ("enable-prefix-caching", "enable_prefix_caching"):
+        if alias in va:
+            view["enable_prefix_caching"] = bool(va[alias])
+            break
+    return view
+
+
 @router.get("/{name}/launch-params", dependencies=[Depends(require_admin)])
 async def get_launch_params(name: str):
     """读该引擎**当前生效**的启动参数 + 哪几个键是运行时覆盖的。
@@ -1015,22 +1032,17 @@ async def get_launch_params(name: str):
     if cfg is None:
         raise HTTPException(404, detail=f"Unknown engine: {name}")
 
-    params = cfg.get("params") or {}
-    effective = {k: v for k, v in params.items() if k in _LAUNCH_PARAM_WHITELIST}
-    # prefix caching 有**两条**配法:`params.enable_prefix_caching`(适配器 kwarg)和
-    # `params.vllm_args["enable-prefix-caching"]`(透传,同名时以它为准)。
-    # 本机 models.d 里的 qwen3.8 两个变体走的都是后者 —— 只读前者的话 UI 复选框会显示
-    # "没开",而实际是开着的,用户一点就把真实状态改掉了。所以补读 vllm_args。
-    va = params.get("vllm_args") or {}
-    for alias in ("enable-prefix-caching", "enable_prefix_caching"):
-        if alias in va:
-            effective["enable_prefix_caching"] = bool(va[alias])
-            break
+    effective = _launch_params_view(cfg.get("params") or {})
+    # yaml 原值(不叠运行时覆盖):UI 显示「已覆盖为 X(yaml 默认 Y)」,改大了起不来时
+    # 用户一眼知道退回哪里。2026-09-22 huihui 被点成 256K 起不来,面板上看不出原来是 32K。
+    raw = load_model_configs(apply_overrides=False).get(name) or {}
+    defaults = _launch_params_view(raw.get("params") or {})
     ov_params = runtime_override_store.get_overrides().get(name, {}).get("params") or {}
     overridden = sorted(k for k in ov_params if k in _LAUNCH_PARAM_WHITELIST)
     return {
         "name": name,
         "effective": effective,
+        "defaults": defaults,
         "overridden": overridden,
         "editable": sorted(_editable_launch_params(cfg)),
         "hint": "改动需重新加载模型生效(unload + load)",
