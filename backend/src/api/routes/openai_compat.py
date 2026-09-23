@@ -174,12 +174,43 @@ def _maybe_inject_thinking(body: dict, engine_name: str) -> None:
     kwargs["enable_thinking"] = (t == "enabled")
 
 
+async def _auth_bearer_or_admin(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_async_session),
+) -> tuple[ServiceInstance | None, InstanceApiKey | None]:
+    """数据面 auth:Bearer 优先(走 key+grant+quota,外部调用);否则 admin session
+    旁路(给 in-app Playground 用 —— 同 /v1/apps 的 _auth_apps_run,否则 cookie 调
+    会被 verify_bearer_token_any 的必填 Authorization 卡 400)。(None,None)=admin。
+
+    用于 transcriptions / chat.completions / embeddings。后两者 2026-09-22 前还挂在
+    verify_bearer_token_any 上:Playground 点运行直接 400「Field required」
+    (param=header.authorization),业务代码一行没跑到。"""
+    if authorization:
+        return await verify_bearer_token_any(authorization, session)
+    from src.api.admin_session import request_is_authed
+    if request_is_authed(request):
+        return None, None
+    raise HTTPException(401, detail="Missing API key or admin session")
+
+
+async def _admin_lookup_service(session: AsyncSession, name: str | None) -> ServiceInstance:
+    """admin 会话(Playground)按服务名直查 —— 单管理员隐式授权,跳 grant/quota。"""
+    from sqlalchemy import select  # noqa: PLC0415
+    instance = (
+        await session.execute(select(ServiceInstance).where(ServiceInstance.name == name))
+    ).scalar_one_or_none()
+    if instance is None:
+        raise NotFoundError(f"service '{name}' not found", code="service_not_found")
+    return instance
+
+
 # --- /v1/chat/completions ---
 
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: Request,
-    auth: tuple[ServiceInstance | None, InstanceApiKey] = Depends(verify_bearer_token_any),
+    auth: tuple[ServiceInstance | None, InstanceApiKey | None] = Depends(_auth_bearer_or_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     """OpenAI-compatible chat completions with token metering.
@@ -204,10 +235,13 @@ async def chat_completions(
     except UnsafeURLError as e:
         raise InvalidRequestError(str(e), code="unsafe_image_url")
     requested_model = body.get("model") or None
+    admin_run = api_key is None  # admin session 旁路(Playground):跳 grant/quota/计费归属
 
     # Resolve target service. Legacy 1:1 keys (instance set by the auth dep)
     # short-circuit; M:N keys use the v3 grant lookup.
-    if instance is None:
+    if admin_run:
+        instance = await _admin_lookup_service(session, requested_model)
+    elif instance is None:
         try:
             instance = await resolve_target_service(
                 session, api_key=api_key, requested_model=requested_model,
@@ -256,7 +290,8 @@ async def chat_completions(
         from src.api.routes._readiness import ready_model_names  # noqa: PLC0415
         raise ModelNotReadyError(
             body.get("model") or engine_name,
-            ready_models=ready_model_names(model_mgr, await _granted_services(session, api_key)),
+            ready_models=ready_model_names(
+                model_mgr, await _granted_services(session, api_key) if api_key else []),
         ) from e
     except VLLMNoEndpoint as e:
         raise HTTPException(500, detail=str(e)) from e
@@ -309,6 +344,12 @@ async def chat_completions(
         if not body["extra_body"]:
             body.pop("extra_body", None)
 
+    if context_id and admin_run:
+        # 上下文缓存按 key 归属(owner_key_id);admin 会话(Playground)没有 key。
+        raise InvalidRequestError(
+            "context_id 需要 API key(上下文缓存按 key 归属),Playground 的 admin 会话不支持",
+            code="context_requires_api_key",
+        )
     if context_id:
         from src.models.database import get_session_factory as _csf
         from src.services.context_cache_service import (
@@ -416,12 +457,13 @@ async def chat_completions(
                                 completion_tokens=_u.get("completion_tokens", 0),
                                 duration_ms=duration,
                                 instance_id=instance.id,
-                                api_key_id=api_key.id,
+                                api_key_id=api_key.id if api_key else None,
                                 agent_id=agent_id if settings.NOUS_ENABLE_AGENT_INJECTION else None,
                             )
-                            await _post_consume_quota(
-                                api_key.id, instance.id, _u.get("total_tokens", 0),
-                            )
+                            if api_key is not None:  # admin 会话(Playground)不扣配额
+                                await _post_consume_quota(
+                                    api_key.id, instance.id, _u.get("total_tokens", 0),
+                                )
                         except Exception as e:  # noqa: BLE001 — 结算失败不该崩流
                             logger.warning("stream billing settle failed: %s", e)
 
@@ -457,12 +499,13 @@ async def chat_completions(
                 completion_tokens=usage.get("completion_tokens", 0),
                 duration_ms=duration,
                 instance_id=instance.id,
-                api_key_id=api_key.id,
+                api_key_id=api_key.id if api_key else None,
                 agent_id=agent_id if settings.NOUS_ENABLE_AGENT_INJECTION else None,
             )
-            await _post_consume_quota(
-                api_key.id, instance.id, usage.get("total_tokens", 0),
-            )
+            if api_key is not None:  # admin 会话(Playground)不扣配额
+                await _post_consume_quota(
+                    api_key.id, instance.id, usage.get("total_tokens", 0),
+                )
 
             return Response(content=resp.content, media_type="application/json")
         finally:
@@ -555,7 +598,7 @@ def _convert_audio(audio_bytes: bytes, src_fmt: str, dst_fmt: str, sample_rate: 
 @router.post("/v1/embeddings")
 async def embeddings(
     request: Request,
-    auth: tuple[ServiceInstance | None, InstanceApiKey] = Depends(verify_bearer_token_any),
+    auth: tuple[ServiceInstance | None, InstanceApiKey | None] = Depends(_auth_bearer_or_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     """OpenAI 兼容 embeddings(2026-06-12 embedding 模态接入)。
@@ -572,7 +615,9 @@ async def embeddings(
     body = await request.json()
     requested_model = body.get("model") or None
 
-    if instance is None:
+    if api_key is None:  # admin session 旁路(Playground):按服务名直查,跳 grant/quota
+        instance = await _admin_lookup_service(session, requested_model)
+    elif instance is None:
         try:
             instance = await resolve_target_service(
                 session, api_key=api_key, requested_model=requested_model,
@@ -600,7 +645,8 @@ async def embeddings(
         from src.api.routes._readiness import ready_model_names  # noqa: PLC0415
         raise ModelNotReadyError(
             body.get("model") or engine_name,
-            ready_models=ready_model_names(model_mgr, await _granted_services(session, api_key)),
+            ready_models=ready_model_names(
+                model_mgr, await _granted_services(session, api_key) if api_key else []),
         ) from e
     except VLLMNoEndpoint as e:
         raise HTTPException(500, detail=str(e)) from e
@@ -624,12 +670,13 @@ async def embeddings(
         completion_tokens=0,
         duration_ms=duration,
         instance_id=instance.id,
-        api_key_id=api_key.id,
+        api_key_id=api_key.id if api_key else None,
         agent_id=None,
     )
-    await _post_consume_quota(
-        api_key.id, instance.id, usage.get("total_tokens", 0),
-    )
+    if api_key is not None:  # admin 会话(Playground)不扣配额
+        await _post_consume_quota(
+            api_key.id, instance.id, usage.get("total_tokens", 0),
+        )
     # 响应里的 model 回填服务名(对外契约:caller 看到自己请求的 model 名,不暴露本地路径)
     data["model"] = requested_model or engine_name
     return data
@@ -684,20 +731,6 @@ async def _ffmpeg_to_wav16k(raw: bytes) -> bytes:
                 pass
 
 
-async def _auth_transcriptions(
-    request: Request,
-    authorization: str | None = Header(default=None),
-    session: AsyncSession = Depends(get_async_session),
-) -> tuple[ServiceInstance | None, InstanceApiKey | None]:
-    """转写端点 auth:Bearer 优先(走 key+grant+quota,外部调用);否则 admin session
-    旁路(给 in-app Playground 用 —— 同 /v1/apps 的 _auth_apps_run,否则 cookie 调
-    会被 verify_bearer_token_any 的必填 Authorization 卡 400)。(None,None)=admin。"""
-    if authorization:
-        return await verify_bearer_token_any(authorization, session)
-    from src.api.admin_session import request_is_authed
-    if request_is_authed(request):
-        return None, None
-    raise HTTPException(401, detail="Missing API key or admin session")
 
 
 def _wav16k_seconds(wav: bytes) -> int:
@@ -1134,7 +1167,7 @@ async def audio_transcriptions(
     timestamps: bool = Form(False),
     merge_segments: bool = Form(False),
     punctuate: bool = Form(True),
-    auth: tuple[ServiceInstance | None, InstanceApiKey | None] = Depends(_auth_transcriptions),
+    auth: tuple[ServiceInstance | None, InstanceApiKey | None] = Depends(_auth_bearer_or_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     """OpenAI 兼容语音转写(ASR)。
@@ -1175,14 +1208,7 @@ async def audio_transcriptions(
 
     if admin_run:
         # admin:按服务名直查(单管理员隐式授权,跳 grant/quota),同 /v1/apps execute_service。
-        from sqlalchemy import select
-        instance = (
-            await session.execute(
-                select(ServiceInstance).where(ServiceInstance.name == requested_model)
-            )
-        ).scalar_one_or_none()
-        if instance is None:
-            raise NotFoundError(f"service '{requested_model}' not found", code="service_not_found")
+        instance = await _admin_lookup_service(session, requested_model)
     else:
         try:
             instance = await resolve_target_service(
