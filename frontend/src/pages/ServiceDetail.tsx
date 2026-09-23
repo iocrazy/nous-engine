@@ -39,6 +39,7 @@ import {
 } from '../api/keys'
 import CreateApiKeyDialog from '../components/api-keys/CreateApiKeyDialog'
 import SchemaDrivenForm from '../components/playground/SchemaDrivenForm'
+import { ModelPlayground } from '../components/playground/ModelPlayground'
 import SchemaDrivenOutput from '../components/playground/SchemaDrivenOutput'
 import AsyncRunState from '../components/playground/AsyncRunState'
 import { createPredictionAsync } from '../api/predictions'
@@ -465,6 +466,9 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
         ) : (
           <AppEditorTab svc={svc} />
         )
+      ) : svc.source_type === 'model' && (svc.category === 'llm' || svc.category === 'embedding') ? (
+        // 模型类服务没有 exposed_inputs,通用表单只能发出 messages:[](见 ModelPlayground 头注释)
+        <ModelPlayground name={svc.name} category={svc.category} />
       ) : (
         <PlaygroundTab svc={svc} initialInputs={initialInputs} />
       )}
