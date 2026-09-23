@@ -33,6 +33,7 @@ import { useToastStore } from '../stores/toast'
 import { useServiceModelStatus, MODEL_STATE_VIS } from '../api/serviceModels'
 import { confirmDialog } from '../stores/confirm'
 import { copyTextOrToast } from '../utils/clipboard'
+import ServiceCapabilityChips from '../components/services/ServiceCapabilityChips'
 
 type FilterTab = 'all' | ServiceCategory | 'comfy_bridge'
 
@@ -627,6 +628,7 @@ function ServiceCard({
           <Tag>v{svc.version}</Tag>
           <ModelBadge models={svc.models} />
         </div>
+        <ServiceCapabilityChips capabilities={svc.capabilities} />
 
         <div
           style={{
