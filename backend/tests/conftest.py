@@ -41,8 +41,60 @@ def _guarded_kill(pid, sig):
     return _real_kill(pid, sig)
 
 
-os.killpg = _guarded_killpg
-os.kill = _guarded_kill
+def _is_own_descendant(pid: int) -> bool | None:
+    """pid 是不是本测试进程的后代。/proc 里查不到(已死/不存在)→ None。
+
+    沿 /proc/<pid>/stat 的 ppid 链往上走到 1 为止。`start_new_session=True` 只换
+    session/pgid,不换 ppid,所以自己 spawn 的 vLLM 式子进程照样算后代。
+    """
+    me = os.getpid()
+    cur, seen = pid, 0
+    while cur > 1 and seen < 64:
+        if cur == me:
+            return True
+        try:
+            with open(f"/proc/{cur}/stat") as f:
+                # comm 字段可能含空格/括号,取最后一个 ')' 之后再切
+                cur = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None if seen == 0 else False
+        seen += 1
+    return False
+
+
+# CRITICAL SAFETY (2026-09-22 事故):测试把**生产**的 vLLM 杀了,持续了一整夜。
+# test_components_routes 的 `with TestClient(app)` 跑真 lifespan → 启动期「孤儿 vLLM
+# 清扫」扫的是**真机 /proc** → 看见生产后端起的 vLLM:embedding 那个对不上 llm spec
+# 判 kill_unmatched 当场 SIGKILL,LLM 那个被测试进程「接管」、lifespan 关闭时一并收掉。
+# 上面的 pid<=1 护栏拦不住 —— 那是真实的 pid>1。生产侧表现是每跑一次全量测试,
+# 常驻模型就「端口不可达 → 看门狗自愈」一轮,kill 日志落在 pytest 输出里、不在后端
+# journal,所以查了很久只看到退出码 -9 看不到是谁。
+# 这里是**物理护栏**:测试进程只准给**自己的后代**发真信号(sig 0 探活不算)。
+# 不是后代 → 直接炸;查不到的 pid 交给真实实现(它会 ProcessLookupError)。
+def _refuse_foreign(pid: int, sig, what: str) -> None:
+    if sig == 0 or pid <= 1:
+        return  # pid<=1 交给上面的广播护栏,报它自己那条更准确的错
+    if _is_own_descendant(pid) is False:
+        raise AssertionError(
+            f"BLOCKED {what}(pid={pid}, sig={sig}) in tests — pid 不是本测试进程的后代,"
+            "很可能是本机生产服务(vLLM/后端)。测试只能 mock 或只杀自己 spawn 的进程。"
+        )
+
+
+def _guarded_killpg_owned(pgid, sig):
+    _refuse_foreign(pgid, sig, "killpg")
+    return _guarded_killpg(pgid, sig)
+
+
+def _guarded_kill_owned(pid, sig):
+    _refuse_foreign(pid, sig, "kill")
+    return _guarded_kill(pid, sig)
+
+
+os.killpg = _guarded_killpg_owned
+os.kill = _guarded_kill_owned
+# 另一半在 src/api/main.py:NOUS_DISABLE_ORPHAN_SWEEP=1 时启动期根本不扫真机进程。
+os.environ["NOUS_DISABLE_ORPHAN_SWEEP"] = "1"
 
 # CRITICAL SAFETY (2026-09-02 事故): 测试进程里**绝不允许真起推理服务子进程**。
 # test_vllm_adapter 里一个用例走到 VLLMAdapter.load() 的真 Popen,而 llm_vllm.py 对
