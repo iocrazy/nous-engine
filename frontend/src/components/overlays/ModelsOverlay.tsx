@@ -15,6 +15,7 @@ import DeleteModelDialog from '../models/DeleteModelDialog'
 import { buildGpuAssignSubmenu } from '../models/gpuAssignMenu'
 import { LaunchParamsEditor } from '../engines/LaunchParamsEditor'
 import { useLaunchParams } from '../../api/vllm'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 const TYPE_LABELS: Record<string, string> = {
   llm: '语言模型 LLM',
@@ -1226,9 +1227,11 @@ function CopyButton({ text }: { text: string }) {
       title={`复制: ${text}`}
       onClick={(e) => {
         e.stopPropagation()
-        navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
+        void copyTextOrToast(text).then((ok) => {
+          if (!ok) return
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        })
       }}
       style={{
         background: 'none',

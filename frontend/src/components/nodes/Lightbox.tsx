@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X, Copy, RefreshCw, Download, DownloadCloud, Columns2 } from 'lucide-react'
 import { useLightboxStore, type LightboxMeta } from '../../stores/lightbox'
 import { IDENTITY, clampPan, zoomAt, type ZoomState } from './lightboxZoom'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 // 全屏图片预览(对齐 Infinite-Canvas):←/→ 切上/下一张,Esc/点击空白关闭。
 // 滚轮缩放(1–6x,光标为锚)+ 放大后拖拽平移 + 双击复位 + 右侧元信息面板(prompt/分辨率/时长/重跑)。
@@ -152,7 +153,12 @@ function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: str
             <span style={{ fontSize: 10, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>提示词</span>
             <button
               type="button"
-              onClick={() => { navigator.clipboard?.writeText(meta.prompt || ''); setCopied(true); setTimeout(() => setCopied(false), 1200) }}
+              onClick={() => {
+                void copyTextOrToast(meta.prompt || '').then((ok) => {
+                  if (!ok) return
+                  setCopied(true); setTimeout(() => setCopied(false), 1200)
+                })
+              }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, background: 'transparent', border: 'none', color: '#9ecbff', cursor: 'pointer' }}
             >
               <Copy size={11} />{copied ? '已复制' : '复制'}

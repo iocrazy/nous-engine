@@ -26,6 +26,7 @@ import { useExecutionStore } from '../../stores/execution'
 import { confirmDialog } from '../../stores/confirm'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu'
 import { groupByDate, sortTasks } from '../panels/taskSort'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 type JobTab = 'All' | 'Completed' | 'Failed'
 
@@ -405,7 +406,7 @@ function JobRow({ task }: { task: ExecutionTask }) {
   const isCompleted = task.status === 'completed'
   const menuItems: MenuItem[] = [
     ...(thumb ? [{ label: '查看图片', onClick: () => window.open(thumb, '_blank') }] : []),
-    { label: '复制任务 ID', onClick: () => navigator.clipboard.writeText(String(task.id)) },
+    { label: '复制任务 ID', onClick: () => void copyTextOrToast(String(task.id), '已复制任务 ID') },
     ...(thumb ? [{
       label: '下载',
       onClick: () => {

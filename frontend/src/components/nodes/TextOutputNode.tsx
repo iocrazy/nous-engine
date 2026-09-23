@@ -4,6 +4,7 @@ import { NodeResizer, NodeResizeControl, type NodeProps } from '@xyflow/react'
 import { NODE_DEFS } from '../../models/workflow'
 import { useWorkspaceStore } from '../../stores/workspace'
 import BaseNode from './BaseNode'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 export default function TextOutputNode({ id, data, selected }: NodeProps) {
   const def = NODE_DEFS.text_output
@@ -90,9 +91,11 @@ export default function TextOutputNode({ id, data, selected }: NodeProps) {
             <button
               className="nodrag"
               onClick={() => {
-                navigator.clipboard.writeText(text)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
+                void copyTextOrToast(text).then((ok) => {
+                  if (!ok) return
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1500)
+                })
               }}
               style={{
                 position: 'absolute',

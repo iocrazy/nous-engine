@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Copy, Check, Eye, EyeOff } from 'lucide-react'
 import type { CatalogService } from '../../api/apiGateway'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 const TABS = [
   { id: 'curl', label: 'curl' },
@@ -31,7 +32,7 @@ export default function CodeSnippets({ svc }: Props) {
   const handleCopy = async () => {
     // Copy ALWAYS uses the real key, never the masked form.
     const raw = buildSnippet(tab, svc.instance_name, apiKey)
-    await navigator.clipboard.writeText(raw)
+    if (!(await copyTextOrToast(raw))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1200)
   }

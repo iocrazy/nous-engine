@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import type { ExposedParam } from '../../api/services'
 import { paramKey, paramSlot } from '../../api/services'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 export interface SchemaDrivenOutputProps {
   outputs: ExposedParam[]
@@ -232,13 +233,9 @@ function Renderer({
 function TextBlock({ value }: { value: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* clipboard may be unavailable in non-https contexts */
-    }
+    if (!(await copyTextOrToast(value))) return
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
   return (
     <div style={{ position: 'relative' }}>

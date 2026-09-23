@@ -32,6 +32,7 @@ import { apiFetch } from '../api/client'
 import { useToastStore } from '../stores/toast'
 import { useServiceModelStatus, MODEL_STATE_VIS } from '../api/serviceModels'
 import { confirmDialog } from '../stores/confirm'
+import { copyTextOrToast } from '../utils/clipboard'
 
 type FilterTab = 'all' | ServiceCategory | 'comfy_bridge'
 
@@ -429,7 +430,6 @@ function ServiceCard({
 }) {
   const statusStyle = STATUS_STYLES[svc.status] ?? STATUS_STYLES.active
   const inactive = svc.status !== 'active'
-  const addToast = useToastStore((s) => s.add)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -458,10 +458,7 @@ function ServiceCard({
       `  -H 'Authorization: Bearer YOUR_API_KEY' \\\n` +
       `  -H 'Content-Type: application/json' \\\n` +
       `  -d '${body}'`
-    navigator.clipboard
-      .writeText(curl)
-      .then(() => addToast(`已复制 ${svc.name} 的 curl`, 'info'))
-      .catch(() => addToast('复制失败', 'error'))
+    void copyTextOrToast(curl, `已复制 ${svc.name} 的 curl`)
   }
 
   return (

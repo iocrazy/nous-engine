@@ -36,6 +36,7 @@ import {
 } from '../../stores/panel'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu'
 import { SORT_LABEL, STATUS_LABEL, sortTasks } from './taskSort'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 /**
  * TaskPanel — 对齐 ComfyUI 「任务历史」面板风格(读用户截图复刻):
@@ -641,7 +642,7 @@ function CompletedTaskCard({ task }: { task: ExecutionTask }) {
     }] : []),
     {
       label: '复制任务 ID',
-      onClick: () => navigator.clipboard.writeText(String(task.id)),
+      onClick: () => void copyTextOrToast(String(task.id), '已复制任务 ID'),
     },
     ...(thumb ? [{
       label: '下载',
