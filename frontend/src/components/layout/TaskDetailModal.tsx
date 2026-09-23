@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTasks, type ExecutionTask } from '../../api/tasks'
 import { useServices } from '../../api/services'
 import { useExecutionStore } from '../../stores/execution'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 type TaskType = 'image' | 'tts' | 'vision' | 'llm' | 'asr' | 'video'
 
@@ -508,11 +509,7 @@ function ActionRow({ task }: { task: ExecutionTask }) {
     navigate(`/services/${svc.id}`, { state: { rerunInputs: task.input_json } })
   }
   const copyParams = async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(task.input_json ?? {}, null, 2))
-    } catch {
-      /* clipboard unavailable in non-https */
-    }
+    await copyTextOrToast(JSON.stringify(task.input_json ?? {}, null, 2), '已复制参数')
   }
 
   return (

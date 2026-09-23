@@ -113,10 +113,13 @@ describe('DeleteModelDialog', () => {
     expect(screen.getByRole('button', { name: /复制清理 prompt/ })).toBeTruthy()
   })
 
-  it('falls back to a selectable textarea when the clipboard API is unavailable', () => {
-    // 生产经明文 HTTP 内网访问 → 非安全上下文,navigator.clipboard 确实会缺失。
+  it('falls back to a selectable textarea when both clipboard paths fail', async () => {
+    // 生产经明文 HTTP 内网访问 → 非安全上下文,navigator.clipboard 确实会缺失;
+    // copyText 的 execCommand 回退再失败,才展开 textarea 让用户手动复制。
     const original = navigator.clipboard
+    const originalExec = Object.getOwnPropertyDescriptor(document, 'execCommand')
     Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true })
     try {
       setPreflight(
         makePreflight({
@@ -127,11 +130,13 @@ describe('DeleteModelDialog', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /复制清理 prompt/ }))
 
-      const ta = screen.getByLabelText('清理 prompt') as HTMLTextAreaElement
+      const ta = (await screen.findByLabelText('清理 prompt')) as HTMLTextAreaElement
       expect(ta.value).toContain('doomed_model')
       expect(ta.value).toContain('a.py:1')
     } finally {
       Object.defineProperty(navigator, 'clipboard', { value: original, configurable: true })
+      if (originalExec) Object.defineProperty(document, 'execCommand', originalExec)
+      else delete (document as unknown as Record<string, unknown>).execCommand
     }
   })
 })

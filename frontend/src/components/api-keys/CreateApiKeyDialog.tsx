@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Search, X } from 'lucide-react'
 import { useCreateApiKey, type ApiKeyCreated } from '../../api/keys'
 import { useServices, type ServiceRow } from '../../api/services'
+import { copyTextOrToast } from '../../utils/clipboard'
 
 export interface CreateApiKeyDialogProps {
   open: boolean
@@ -80,7 +81,7 @@ export default function CreateApiKeyDialog({
 
   const copySecret = async () => {
     if (!created) return
-    await navigator.clipboard.writeText(created.secret)
+    if (!(await copyTextOrToast(created.secret))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

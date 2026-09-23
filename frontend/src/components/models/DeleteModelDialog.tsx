@@ -7,6 +7,7 @@ import {
   type DeletePreflight,
   type EngineInfo,
 } from '../../api/engines'
+import { copyText } from '../../utils/clipboard'
 
 /**
  * 引擎库条目物理删除确认框(spec 2026-07-28-model-physical-delete)。
@@ -92,8 +93,8 @@ function DeleteBody(
   const del = useDeleteEngine()
   const [typed, setTyped] = useState('')
   const [ack, setAck] = useState(false)
-  // 剪贴板不可用时的降级:展开只读 textarea 让用户自己全选复制。生产经明文 HTTP
-  // 内网访问(见 CLAUDE.md「别加 HSTS」),非安全上下文下 navigator.clipboard 确实缺失。
+  // copyText 两路(clipboard API / execCommand)都失败时的最后降级:展开只读 textarea
+  // 让用户自己全选复制。
   const [fallbackText, setFallbackText] = useState<string | null>(null)
 
   const blocked = pre.blockers.loaded
@@ -103,11 +104,9 @@ function DeleteBody(
 
   const onCopyPrompt = () => {
     const text = buildCleanupPrompt(engine, pre)
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).catch(() => setFallbackText(text))
-      return
-    }
-    setFallbackText(text)
+    void copyText(text).then((ok) => {
+      if (!ok) setFallbackText(text)
+    })
   }
 
   if (blocked) {

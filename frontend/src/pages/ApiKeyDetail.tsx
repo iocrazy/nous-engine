@@ -30,6 +30,7 @@ import {
 } from '../api/keys'
 import { useServices, type ServiceRow } from '../api/services'
 import { useSettingsStore } from '../stores/settings'
+import { copyTextOrToast } from '../utils/clipboard'
 
 // 人话模态标签(按 service_category)——用于「用 OpenAI SDK」那块按模态列服务名。
 const MODALITY_LABEL: Record<string, string> = {
@@ -110,7 +111,7 @@ export default function ApiKeyDetail() {
   }, [sampleServices, exampleBase])
 
   const handleCopy = async (text: string, tag: string) => {
-    await navigator.clipboard.writeText(text)
+    if (!(await copyTextOrToast(text))) return
     setCopied(tag)
     setTimeout(() => setCopied(null), 1500)
   }
