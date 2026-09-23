@@ -14,6 +14,7 @@
 # 不是并存项 —— 见下面 util 那节的显存账。
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: qwen3_8_27b_uncensored_fp8
+source: orcarouter/Qwen3.8-27B-Uncensored-FP8
 paths:
   main: llm/Qwen3.8-27B-Uncensored-FP8-orcarouter
 type: llm

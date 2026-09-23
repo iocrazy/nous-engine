@@ -271,6 +271,9 @@ def load_model_configs(path: str = "configs/models.yaml",
             }
             if entry.get("params"):
                 result[model_id]["params"] = entry["params"]
+            # 上游仓库 `org/name`(模型 yaml 的 `source:`),服务能力的「提供商」由它推导。
+            if entry.get("source"):
+                result[model_id]["source"] = entry["source"]
             # V1' P2: optional `files{}` declares which on-disk files compose
             # this preset (transformer / text_encoder / vae). Lane C component
             # nodes consume it for dropdowns; the adapter still loads via paths.

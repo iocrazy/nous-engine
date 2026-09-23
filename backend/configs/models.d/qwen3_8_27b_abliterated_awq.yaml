@@ -27,6 +27,7 @@
 #   原文件备份在同目录 tokenizer.json.orig-truncation1024.bak(2026-09-05)。
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: qwen3_8_27b_abliterated_awq
+source: twolven/Qwen3.8-27B-abliterated-AWQ-MTP
 paths:
   main: llm/Qwen3.8-27B-abliterated-AWQ
 # 2026-09-05 spec engine-app-boundary §10:目录唯一 LLM,常驻。数据面不再懒加载,

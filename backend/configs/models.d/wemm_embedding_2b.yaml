@@ -8,6 +8,7 @@
 # MRL 档位 [64,128,256,512,1024,2048],满维 2048(4B 是 2560、9B 是 4096)。
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: wemm_embedding_2b
+source: tencent/WeMM-Embedding-2B
 paths:
   main: embedding/WeMM-Embedding-2B
 type: embedding
