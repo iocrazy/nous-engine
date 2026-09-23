@@ -678,7 +678,14 @@ async def lifespan(app: FastAPI):
     # Auto-detect running vLLM instances BEFORE resident auto-load
     # (so we reconnect to orphans instead of spawning duplicates)
     from src.services.inference.vllm_scanner import scan_running_vllm
-    running_vllm = scan_running_vllm()
+    # 测试进程绝不能扫真机进程(2026-09-22 事故):conftest 置 NOUS_DISABLE_ORPHAN_SWEEP=1。
+    # 否则任何走 lifespan 的测试都会看见**生产**后端起的 vLLM,按下面的判定把它
+    # SIGKILL(对不上 spec)或「接管」后在测试 lifespan 关闭时收掉 —— 本机跑一次全量
+    # pytest,常驻模型就挂一轮。不挂在 NOUS_DISABLE_BG_TASKS 上:那个管的是后台 loop,
+    # 这里是启动期一次性动作,语义不同,各自一个开关。
+    running_vllm = (
+        [] if os.environ.get("NOUS_DISABLE_ORPHAN_SWEEP") == "1" else scan_running_vllm()
+    )
     if running_vllm:
         logger.info("Found %d running vLLM process(es)", len(running_vllm))
     reconnected: set[str] = set()
