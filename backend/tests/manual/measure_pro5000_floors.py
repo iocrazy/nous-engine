@@ -75,7 +75,7 @@ async def measure(model_id: str, util: float):
         # 失败路径**不过滤、不截尾**:2026-09-20 qwen3.8 @util=0.34 起不来时,按关键词
         # 只看最后 25 行,捞到的是外层 `RuntimeError: ...See root cause above`(空摘要),
         # 真正带数字的 EngineCore ValueError(KV 差 0.44 GiB)早被挤出窗口,只好另跑一次
-        # 不限长度的诊断日志才拿到根因。_stdout_tail 本身是 200 行有界 deque —— 真根因
+        # 不限长度的诊断日志才拿到根因。_stdout_tail 本身是 400 行有界 deque(2026-09-22 从 200 调大) —— 真根因
         # 还被挤掉的话,得去调大适配器那个 deque,不是在这里加关键词。
         print(f"  ❌ 起不来: {type(e).__name__}: {str(e)[:200]}")
         print("  --- 子进程 stdout 尾部(全量,未过滤)---")
