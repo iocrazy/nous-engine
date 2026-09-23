@@ -6,6 +6,8 @@ import contextlib
 import json as _json
 import logging
 import os
+import re
+import signal
 import subprocess
 import sys
 import threading
@@ -134,6 +136,60 @@ def is_vision_model_config(model_config: dict) -> bool:
         "VL" in a or "Vision" in a or "Multimodal" in a or "Omni" in a
         for a in archs
     ) or model_config.get("vision_config") is not None
+
+
+# vLLM 起不来时,真根因由 EngineCore 先打印,随后 APIServer 再抛一个**包装**异常
+# (`RuntimeError: Engine core initialization failed. See root cause above.`)。只截尾部
+# 字符就只剩包装那句 —— 2026-09-22 huihui 设 256K 起不来,日志与 UI 上都只看到它,
+# 只能靠启动命令 + 显存算账反推。这里从尾部行里挑出真根因。
+_EXC_LINE = re.compile(r"(?:^|\s|\))(?P<exc>[A-Za-z_][\w.]*(?:Error|Exception)): (?P<msg>.+)")
+_WRAPPER_MARKERS = (
+    "See root cause above",
+    "Engine core initialization failed",
+    "EngineCore failed to start",
+)
+_KV_SHORTAGE_MARKERS = ("KV cache", "cache blocks")
+_SUMMARY_MAX = 900
+
+
+def summarize_vllm_failure(lines: list[str], returncode: int | None) -> str:
+    """把起不来的 vLLM 的 stdout 尾部 + 退出码收成一句**人能看懂**的原因。
+
+    - 负退出码翻译成信号名(-9 → SIGKILL):被外部杀掉与自己崩溃是两回事。
+    - 优先挑**最后一个非包装**的异常行(ValueError / torch.OutOfMemoryError …)。
+    - KV 装不下时追加中文处置建议(调小上下文 / 抬显存预算)。
+    - 挑不出异常行就退回最后几行。结果有界(进 UI 的状态提示,不能无限长)。
+    """
+    parts: list[str] = []
+    if returncode is not None and returncode < 0:
+        try:
+            name = signal.Signals(-returncode).name
+        except ValueError:
+            name = f"signal {-returncode}"
+        parts.append(f"进程被 {name} 终止(退出码 {returncode})—— 多半是被外部杀掉,不是自身报错")
+    elif returncode is not None:
+        parts.append(f"退出码 {returncode}")
+
+    root = None
+    for ln in reversed(lines):
+        m = _EXC_LINE.search(ln)
+        if m and not any(w in ln for w in _WRAPPER_MARKERS):
+            root = f"{m.group('exc')}: {m.group('msg').strip()}"
+            break
+    if root:
+        parts.append(root)
+        if any(k in root for k in _KV_SHORTAGE_MARKERS):
+            parts.append(
+                "→ 上下文(max_model_len)装不下 KV 缓存:在「启动参数」里调小上下文或恢复默认,"
+                "或在「显存预算」里抬预算"
+            )
+    else:
+        tail = " | ".join(x.strip() for x in lines[-3:] if x.strip())
+        if tail:
+            parts.append(f"最后输出:{tail}")
+
+    out = " · ".join(parts) or "vLLM 进程退出,无输出"
+    return out if len(out) <= _SUMMARY_MAX else out[: _SUMMARY_MAX - 1] + "…"
 
 
 def render_vllm_args(vllm_args: dict | None) -> list[str]:
@@ -319,7 +375,7 @@ class VLLMAdapter(InferenceAdapter):
         self.is_audio = False  # 设于 load():ASR/音频模型(走 /v1/audio/transcriptions)
         # round3 #1:vLLM 运行期持续往 stdout 打日志,Popen 的 PIPE(~64KB)填满后
         # 子进程 write 阻塞 = 推理服务冻结。后台 daemon 线程持续抽干进有界 deque。
-        self._stdout_tail: deque[str] = deque(maxlen=200)
+        self._stdout_tail: deque[str] = deque(maxlen=400)
         self._drain_thread: threading.Thread | None = None
 
     def _auto_configure(self, device: str | None) -> dict:
@@ -627,11 +683,15 @@ class VLLMAdapter(InferenceAdapter):
                     # stdout 已被 drain 线程消费)。
                     if self._drain_thread is not None:
                         self._drain_thread.join(timeout=1.0)
-                    output = "".join(self._stdout_tail)
-                    logger.error("vLLM process exited with code %d", self._process.returncode)
-                    logger.error("vLLM output (last 500 chars): %s", output[-500:])
+                    tail = list(self._stdout_tail)
+                    rc = self._process.returncode
+                    summary = summarize_vllm_failure(tail, rc)
+                    # 完整尾部进 journal(根因常在包装异常之前几十行,截字符会丢);
+                    # 异常消息给摘要 —— 它同时是 UI 模型卡片状态的悬停提示。
+                    logger.error("vLLM failed to start: %s", summary)
+                    logger.error("vLLM output tail (%d lines):\n%s", len(tail), "".join(tail))
                     self._kill_process()
-                    raise RuntimeError(f"vLLM failed to start: {output[-200:]}")
+                    raise RuntimeError(f"vLLM failed to start: {summary}")
 
                 if await self._health_check():
                     elapsed = int(time.monotonic() - start)
