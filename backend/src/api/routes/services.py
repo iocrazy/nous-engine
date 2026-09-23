@@ -34,6 +34,7 @@ from src.models.database import get_async_session
 from src.models.schemas import ExposedParam
 from src.models.service_instance import ServiceInstance
 from src.models.workflow import Workflow
+from src.services.model_capabilities import derive_capabilities
 from src.services.service_autostart import preload_model_infos
 from src.services.service_models import extract_service_models
 from src.services.workflow_snapshot import (
@@ -93,6 +94,9 @@ class ServiceOut(BaseModel):
     autostart: bool = False
     # 该服务工作流依赖的模型/组件(静态枚举;加载状态前端实时叠加)。
     models: list[ServiceModelRef] = []
+    # model 服务的能力(工具/思考/图片/上下文/提供商,见 services/model_capabilities.py);
+    # 只在列表端点填,其它服务为 None。
+    capabilities: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -246,11 +250,18 @@ async def list_services(
     if status:
         stmt = stmt.where(ServiceInstance.status == status)
     rows = (await session.execute(stmt)).all()
+    configs: dict | None = None
     out = []
     for svc, wf_name in rows:
         item = ServiceOut.model_validate(svc)
         item.workflow_name = wf_name
         item.models = _service_model_refs(svc)
+        if svc.source_type == "model" and item.models:
+            if configs is None:
+                from src.config import load_model_configs  # noqa: PLC0415 — 同 engines.py,局部取
+                configs = load_model_configs()
+            cfg = configs.get(item.models[0].engine_key or "")
+            item.capabilities = derive_capabilities(cfg) if cfg else None
         out.append(item)
     return out
 

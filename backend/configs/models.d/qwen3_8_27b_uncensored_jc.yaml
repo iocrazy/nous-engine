@@ -24,6 +24,7 @@
 #     EOF
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: qwen3_8_27b_uncensored_jc
+source: JonathanColetti/Qwen3.8-27B-Uncensored
 paths:
   main: llm/Qwen3.8-27B-Uncensored-JonathanColetti
 type: llm

@@ -12,6 +12,7 @@
 # 与另外三个互为替代,不能并存 —— 见下面的显存账。
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: qwen3_8_27b_abliterated_huihui
+source: huihui-ai/Huihui-Qwen3.8-27B-abliterated
 paths:
   main: llm/Qwen3.8-27B-abliterated-Huihui
 type: llm

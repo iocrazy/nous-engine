@@ -15,6 +15,7 @@
 # 整页文档的视觉 token 数很可观 —— max_model_len 别往下砍。
 adapter: src.services.inference.llm_vllm.VLLMAdapter
 id: unlimited_ocr
+source: baidu/Unlimited-OCR
 paths:
   main: vl/Unlimited-OCR
 # ⚠️ **必须显式写 type** —— model_scanner 的自动探测只按架构名里有没有

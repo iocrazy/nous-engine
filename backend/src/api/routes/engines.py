@@ -984,7 +984,8 @@ async def set_launch_params(
 
     await runtime_override_store.set_override(session, name, "params", body)
 
-    invalidate("engines")
+    # services 列表带 capabilities.context(= max_model_len),同样要失效。
+    invalidate("engines", "services")
     merged = runtime_override_store.get_overrides().get(name, {}).get("params", {})
     return {
         "name": name,

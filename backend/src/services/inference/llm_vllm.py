@@ -125,6 +125,17 @@ def normalize_vllm_flag(key: str) -> str:
     return "--" + str(key).strip().lstrip("-").replace("_", "-")
 
 
+def is_vision_model_config(model_config: dict) -> bool:
+    """HF config.json 判「吃图」的**唯一实现**:architectures 含 VL/Vision/Multimodal/Omni,
+    或带 `vision_config`。适配器据此加 `--limit-mm-per-prompt`,服务能力据此报「图片输入」
+    (`model_capabilities.derive_capabilities`)—— 两边判据必须一致,别各写一份。"""
+    archs = model_config.get("architectures") or []
+    return any(
+        "VL" in a or "Vision" in a or "Multimodal" in a or "Omni" in a
+        for a in archs
+    ) or model_config.get("vision_config") is not None
+
+
 def render_vllm_args(vllm_args: dict | None) -> list[str]:
     """把 `params.vllm_args` 渲染成 argv 片段。
 
@@ -399,10 +410,7 @@ class VLLMAdapter(InferenceAdapter):
 
         # 12. Detect multimodal (vision-language) models
         archs = model_config.get("architectures") or []
-        is_multimodal = any(
-            "VL" in a or "Vision" in a or "Multimodal" in a or "Omni" in a
-            for a in archs
-        ) or model_config.get("vision_config") is not None
+        is_multimodal = is_vision_model_config(model_config)
 
         # 12b. Detect audio/ASR models(音频进、文本出,如 Qwen3-ASR)。它们也是多模态,但
         # 输入是 audio 不是 image → 命令里要 --limit-mm-per-prompt {"audio":N} 而非 image。
