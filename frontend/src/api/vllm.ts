@@ -58,6 +58,8 @@ export interface LaunchParamsInfo {
   name: string
   /** 下次 load 会用的值(yaml 深合并 DB 覆盖后)。只含白名单内的键。 */
   effective: Record<string, unknown>
+  /** models.d 的 yaml 原值(不叠覆盖),UI 显示「已覆盖为 X(yaml 默认 Y)」。 */
+  defaults?: Record<string, unknown>
   /** effective 里哪几个键来自运行时覆盖(其余是 models.d 的 yaml 默认)。 */
   overridden: string[]
   /**

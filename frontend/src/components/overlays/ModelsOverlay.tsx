@@ -14,6 +14,7 @@ import ContextMenu, { type MenuItem } from '../ui/ContextMenu'
 import DeleteModelDialog from '../models/DeleteModelDialog'
 import { buildGpuAssignSubmenu } from '../models/gpuAssignMenu'
 import { LaunchParamsEditor } from '../engines/LaunchParamsEditor'
+import { LaunchParamsStatus } from '../engines/LaunchParamsStatus'
 import { useLaunchParams } from '../../api/vllm'
 import { copyTextOrToast } from '../../utils/clipboard'
 
@@ -691,6 +692,9 @@ function VramBudgetModal({ engine, onClose }: { engine: EngineInfo; onClose: () 
  *  显存**不在这里** —— 走隔壁「显存预算…」(绝对 GiB,加载时按实际那张卡换算)。 */
 function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: () => void }) {
   const { data, isLoading } = useLaunchParams(engine.name)
+  // 状态取实时的那份(右键时的 engine 是快照):弹窗开着时重载失败,也要立刻显示原因。
+  const { data: engines } = useEngines()
+  const live = engines?.find((e) => e.name === engine.name) ?? engine
   return (
     <div
       onClick={onClose}
@@ -726,11 +730,13 @@ function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: (
           </div>
         ) : (
           <>
-            {data.overridden.length > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--warn)' }}>
-                已被运行时覆盖:{data.overridden.join(', ')}(其余为 models.d 的 yaml 默认)
-              </div>
-            )}
+            <LaunchParamsStatus
+              status={live.status}
+              statusDetail={live.status_detail}
+              overridden={data.overridden}
+              effective={data.effective}
+              defaults={data.defaults ?? {}}
+            />
             <LaunchParamsEditor
               engineName={engine.name}
               current={data.effective}
