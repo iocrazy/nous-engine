@@ -8,6 +8,8 @@ export type ModelLoadState = ComponentLoadState // 'cold' | 'loading' | 'loaded'
 export interface ResolvedModelRef extends ServiceModelRef {
   state: ModelLoadState
   detail: string | null
+  /** 已加载时实际落的卡(引擎类);组件 / 未加载 → null */
+  gpu: number | null
 }
 
 export interface ServiceModelStatus {
@@ -41,10 +43,10 @@ export function useServiceModelStatus(models: ServiceModelRef[] | undefined): Se
     const refs: ResolvedModelRef[] = (models ?? []).map((m) => {
       if (m.kind === 'component') {
         const state = (m.file && byFile[m.file]) || 'cold'
-        return { ...m, state, detail: null }
+        return { ...m, state, detail: null, gpu: null }
       }
       const e = m.engine_key ? engineByName.get(m.engine_key) : undefined
-      return { ...m, state: engineToState(e), detail: e?.status_detail ?? null }
+      return { ...m, state: engineToState(e), detail: e?.status_detail ?? null, gpu: e?.loaded_gpu ?? null }
     })
     return {
       refs,
