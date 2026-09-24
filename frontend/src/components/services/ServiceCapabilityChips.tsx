@@ -5,9 +5,17 @@ const chipStyle: React.CSSProperties = {
   fontSize: 10,
   padding: '1px 7px',
   borderRadius: 10,
-  background: 'var(--bg)',
-  color: 'var(--muted)',
   whiteSpace: 'nowrap',
+}
+
+// 每类一个浅底色,扫一眼就能分开(用户 2026-09-24:「标签能不能有底色块」)。
+// 色系与模型页 TYPE_TAG_STYLE 同一套半透明底 + 同色字,深色主题下不刺眼。
+const CHIP_COLORS: Record<string, { bg: string; color: string }> = {
+  context:  { bg: 'rgba(59,130,246,0.15)',  color: 'rgb(96,165,250)' },   // 蓝
+  tools:    { bg: 'rgba(168,85,247,0.15)',  color: 'rgb(196,154,247)' },  // 紫
+  thinking: { bg: 'rgba(234,179,8,0.15)',   color: 'rgb(234,179,8)' },    // 琥珀
+  vision:   { bg: 'rgba(20,184,166,0.18)',  color: 'rgb(45,212,191)' },   // 青
+  provider: { bg: 'rgba(148,163,184,0.15)', color: 'var(--text)' },       // 中性灰
 }
 
 /**
@@ -38,7 +46,12 @@ export default function ServiceCapabilityChips({
   return (
     <div data-testid="service-capability-chips" style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
       {chips.map((c) => (
-        <span key={c.key} title={c.title} style={chipStyle}>
+        <span
+          key={c.key}
+          title={c.title}
+          data-chip={c.key}
+          style={{ ...chipStyle, background: CHIP_COLORS[c.key].bg, color: CHIP_COLORS[c.key].color }}
+        >
           {c.label}
         </span>
       ))}

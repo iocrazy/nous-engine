@@ -14,6 +14,14 @@ import type { ServiceModelRef } from '../../api/services'
  * - 多模型服务(工作流 / ComfyUI 桥引用多个组件):「模型 x/y」
  * - 没有模型引用:不渲染
  */
+// 底色块(用户 2026-09-24:标签要有底色)。与状态点同色系的半透明底。
+const STATE_BG: Record<string, string> = {
+  loaded: 'rgba(52,199,89,0.14)',
+  loading: 'rgba(245,158,11,0.15)',
+  failed: 'rgba(239,68,68,0.14)',
+  cold: 'rgba(148,163,184,0.14)',
+}
+
 export default function ModelStatusBadge({ models }: { models: ServiceModelRef[] | undefined }) {
   const { refs, total, loaded, loading, failed } = useServiceModelStatus(models)
   if (total === 0) return null
@@ -52,9 +60,8 @@ export default function ModelStatusBadge({ models }: { models: ServiceModelRef[]
         fontSize: 10,
         padding: '1px 7px',
         borderRadius: 10,
-        background: 'var(--bg)',
+        background: STATE_BG[state],
         color: vis.color,
-        border: '1px solid var(--border)',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
