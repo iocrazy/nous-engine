@@ -29,7 +29,8 @@ import {
   type ApiKeyCreated,
   type GrantSummary,
 } from '../api/keys'
-import { useServices, type ServiceCapabilities, type ServiceRow } from '../api/services'
+import { useServices, type ServiceCapabilities, type ServiceModelRef, type ServiceRow } from '../api/services'
+import ModelStatusBadge from '../components/services/ModelStatusBadge'
 import { useSettingsStore } from '../stores/settings'
 import { copyTextOrToast } from '../utils/clipboard'
 import ServiceCapabilityChips from '../components/services/ServiceCapabilityChips'
@@ -66,6 +67,10 @@ export default function ApiKeyDetail() {
   const { data: services } = useServices()
   const capsByServiceId = useMemo(
     () => new Map((services ?? []).map((s) => [s.id, s.capabilities ?? null])),
+    [services],
+  )
+  const modelsByServiceId = useMemo(
+    () => new Map((services ?? []).map((s) => [s.id, s.models])),
     [services],
   )
 
@@ -536,6 +541,7 @@ export default function ApiKeyDetail() {
                   key={g.id}
                   g={g}
                   capabilities={capsByServiceId.get(g.service_id) ?? null}
+                  models={modelsByServiceId.get(g.service_id)}
                   clientUrl={
                     Object.values(endpointsFor(g.service_name, exampleBase, g.service_category))[0]?.url ?? ''
                   }
@@ -693,12 +699,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function GrantRow({
   g,
   capabilities,
+  models,
   clientUrl,
   onToggle,
   onRemove,
 }: {
   g: GrantSummary
   capabilities: ServiceCapabilities | null
+  /** 该服务引用的模型 —— 用来显示**模型加载状态**(与授权状态 active/paused 是两回事) */
+  models: ServiceModelRef[] | undefined
   /** 与页面 Base URL 同源(exampleBase + endpointsFor),不硬编码主机名 */
   clientUrl: string
   onToggle: () => void
@@ -737,8 +746,11 @@ function GrantRow({
       <div style={{ fontSize: 11, color: 'var(--muted)' }}>
         授权于 {fmtDate(g.activated_at) ?? '—'}
       </div>
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+        {/* 授权状态 ≠ 模型状态(2026-09-23 用户问「active 是什么」):
+            这里的 active/paused 只表示这把 key 对该服务的授权生不生效;模型有没有加载看下一行。 */}
         <span
+          title={g.status === 'active' ? '这把 key 对该服务的授权生效中' : '授权已暂停:这把 key 调用该服务会被拒'}
           style={{
             fontSize: 11,
             padding: '2px 8px',
@@ -750,8 +762,9 @@ function GrantRow({
             color: g.status === 'active' ? '#4ade80' : '#f87171',
           }}
         >
-          {g.status}
+          {g.status === 'active' ? '授权生效' : '授权暂停'}
         </span>
+        <ModelStatusBadge models={models} />
       </div>
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
         {capabilities && (
