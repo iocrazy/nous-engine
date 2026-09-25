@@ -34,7 +34,7 @@ from src.models.database import get_async_session
 from src.models.schemas import ExposedParam
 from src.models.service_instance import ServiceInstance
 from src.models.workflow import Workflow
-from src.services.model_capabilities import derive_capabilities
+from src.services.model_capabilities import capabilities_for_service
 from src.services.service_autostart import preload_model_infos
 from src.services.service_models import extract_service_models
 from src.services.workflow_snapshot import (
@@ -260,8 +260,7 @@ async def list_services(
             if configs is None:
                 from src.config import load_model_configs  # noqa: PLC0415 — 同 engines.py,局部取
                 configs = load_model_configs()
-            cfg = configs.get(item.models[0].engine_key or "")
-            item.capabilities = derive_capabilities(cfg) if cfg else None
+            item.capabilities = capabilities_for_service(svc, configs)
         out.append(item)
     return out
 

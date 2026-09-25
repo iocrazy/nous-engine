@@ -101,3 +101,17 @@ def derive_capabilities(cfg: dict) -> dict[str, Any]:
         "provider": provider,
         "source": source,
     }
+
+
+def capabilities_for_service(svc: Any, configs: dict) -> dict[str, Any] | None:
+    """服务 → 能力。**两处共用**:管理面 GET /api/v1/services 与数据面 /v1/models。
+
+    只有 source_type=model 的服务有能力可言(工作流 / 图像 / app 返回 None,不编)。
+    引擎名 = `source_name or source_id`(_readiness.engine_name_of 同口径);`configs` 应是
+    load_model_configs() 的**生效值**(叠了运行时覆盖),于是 context 就是 vLLM 实际按它
+    启动的上下文,而不是模型原生上限。
+    """
+    if getattr(svc, "source_type", None) != "model":
+        return None
+    cfg = configs.get(svc.source_name or str(svc.source_id))
+    return derive_capabilities(cfg) if cfg else None
