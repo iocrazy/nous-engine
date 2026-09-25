@@ -10,7 +10,7 @@ import tempfile
 import time
 import uuid
 import wave
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from fastapi import (
@@ -1580,6 +1580,22 @@ class ModelObject(BaseModel):
     created: int = 1700000000
     owned_by: str = "nous-engine"
     type: str = "model"   # 服务类目:llm / embedding / image / app / tts / vl ...
+    # 2026-09-24:给 nous-app admin 自动同步「上下文窗口」用,免人工填。
+    # context_window = 生效上下文(yaml 叠运行时覆盖 = vLLM 实际按它启动的值),不是模型原生上限;
+    # 非模型服务(工作流 / 图像 / app)为 None。capabilities 与管理面 /api/v1/services 同一份。
+    context_window: int | None = None
+    capabilities: dict[str, Any] | None = None
+    # 现在就能调吗(模型类服务 = 其模型已加载)。不带 include_unready 时列出的恒为 True。
+    ready: bool = True
+
+
+def _model_object(svc: ServiceInstance, configs: dict, ready: bool) -> "ModelObject":
+    from src.services.model_capabilities import capabilities_for_service  # noqa: PLC0415
+    caps = capabilities_for_service(svc, configs)
+    return ModelObject(
+        id=svc.name, type=svc.category or "model",
+        context_window=(caps or {}).get("context"), capabilities=caps, ready=ready,
+    )
 
 
 class ModelListResponse(BaseModel):
@@ -1610,6 +1626,7 @@ async def _granted_services(session: AsyncSession, api_key: InstanceApiKey):
 async def list_models(
     request: Request,
     type: str | None = None,
+    include_unready: bool = False,
     auth: tuple[ServiceInstance | None, InstanceApiKey] = Depends(verify_bearer_token_any),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -1622,19 +1639,27 @@ async def list_models(
 
     2026-09-05 起 model 类服务只在其模型已加载时出现(`/v1/models` = 现在就能调的);
     comfy_template / workflow / app 照旧按授权列。
+
+    `?include_unready=1`(2026-09-24,给 nous-app 自动同步):**只放宽就绪、不放宽授权** ——
+    返回该 key 授权的全部服务(含模型未加载的),每条带 `ready`。不带时行为与原来完全一致。
+    每条都带 `context_window` + `capabilities`(来自配置,与加载与否无关)。
     """
     _instance, api_key = auth
     if api_key is None:
         raise NotFoundError("request requires an API key", code="model_not_found")
-    from src.api.routes._readiness import service_is_ready  # noqa: PLC0415
+    from src.api.routes import _readiness  # noqa: PLC0415 — 模块引用,测试按属性打桩
+    from src.config import load_model_configs  # noqa: PLC0415
     model_mgr = getattr(request.app.state, "model_manager", None)
     services = await _granted_services(session, api_key)
-    data = [
-        ModelObject(id=s.name, type=(s.category or "model"))
-        for s in services
-        if (not type or (s.category or "model") == type)
-        and service_is_ready(model_mgr, s)      # spec 2026-09-05 §6:只列现在就能调的
-    ]
+    configs = load_model_configs()
+    data = []
+    for s in services:
+        if type and (s.category or "model") != type:
+            continue
+        ready = _readiness.service_is_ready(model_mgr, s)
+        if not ready and not include_unready:   # spec 2026-09-05 §6:默认只列现在就能调的
+            continue
+        data.append(_model_object(s, configs, ready))
     return ModelListResponse(data=data)
 
 
@@ -1642,6 +1667,7 @@ async def list_models(
 async def get_model(
     model_id: str,
     request: Request,
+    include_unready: bool = False,
     auth: tuple[ServiceInstance | None, InstanceApiKey] = Depends(verify_bearer_token_any),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -1654,7 +1680,9 @@ async def get_model(
         raise NotFoundError(
             f"model '{model_id}' not found or no active grant on this key",
             code="model_not_found")
-    from src.api.routes._readiness import service_is_ready  # noqa: PLC0415
-    if not service_is_ready(getattr(request.app.state, "model_manager", None), svc):
+    from src.api.routes import _readiness  # noqa: PLC0415 — 模块引用,测试按属性打桩
+    from src.config import load_model_configs  # noqa: PLC0415
+    ready = _readiness.service_is_ready(getattr(request.app.state, "model_manager", None), svc)
+    if not ready and not include_unready:
         raise ModelNotReadyError(model_id)      # 「没就绪」(503)与「没授权」(404)分开
-    return ModelObject(id=svc.name, type=svc.category or "model")
+    return _model_object(svc, load_model_configs(), ready)
