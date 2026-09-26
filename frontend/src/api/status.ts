@@ -17,6 +17,8 @@ export interface StatusComponent {
   status: ComponentStatus
   uptime_7d: number | null
   days: StatusDay[]
+  /** 一句话原因(目前只有 comfy:sidecar 体检的 problems,「;」连接)。旧后端没有。 */
+  detail?: string | null
 }
 
 export interface StatusSnapshot {
