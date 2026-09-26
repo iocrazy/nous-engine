@@ -1652,11 +1652,14 @@ async def list_models(
     model_mgr = getattr(request.app.state, "model_manager", None)
     services = await _granted_services(session, api_key)
     configs = load_model_configs()
+    # 桥服务的就绪 = ComfyUI sidecar 在线;只在授权里真有桥服务时才探(5s 缓存)。
+    comfy_online = (await _readiness.comfy_sidecar_online()
+                    if any(s.source_type == "comfy_template" for s in services) else None)
     data = []
     for s in services:
         if type and (s.category or "model") != type:
             continue
-        ready = _readiness.service_is_ready(model_mgr, s)
+        ready = _readiness.service_is_ready(model_mgr, s, comfy_online=comfy_online)
         if not ready and not include_unready:   # spec 2026-09-05 §6:默认只列现在就能调的
             continue
         data.append(_model_object(s, configs, ready))
@@ -1682,7 +1685,10 @@ async def get_model(
             code="model_not_found")
     from src.api.routes import _readiness  # noqa: PLC0415 — 模块引用,测试按属性打桩
     from src.config import load_model_configs  # noqa: PLC0415
-    ready = _readiness.service_is_ready(getattr(request.app.state, "model_manager", None), svc)
+    comfy_online = (await _readiness.comfy_sidecar_online()
+                    if svc.source_type == "comfy_template" else None)
+    ready = _readiness.service_is_ready(
+        getattr(request.app.state, "model_manager", None), svc, comfy_online=comfy_online)
     if not ready and not include_unready:
         raise ModelNotReadyError(model_id)      # 「没就绪」(503)与「没授权」(404)分开
     return _model_object(svc, load_model_configs(), ready)

@@ -36,7 +36,7 @@ def fake_env(monkeypatch):
     monkeypatch.setattr(config, "load_model_configs", lambda *a, **k: _CFG)
     monkeypatch.setattr(
         _readiness, "service_is_ready",
-        lambda _mgr, svc: svc.source_type != "model" or svc.source_name == "eng-hot")
+        lambda _mgr, svc, **_kw: svc.source_type != "model" or svc.source_name == "eng-hot")
 
 
 async def _setup(db_session):
