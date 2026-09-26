@@ -29,7 +29,8 @@ async def status_snapshot(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ):
-    current = await compute_statuses(request.app.state, session)
+    details: dict[str, str] = {}
+    current = await compute_statuses(request.app.state, session, details)
     history = await uptime_history(session, days=7)
     components = []
     for key, name in COMPONENTS:
@@ -40,6 +41,7 @@ async def status_snapshot(
             "status": current.get(key, "down"),
             "uptime_7d": hist.get("uptime_pct"),
             "days": hist.get("days", []),
+            "detail": details.get(key),
         })
     return {
         "overall": worst(current.values()),

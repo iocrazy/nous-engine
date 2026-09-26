@@ -190,3 +190,39 @@ async def test_health_preloading_false_when_preload_task_not_running():
     assert body_a["startup"]["preloading"] is False
     assert body_b["startup"]["preloading"] is False
     assert body_c["startup"]["preloading"] is True
+
+
+@pytest.mark.asyncio
+async def test_health_reports_comfy_ok(monkeypatch):
+    """conftest 默认把 sidecar 体检打桩成 ok → comfy 块在、status 不因它降级。"""
+    from httpx import ASGITransport, AsyncClient
+
+    _patch_db_ok(monkeypatch)
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        body = (await client.get("/health")).json()
+    assert body["comfy"]["state"] == "ok"
+    assert body["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_health_comfy_down_degrades_and_hides_internals(monkeypatch):
+    """ComfyUI 挂 → status=degraded;/health 无鉴权,只露约定的几个字段。"""
+    from httpx import ASGITransport, AsyncClient
+
+    from src.services.comfy import sidecar_status as cs
+
+    async def down():
+        return {"state": "down", "online": False, "unit_active": False, "identity": "none",
+                "listens": [], "missing_listens": ["127.0.0.1"],
+                "problems": ["ComfyUI 未响应(:8888)"], "checked_at": 1.0}
+    monkeypatch.setattr(cs, "sidecar_status", down)
+    _patch_db_ok(monkeypatch)
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        body = (await client.get("/health")).json()
+    assert body["status"] == "degraded"
+    assert body["comfy"] == {
+        "state": "down", "online": False, "identity": "none", "listens": [],
+        "missing_listens": ["127.0.0.1"], "problems": ["ComfyUI 未响应(:8888)"],
+    }

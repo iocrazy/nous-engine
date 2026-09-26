@@ -358,6 +358,28 @@ def _reset_runtime_override_cache():
     runtime_override_store.reset_cache()
 
 
+_COMFY_SIDECAR_OK = {
+    "state": "ok", "online": True, "unit_active": True, "identity": "systemd",
+    "listens": ["127.0.0.1"], "missing_listens": [], "problems": [], "checked_at": 0.0,
+}
+
+
+@pytest.fixture(autouse=True)
+def _stub_comfy_sidecar_status(request, monkeypatch):
+    """/health 与状态页都会做 ComfyUI sidecar 体检(systemctl / ss / 打 /queue)。
+    测试里绝不依赖本机真有 ComfyUI 与 systemd 单元 —— 否则 CI(没有 sidecar)下
+    /health 恒 degraded,一堆断言 status 的用例随环境红绿。默认打桩成 ok;
+    要测真实实现的模块设 `REAL_COMFY_SIDECAR_STATUS = True`,改用自己的桩。"""
+    from src.services.comfy import sidecar_status as mod
+    mod.reset_cache()
+    if not getattr(request.module, "REAL_COMFY_SIDECAR_STATUS", False):
+        async def _ok():
+            return dict(_COMFY_SIDECAR_OK)
+        monkeypatch.setattr(mod, "sidecar_status", _ok)
+    yield
+    mod.reset_cache()
+
+
 def _mock_model_manager():
     """Create a mock ModelManager for tests."""
     mgr = MagicMock()
