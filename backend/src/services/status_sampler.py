@@ -41,8 +41,10 @@ COMPONENTS: list[tuple[str, str]] = [
     ("image", "图像 Runner"),
     ("tts", "语音 Runner"),
     ("gpu", "GPU"),
+    ("comfy", "ComfyUI 桥"),
 ]
 COMPONENT_KEYS = [k for k, _ in COMPONENTS]
+_COMFY_STATE = {"ok": OPERATIONAL, "degraded": DEGRADED, "down": DOWN}
 
 DEFAULT_INTERVAL_S = 60.0
 RETENTION_DAYS = 8
@@ -84,8 +86,16 @@ async def _vllm_component_status(targets) -> str:
     return OPERATIONAL
 
 
-async def compute_statuses(app_state, session: AsyncSession | None = None) -> dict[str, str]:
-    """现算每个组件当前状态。每项独立 try —— 单项探测失败记 down,绝不让采样/端点崩。"""
+async def compute_statuses(
+    app_state,
+    session: AsyncSession | None = None,
+    details: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """现算每个组件当前状态。每项独立 try —— 单项探测失败记 down,绝不让采样/端点崩。
+
+    传了 `details` 就往里填「组件 → 一句话原因」(目前只有 comfy 的 problems),给状态页
+    在组件名下显示;采样落库不需要,不传。
+    """
     out: dict[str, str] = {}
 
     # backend:能跑到这就是活的。
@@ -152,6 +162,17 @@ async def compute_statuses(app_state, session: AsyncSession | None = None) -> di
     except Exception as e:  # noqa: BLE001
         logger.warning("status: gpu check failed: %s", e)
         out["gpu"] = DOWN
+
+    # comfy:sidecar 体检(在线 + systemd 身份 + 监听地址),见 comfy/sidecar_status.py。
+    try:
+        from src.services.comfy import sidecar_status as comfy_sidecar
+        comfy = await comfy_sidecar.sidecar_status()
+        out["comfy"] = _COMFY_STATE.get(comfy.get("state"), DOWN)
+        if details is not None and comfy.get("problems"):
+            details["comfy"] = ";".join(comfy["problems"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("status: comfy check failed: %s", e)
+        out["comfy"] = DOWN
 
     return out
 
