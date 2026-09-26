@@ -62,3 +62,29 @@ def test_ready_model_names_keeps_input_order_and_drops_non_model():
         _svc("hot2", source_name="e_hot2"),
     ]
     assert ready_model_names(mgr, services) == ["hot", "hot2"]
+
+
+# ---- 桥服务的就绪要真探 ComfyUI(2026-09-26)----
+# 此前 comfy_template 一律 True:ComfyUI 停了一天多那阵子,/v1/models 里 5 个桥服务照样
+# 显示可用,nous-app 一提交就失败 —— 与 LLM 那次「显示绿灯实际不通」同一类问题。
+
+def test_comfy_template_not_ready_when_sidecar_offline():
+    assert service_is_ready(None, _svc("krea2", source_type="comfy_template"),
+                            comfy_online=False) is False
+
+
+def test_comfy_template_ready_when_sidecar_online():
+    assert service_is_ready(None, _svc("krea2", source_type="comfy_template"),
+                            comfy_online=True) is True
+
+
+def test_comfy_template_unknown_sidecar_state_keeps_old_behaviour():
+    """没探(调用方没传)→ 维持旧口径 True:只有真去探过的路径才收紧,别让别的调用方
+    (ollama /api/tags 等只关心 model 类)悄悄变行为。"""
+    assert service_is_ready(None, _svc("krea2", source_type="comfy_template")) is True
+
+
+def test_workflow_and_app_services_ignore_sidecar_state():
+    """自建 workflow / app 不经 ComfyUI,sidecar 挂了也不影响它们。"""
+    for st in ("workflow", "app"):
+        assert service_is_ready(None, _svc("x", source_type=st), comfy_online=False) is True
