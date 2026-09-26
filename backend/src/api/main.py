@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import understand, generate, tts, engines, audio, voices, openai_compat, ollama_compat, api_gateway as api_gateway_routes, settings, workflows, agents, skills, monitor, node_packages, execution_tasks, apps, logs, context_cache as context_cache_routes, files as files_routes, services as services_routes, workflow_publish as workflow_publish_routes, usage as usage_routes, dashboard as dashboard_routes, api_keys as api_keys_routes, anthropic_compat, observability, loras as loras_routes, image_files as image_files_routes, models as models_routes, predictions as predictions_routes, comfy_templates as comfy_templates_routes
+from src.api.routes import understand, generate, tts, engines, audio, voices, openai_compat, ollama_compat, api_gateway as api_gateway_routes, settings, workflows, agents, skills, skill_runs, monitor, node_packages, execution_tasks, apps, logs, context_cache as context_cache_routes, files as files_routes, services as services_routes, workflow_publish as workflow_publish_routes, usage as usage_routes, dashboard as dashboard_routes, api_keys as api_keys_routes, anthropic_compat, observability, loras as loras_routes, image_files as image_files_routes, models as models_routes, predictions as predictions_routes, comfy_templates as comfy_templates_routes
 from src.api.ws_tts import handle_tts_websocket
 from src.services.gpu_monitor import memory_guard_loop
 # WS 广播基础设施已下沉到 services/ws_hub(打破 services→api 反向依赖)。
@@ -1015,6 +1015,7 @@ def create_app() -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(agents.router)
     app.include_router(skills.router)
+    app.include_router(skill_runs.router)
     app.include_router(monitor.router)
     app.include_router(node_packages.router)
     app.include_router(execution_tasks.router)
