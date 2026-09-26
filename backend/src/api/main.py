@@ -988,6 +988,16 @@ def create_app() -> FastAPI:
         if any(not r.get("healthy", r.get("running", False)) for r in runners):
             checks["status"] = "degraded"
 
+        # ComfyUI sidecar 体检(2026-09-26):在线 + 身份是 systemd 那个 + 监听地址齐全。
+        # 2026-09-25 它被换成手工实例停了一天多,顶栏/状态页/巡检全无反应。/health 无鉴权,
+        # 只挑这几个字段(不放 unit_active/checked_at;problems 里的外来 pid 是给人排障用的)。
+        from src.services.comfy import sidecar_status as _comfy_sidecar
+        comfy = await _comfy_sidecar.sidecar_status()
+        checks["comfy"] = {k: comfy[k] for k in (
+            "state", "online", "identity", "listens", "missing_listens", "problems")}
+        if comfy["state"] != "ok":
+            checks["status"] = "degraded"
+
         return checks
     app.include_router(understand.router)
     app.include_router(generate.router)

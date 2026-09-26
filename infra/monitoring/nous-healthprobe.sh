@@ -3,7 +3,7 @@
 #
 # 由 nous-engine-healthprobe.timer 每 2 分钟触发一次,探 vLLM 看门狗管不到的事:
 #   1. 后端本机存活      (GET 127.0.0.1:8000/healthz → 200)
-#   2. 后端自报健康      (GET /health → status/database/load_failures)
+#   2. 后端自报健康      (GET /health → status/database/load_failures/comfy)
 #   3. 公网隧道存活      (GET <public>/health → 非 530/000)—— 默认关闭,见下
 #
 # 输出结构化行到 stdout(systemd timer → journald;`journalctl -u nous-engine-healthprobe`)。
@@ -53,6 +53,13 @@ if db != "ok":
     out.append("ALERT db=%s" % db)
 if lf:
     out.append("WARN load_failures=%s" % ",".join(lf.keys()))
+# ComfyUI sidecar(2026-09-26):只 WARN 不 ALERT —— 它挂不等于后端硬故障,且用户只要
+# 看得见、不接通知。problems 原文照录进日志,排障不用再去翻 /health。
+comfy = d.get("comfy") or {}
+cstate = comfy.get("state")
+if cstate in ("down", "degraded"):
+    probs = ";".join(str(p) for p in comfy.get("problems") or []).replace("\n", " ")
+    out.append("WARN comfy-%s(%s)" % (cstate, probs))
 print("\n".join(out))
 ' 2>/dev/null || echo 'PARSE_FAIL')"
   if [[ "$parsed" == "PARSE_FAIL" ]]; then
