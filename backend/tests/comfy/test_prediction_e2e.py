@@ -132,11 +132,11 @@ async def test_async_prediction_completes_with_video(client, monkeypatch):
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-video")
+    raw_key = await _make_service_and_key(client, "nous-e2e-video")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-video/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-video/predictions", json={"input": {"prompt": "hi"}},
         headers={**headers, "Prefer": "respond-async"})
     assert r.status_code == 202, r.text
     pid = r.json()["id"]
@@ -153,11 +153,11 @@ async def test_predictions_sync_mode_also_returns_video(client, monkeypatch):
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-video-sync")
+    raw_key = await _make_service_and_key(client, "nous-e2e-video-sync")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-video-sync/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-video-sync/predictions", json={"input": {"prompt": "hi"}},
         headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -198,11 +198,11 @@ async def test_cancel_forwards_interrupt_and_reaches_cancelled(client, monkeypat
     monkeypatch.setattr(comfy_templates_route, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-cancel")
+    raw_key = await _make_service_and_key(client, "nous-e2e-cancel")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-cancel/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-cancel/predictions", json={"input": {"prompt": "hi"}},
         headers={**headers, "Prefer": "respond-async"})
     assert r.status_code == 202, r.text
     pid = r.json()["id"]
@@ -271,11 +271,11 @@ async def test_cancel_does_not_clobber_a_render_that_already_finished(client, mo
     monkeypatch.setattr(comfy_templates_route, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-cancel-race")
+    raw_key = await _make_service_and_key(client, "nous-e2e-cancel-race")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-cancel-race/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-cancel-race/predictions", json={"input": {"prompt": "hi"}},
         headers={**headers, "Prefer": "respond-async"})
     assert r.status_code == 202, r.text
     pid = r.json()["id"]
@@ -384,11 +384,11 @@ async def test_empty_outputs_marks_task_failed(client, monkeypatch):
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-empty-outputs")
+    raw_key = await _make_service_and_key(client, "nous-e2e-empty-outputs")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-empty-outputs/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-empty-outputs/predictions", json={"input": {"prompt": "hi"}},
         headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -435,8 +435,8 @@ async def test_cancel_queued_behind_semaphore_does_not_interrupt_other_render(cl
     monkeypatch.setattr(comfy_templates_route, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key_a = await _make_service_and_key(client, "e2e-2task-a")
-    raw_key_b = await _make_service_and_key(client, "e2e-2task-b")
+    raw_key_a = await _make_service_and_key(client, "nous-e2e-2task-a")
+    raw_key_b = await _make_service_and_key(client, "nous-e2e-2task-b")
     headers_a = {"Authorization": f"Bearer {raw_key_a}"}
     headers_b = {"Authorization": f"Bearer {raw_key_b}"}
 
@@ -444,7 +444,7 @@ async def test_cancel_queued_behind_semaphore_does_not_interrupt_other_render(cl
     # in wait() on render_gate. Wait for fc.first_submitted so we know A truly
     # holds the semaphore before starting B (deterministic, not a sleep-and-hope).
     ra = await client.post(
-        "/v1/services/e2e-2task-a/predictions", json={"input": {"prompt": "a"}},
+        "/v1/services/nous-e2e-2task-a/predictions", json={"input": {"prompt": "a"}},
         headers={**headers_a, "Prefer": "respond-async"})
     assert ra.status_code == 202, ra.text
     pid_a = ra.json()["id"]
@@ -453,7 +453,7 @@ async def test_cancel_queued_behind_semaphore_does_not_interrupt_other_render(cl
     # B: submitted while A holds the semaphore — B's node.invoke() will reach
     # `async with _SEM:` and block there (never calls client.submit()).
     rb = await client.post(
-        "/v1/services/e2e-2task-b/predictions", json={"input": {"prompt": "b"}},
+        "/v1/services/nous-e2e-2task-b/predictions", json={"input": {"prompt": "b"}},
         headers={**headers_b, "Prefer": "respond-async"})
     assert rb.status_code == 202, rb.text
     pid_b = rb.json()["id"]
@@ -587,11 +587,11 @@ async def test_cancel_during_wait_exits_render_and_frees_semaphore(client, monke
     monkeypatch.setattr(comfy_templates_route, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-abort-wait")
+    raw_key = await _make_service_and_key(client, "nous-e2e-abort-wait")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-abort-wait/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-abort-wait/predictions", json={"input": {"prompt": "hi"}},
         headers={**headers, "Prefer": "respond-async"})
     assert r.status_code == 202, r.text
     pid = r.json()["id"]
@@ -612,7 +612,7 @@ async def test_cancel_during_wait_exits_render_and_frees_semaphore(client, monke
     assert final["status"] == "canceled", final
     assert final["output"] is None, final
 
-    await _assert_semaphore_free(client, monkeypatch, "e2e-abort-wait-next")
+    await _assert_semaphore_free(client, monkeypatch, "nous-e2e-abort-wait-next")
 
 
 @pytest.mark.asyncio
@@ -627,11 +627,11 @@ async def test_sidecar_lost_prompt_fails_task_and_frees_semaphore(client, monkey
     monkeypatch.setattr(nb, "get_client", lambda: _LostFakeClient())
     _patch_no_thumbnail(monkeypatch)
 
-    raw_key = await _make_service_and_key(client, "e2e-lost-prompt")
+    raw_key = await _make_service_and_key(client, "nous-e2e-lost-prompt")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     r = await client.post(
-        "/v1/services/e2e-lost-prompt/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-e2e-lost-prompt/predictions", json={"input": {"prompt": "hi"}},
         headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -639,4 +639,4 @@ async def test_sidecar_lost_prompt_fails_task_and_frees_semaphore(client, monkey
     assert "丢失" in (body["error"] or ""), body
     assert nb.get_running_task_id() is None
 
-    await _assert_semaphore_free(client, monkeypatch, "e2e-lost-prompt-next")
+    await _assert_semaphore_free(client, monkeypatch, "nous-e2e-lost-prompt-next")

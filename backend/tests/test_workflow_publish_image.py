@@ -50,7 +50,7 @@ async def test_publish_image_workflow_auto_detects_category_and_meter(
         f"/api/v1/workflows/{image_workflow.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "image-svc",
+            "name": "nous-image-svc",
             "label": "Image",
             # Note: NO category supplied — must be inferred from snapshot.
             "exposed_inputs": [
@@ -77,7 +77,7 @@ async def test_publish_image_workflow_explicit_category_wins(
         f"/api/v1/workflows/{image_workflow.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "image-svc-2",
+            "name": "nous-image-svc-2",
             "category": "app",  # admin override
             "meter_dim": "calls",
             "exposed_inputs": [],
@@ -103,7 +103,7 @@ async def test_publish_image_workflow_rejects_bad_output_field(
         f"/api/v1/workflows/{image_workflow.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "image-svc-bad-output",
+            "name": "nous-image-svc-bad-output",
             "exposed_outputs": [
                 {"node_id": "img_1", "key": "url", "input_name": "image_uri",
                  "type": "string"},
@@ -127,7 +127,7 @@ async def test_publish_image_workflow_allows_alt_output_fields(
             f"/api/v1/workflows/{image_workflow.id}/publish",
             headers=_admin_headers(),
             json={
-                "name": f"image-svc-{slug}",
+                "name": f"nous-image-svc-{slug}",
                 "exposed_outputs": [
                     {"node_id": "img_1", "key": "x", "input_name": field,
                      "type": "string"},
@@ -160,7 +160,7 @@ async def test_publish_non_image_workflow_does_not_get_image_meter(
         f"/api/v1/workflows/{wf.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "text-svc",
+            "name": "nous-text-svc",
             "exposed_inputs": [
                 {"node_id": "in_1", "key": "text", "input_name": "text",
                  "type": "string", "required": True},
@@ -184,7 +184,7 @@ async def test_publish_unknown_node_in_image_workflow_still_422(
         f"/api/v1/workflows/{image_workflow.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "image-svc-ghost",
+            "name": "nous-image-svc-ghost",
             "exposed_outputs": [
                 {"node_id": "ghost", "key": "url", "input_name": "image_url",
                  "type": "string"},
@@ -400,7 +400,7 @@ async def test_publish_flux2_component_workflow_auto_detects_image_category(
         f"/api/v1/workflows/{component_image_workflow.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "component-img-svc",
+            "name": "nous-component-img-svc",
             "label": "Component Image",
             "exposed_inputs": [],
             "exposed_outputs": [
@@ -423,7 +423,7 @@ async def test_publish_component_workflow_rejects_typo_in_vae_decode_output(
         f"/api/v1/workflows/{component_image_workflow.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "component-img-bad",
+            "name": "nous-component-img-bad",
             "exposed_inputs": [],
             "exposed_outputs": [
                 {"name": "img", "node_id": "dec", "input_name": "image_uri"},

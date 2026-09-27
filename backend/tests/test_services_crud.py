@@ -35,12 +35,12 @@ async def test_quick_provision_creates_service_and_workflow(db_client, monkeypat
     pass  # admin auth disabled in tests
     r = await db_client.post(
         "/api/v1/services/quick-provision",
-        json=_quick("llm-chat"),
+        json=_quick("nous-llm-chat"),
         headers=_admin_headers(),
     )
     assert r.status_code == 201, r.text
     data = r.json()
-    assert data["name"] == "llm-chat"
+    assert data["name"] == "nous-llm-chat"
     assert data["category"] == "llm"
     assert data["meter_dim"] == "tokens"
     # The trivial workflow is back-linked to the new service.
@@ -67,13 +67,13 @@ async def test_name_collision_returns_409(db_client, monkeypatch):
     pass  # admin auth disabled in tests
     r1 = await db_client.post(
         "/api/v1/services/quick-provision",
-        json=_quick("dup-name"),
+        json=_quick("nous-dup-name"),
         headers=_admin_headers(),
     )
     assert r1.status_code == 201
     r2 = await db_client.post(
         "/api/v1/services/quick-provision",
-        json=_quick("dup-name"),
+        json=_quick("nous-dup-name"),
         headers=_admin_headers(),
     )
     assert r2.status_code == 409
@@ -86,7 +86,7 @@ async def test_deprecated_service_still_appears_in_list(db_client, monkeypatch):
     pass  # admin auth disabled in tests
     r = await db_client.post(
         "/api/v1/services/quick-provision",
-        json=_quick("aging-service"),
+        json=_quick("nous-aging-service"),
         headers=_admin_headers(),
     )
     assert r.status_code == 201
@@ -103,7 +103,7 @@ async def test_deprecated_service_still_appears_in_list(db_client, monkeypatch):
     r3 = await db_client.get("/api/v1/services", headers=_admin_headers())
     assert r3.status_code == 200
     names = [s["name"] for s in r3.json()]
-    assert "aging-service" in names
+    assert "nous-aging-service" in names
 
 
 @pytest.mark.asyncio
@@ -112,12 +112,12 @@ async def test_list_services_populates_workflow_name(db_client):
     list_services 必须 LEFT JOIN workflows 把 workflow_name 一起返。"""
     r = await db_client.post(
         "/api/v1/services/quick-provision",
-        json=_quick("named-svc"),
+        json=_quick("nous-named-svc"),
         headers=_admin_headers(),
     )
     assert r.status_code == 201
     sid = r.json()["id"]
-    expected_wf_name = "trivial:named-svc"  # quick_provision 的命名规则
+    expected_wf_name = "trivial:nous-named-svc"  # quick_provision 的命名规则
 
     rs = await db_client.get("/api/v1/services", headers=_admin_headers())
     assert rs.status_code == 200
@@ -160,21 +160,21 @@ async def test_quick_provision_links_workflow_back(db_session):
 @pytest.mark.asyncio
 async def test_patch_rename_service(db_client):
     """改名(PATCH name):成功改 → GET 列表显新名;旧名消失。grant 靠 id 不受影响(此处只验名)。"""
-    r = await db_client.post("/api/v1/services/quick-provision", json=_quick("old-name"))
+    r = await db_client.post("/api/v1/services/quick-provision", json=_quick("nous-old-name"))
     assert r.status_code == 201
     sid = int(r.json()["id"])
 
-    r2 = await db_client.patch(f"/api/v1/services/{sid}", json={"name": "new-name"})
+    r2 = await db_client.patch(f"/api/v1/services/{sid}", json={"name": "nous-new-name"})
     assert r2.status_code == 200, r2.text
-    assert r2.json()["name"] == "new-name"
+    assert r2.json()["name"] == "nous-new-name"
 
     names = [s["name"] for s in (await db_client.get("/api/v1/services")).json()]
-    assert "new-name" in names and "old-name" not in names
+    assert "nous-new-name" in names and "nous-old-name" not in names
 
 
 @pytest.mark.asyncio
 async def test_patch_rename_invalid_format_422(db_client):
-    r = await db_client.post("/api/v1/services/quick-provision", json=_quick("svc-fmt"))
+    r = await db_client.post("/api/v1/services/quick-provision", json=_quick("nous-svc-fmt"))
     sid = int(r.json()["id"])
     bad = await db_client.patch(f"/api/v1/services/{sid}", json={"name": "Bad Name!"})
     assert bad.status_code == 422
@@ -182,8 +182,8 @@ async def test_patch_rename_invalid_format_422(db_client):
 
 @pytest.mark.asyncio
 async def test_patch_rename_duplicate_409(db_client):
-    a = await db_client.post("/api/v1/services/quick-provision", json=_quick("svc-a"))
-    await db_client.post("/api/v1/services/quick-provision", json=_quick("svc-b"))
+    a = await db_client.post("/api/v1/services/quick-provision", json=_quick("nous-svc-a"))
+    await db_client.post("/api/v1/services/quick-provision", json=_quick("nous-svc-b"))
     sid_a = int(a.json()["id"])
-    dup = await db_client.patch(f"/api/v1/services/{sid_a}", json={"name": "svc-b"})
+    dup = await db_client.patch(f"/api/v1/services/{sid_a}", json={"name": "nous-svc-b"})
     assert dup.status_code == 409

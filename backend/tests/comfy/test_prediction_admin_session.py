@@ -64,10 +64,10 @@ async def test_create_prediction_without_bearer_uses_admin_session(client, monke
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    await _make_service(client, "admin-e2e-video")
+    await _make_service(client, "nous-admin-e2e-video")
 
     r = await client.post(
-        "/v1/services/admin-e2e-video/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-admin-e2e-video/predictions", json={"input": {"prompt": "hi"}},
         headers={"Prefer": "respond-async"})
     assert r.status_code == 202, r.text
     pid = r.json()["id"]
@@ -176,7 +176,7 @@ async def test_cancel_prediction_without_bearer_uses_admin_session(client, monke
     结果"的真机不存在时序(那正是这条用例在 CI 上偶发翻车的地方之一)。
     """
     fc = _gated_client(asyncio.Event())
-    pid = await _start_and_await_render(client, monkeypatch, fc, "admin-e2e-cancel")
+    pid = await _start_and_await_render(client, monkeypatch, fc, "nous-admin-e2e-cancel")
 
     cancel_resp = await client.post(f"/v1/predictions/{pid}/cancel")
     assert cancel_resp.status_code == 200, cancel_resp.text
@@ -202,7 +202,7 @@ async def test_cancel_terminal_state_survives_late_node_success(client, monkeypa
     """
     fc = _gated_client(asyncio.Event(), wait_result={"outputs": {"92": {"images": [
         {"filename": "out.mp4", "subfolder": "", "type": "output"}]}}})
-    pid = await _start_and_await_render(client, monkeypatch, fc, "admin-e2e-cancel-race")
+    pid = await _start_and_await_render(client, monkeypatch, fc, "nous-admin-e2e-cancel-race")
 
     cancel_resp = await client.post(f"/v1/predictions/{pid}/cancel")
     assert cancel_resp.status_code == 200, cancel_resp.text
@@ -226,10 +226,10 @@ async def test_create_prediction_falls_back_to_admin_session_when_bearer_invalid
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    await _make_service(client, "admin-token-fallback")
+    await _make_service(client, "nous-admin-token-fallback")
 
     r = await client.post(
-        "/v1/services/admin-token-fallback/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-admin-token-fallback/predictions", json={"input": {"prompt": "hi"}},
         headers={"Authorization": "Bearer sk-not-a-real-instance-key", "Prefer": "respond-async"})
     assert r.status_code == 202, r.text
 
@@ -242,10 +242,10 @@ async def test_create_prediction_task_has_no_owner_key_on_admin_path(client, mon
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
-    await _make_service(client, "admin-e2e-owner")
+    await _make_service(client, "nous-admin-e2e-owner")
 
     r = await client.post(
-        "/v1/services/admin-e2e-owner/predictions", json={"input": {"prompt": "hi"}},
+        "/v1/services/nous-admin-e2e-owner/predictions", json={"input": {"prompt": "hi"}},
         headers={"Prefer": "respond-async"})
     assert r.status_code == 202, r.text
     pid = int(r.json()["id"])

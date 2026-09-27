@@ -39,7 +39,7 @@ async def test_publish_assigns_snapshot_hash_and_version(
         f"/api/v1/workflows/{workflow_with_two_nodes.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "echo-svc",
+            "name": "nous-echo-svc",
             "label": "Echo",
             "category": "app",
             "meter_dim": "calls",
@@ -55,7 +55,7 @@ async def test_publish_assigns_snapshot_hash_and_version(
     )
     assert r.status_code == 201, r.text
     data = r.json()
-    assert data["name"] == "echo-svc"
+    assert data["name"] == "nous-echo-svc"
     assert data["version"] == 1
     assert data["snapshot_hash"].startswith("sha256:")
     assert "nodes" in data["workflow_snapshot"]
@@ -71,7 +71,7 @@ async def test_publish_flips_workflow_status_to_published(
         f"/api/v1/workflows/{workflow_with_two_nodes.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "status-svc", "label": "S", "category": "app", "meter_dim": "calls",
+            "name": "nous-status-svc", "label": "S", "category": "app", "meter_dim": "calls",
             "exposed_inputs": [{"node_id": "in_1", "key": "text", "input_name": "v",
                                 "type": "string", "required": True}],
             "exposed_outputs": [{"node_id": "out_1", "key": "echo", "input_name": "v",
@@ -94,7 +94,7 @@ async def test_delete_service_resets_workflow_status_to_draft(
         f"/api/v1/workflows/{workflow_with_two_nodes.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "del-svc", "label": "D", "category": "app", "meter_dim": "calls",
+            "name": "nous-del-svc", "label": "D", "category": "app", "meter_dim": "calls",
             "exposed_inputs": [{"node_id": "in_1", "key": "text", "input_name": "v",
                                 "type": "string", "required": True}],
             "exposed_outputs": [{"node_id": "out_1", "key": "echo", "input_name": "v",
@@ -123,7 +123,7 @@ async def test_publish_rejects_unknown_exposed_node_id(
         f"/api/v1/workflows/{workflow_with_two_nodes.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "broken-svc",
+            "name": "nous-broken-svc",
             "exposed_inputs": [
                 {"node_id": "ghost-node", "key": "x", "input_name": "value",
                  "type": "string", "required": True},
@@ -151,7 +151,7 @@ async def test_publish_rejects_auto_generated_workflow(db_client, db_session, mo
     r = await db_client.post(
         f"/api/v1/workflows/{wf.id}/publish",
         headers=_admin_headers(),
-        json={"name": "fork", "exposed_inputs": [], "exposed_outputs": []},
+        json={"name": "nous-fork", "exposed_inputs": [], "exposed_outputs": []},
     )
     assert r.status_code == 409
 
@@ -166,12 +166,12 @@ async def test_publish_409_on_duplicate_name(
     }
     r1 = await db_client.post(
         f"/api/v1/workflows/{workflow_with_two_nodes.id}/publish",
-        headers=_admin_headers(), json={**base, "name": "dup-svc"},
+        headers=_admin_headers(), json={**base, "name": "nous-dup-svc"},
     )
     assert r1.status_code == 201
     r2 = await db_client.post(
         f"/api/v1/workflows/{workflow_with_two_nodes.id}/publish",
-        headers=_admin_headers(), json={**base, "name": "dup-svc"},
+        headers=_admin_headers(), json={**base, "name": "nous-dup-svc"},
     )
     assert r2.status_code == 409
 
