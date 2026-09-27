@@ -6,18 +6,18 @@ WF = {"138": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": ""}}
 
 @pytest.mark.asyncio
 async def test_create_template_creates_service(client):
-    r = await client.post("/api/v1/comfy-templates", json={"name": "minimax-h3-r2v", "workflow": WF})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-minimax-h3-r2v", "workflow": WF})
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["service_name"] == "minimax-h3-r2v" and body["node_count"] == 2
-    svc = await client.get("/v1/services/minimax-h3-r2v/schema")
+    assert body["service_name"] == "nous-minimax-h3-r2v" and body["node_count"] == 2
+    svc = await client.get("/v1/services/nous-minimax-h3-r2v/schema")
     assert svc.status_code == 200
     assert svc.json()["source_type"] == "comfy_template"
 
 
 @pytest.mark.asyncio
 async def test_mapping_roundtrip_and_stale_detection(client):
-    r = await client.post("/api/v1/comfy-templates", json={"name": "tpl-map", "workflow": WF})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-tpl-map", "workflow": WF})
     tid = r.json()["id"]
     mapping = {"exposed_params": [{"key": "prompt", "label": "提示词", "type": "string",
                                    "comfy_node_id": "138", "comfy_input": "value", "required": True}]}
@@ -37,7 +37,7 @@ async def test_mapping_constraints_surface_in_service_schema(client):
     的 input_schema 必须能从这个嵌套形状里把 enum/minimum/maximum 解出来——旧代码
     的 service_schema.py::_input_property 只认 node.yaml widget(桥节点 class_type
     是 "comfyui_workflow",从来没有 widget 定义),min/max/enum 全部丢失。"""
-    r = await client.post("/api/v1/comfy-templates", json={"name": "tpl-constraints", "workflow": WF})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-tpl-constraints", "workflow": WF})
     tid = r.json()["id"]
     mapping = {"exposed_params": [
         {"key": "steps", "label": "步数", "type": "integer",
@@ -49,7 +49,7 @@ async def test_mapping_constraints_surface_in_service_schema(client):
     ]}
     assert (await client.put(f"/api/v1/comfy-templates/{tid}/mapping", json=mapping)).status_code == 200
 
-    schema = (await client.get("/v1/services/tpl-constraints/schema")).json()
+    schema = (await client.get("/v1/services/nous-tpl-constraints/schema")).json()
     props = schema["input_schema"]["properties"]
     assert props["steps"]["minimum"] == 1
     assert props["steps"]["maximum"] == 150
@@ -70,10 +70,10 @@ async def test_create_template_seeds_exposed_outputs(client):
     终端 video_output 节点 id="out"),否则 /schema 的 output_schema 永远是空
     {"properties": {}},Playground 的 SchemaDrivenOutput 拿不到任何 declared output
     可渲染,视频播放器出不来。"""
-    r = await client.post("/api/v1/comfy-templates", json={"name": "tpl-outputs", "workflow": WF})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-tpl-outputs", "workflow": WF})
     assert r.status_code == 201, r.text
 
-    schema = (await client.get("/v1/services/tpl-outputs/schema")).json()
+    schema = (await client.get("/v1/services/nous-tpl-outputs/schema")).json()
     out_props = schema["output_schema"]["properties"]
     assert "video_url" in out_props
     assert out_props["video_url"]["type"] == "string"
@@ -82,10 +82,10 @@ async def test_create_template_seeds_exposed_outputs(client):
 
 @pytest.mark.asyncio
 async def test_delete_removes_service(client):
-    r = await client.post("/api/v1/comfy-templates", json={"name": "tpl-del", "workflow": WF})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-tpl-del", "workflow": WF})
     tid = r.json()["id"]
     assert (await client.delete(f"/api/v1/comfy-templates/{tid}")).status_code == 204
-    assert (await client.get("/v1/services/tpl-del/schema")).status_code == 404
+    assert (await client.get("/v1/services/nous-tpl-del/schema")).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -95,7 +95,7 @@ async def test_file_field_never_gets_enum_whitelist(client):
     (2026-08-12 实机:Playground 传 data URI 必 400 must be one of [...])。"""
     wf = {"137": {"class_type": "LoadImage", "inputs": {"image": "old.jpg"}},
           "92": {"class_type": "SaveVideo", "inputs": {}}}
-    r = await client.post("/api/v1/comfy-templates", json={"name": "tpl-fileenum", "workflow": wf})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-tpl-fileenum", "workflow": wf})
     tid = r.json()["id"]
     await client.put(f"/api/v1/comfy-templates/{tid}/mapping", json={"exposed_params": [
         {"key": "image", "label": "参考图", "type": "image", "required": True,
@@ -105,6 +105,6 @@ async def test_file_field_never_gets_enum_whitelist(client):
          "options": ["fast", "quality"],          # 真枚举:仍然保留
          "comfy_node_id": "137", "comfy_input": "mode"},
     ]})
-    schema = (await client.get("/v1/services/tpl-fileenum/schema")).json()["input_schema"]["properties"]
+    schema = (await client.get("/v1/services/nous-tpl-fileenum/schema")).json()["input_schema"]["properties"]
     assert "enum" not in schema["image"], "文件类字段不该带 enum 白名单"
     assert schema["mode"]["enum"] == ["fast", "quality"], "非文件类的真枚举要保留"

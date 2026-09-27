@@ -35,7 +35,7 @@ async def published_service_id(db_client, db_session):
         f"/api/v1/workflows/{wf.id}/publish",
         headers=_admin_headers(),
         json={
-            "name": "patch-svc",
+            "name": "nous-patch-svc",
             "category": "app",
             "exposed_inputs": [
                 {"node_id": "in_1", "key": "text", "input_name": "text",

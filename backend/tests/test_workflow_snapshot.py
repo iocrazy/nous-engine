@@ -45,9 +45,10 @@ def test_build_snapshot_editor_list_to_api_dict():
 
 
 def test_name_re():
-    assert NAME_RE.match("qwen3-8b")
-    assert not NAME_RE.match("Qwen")   # 大写开头
-    assert not NAME_RE.match("1x")     # 数字开头
+    assert NAME_RE.match("nous-qwen3-8b")
+    assert not NAME_RE.match("qwen3-8b")    # 缺 nous- 前缀
+    assert not NAME_RE.match("nous-Qwen")   # 大写
+    assert not NAME_RE.match("Nous-x")      # 前缀大写
 
 
 def test_no_circular_import():

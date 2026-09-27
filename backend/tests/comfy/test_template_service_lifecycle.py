@@ -33,19 +33,19 @@ async def _template_ids(client):
 @pytest.mark.asyncio
 async def test_deleting_template_removes_both(client):
     """基线:正常删模板 → 模板和服务一起没。"""
-    tid = await _mk(client, "life-both")
+    tid = await _mk(client, "nous-life-both")
     assert (await client.delete(f"/api/v1/comfy-templates/{tid}")).status_code == 204
     assert str(tid) not in await _template_ids(client)
-    assert (await client.get("/v1/services/life-both/schema")).status_code == 404
+    assert (await client.get("/v1/services/nous-life-both/schema")).status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_deleting_service_also_removes_its_template(client):
     """删桥服务要连带删模板 —— 否则每删一个桥服务就漏一行 comfy_templates。"""
-    tid = await _mk(client, "life-svc")
+    tid = await _mk(client, "nous-life-svc")
     svc = (await client.get("/api/v1/services")).json()
     items = svc if isinstance(svc, list) else (svc.get("services") or svc.get("items") or [])
-    sid = next(s["id"] for s in items if s["name"] == "life-svc")
+    sid = next(s["id"] for s in items if s["name"] == "nous-life-svc")
 
     assert (await client.delete(f"/api/v1/services/{sid}")).status_code == 204
     assert str(tid) not in await _template_ids(client), "模板变成孤儿了"
@@ -60,7 +60,7 @@ async def test_orphan_template_is_still_deletable(client):
     from src.models.database import get_session_factory
     from src.models.service_instance import ServiceInstance
 
-    tid = await _mk(client, "life-orphan")
+    tid = await _mk(client, "nous-life-orphan")
     # 绕过 API 直接摘掉服务,人为造一个孤儿模板
     async with get_session_factory()() as s:
         await s.execute(sa_delete(ServiceInstance).where(

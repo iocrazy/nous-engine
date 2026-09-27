@@ -91,7 +91,7 @@ def _assert_rejected(r, needle: str = ""):
 @pytest.mark.asyncio
 async def test_mapping_round_trip(client):
     """新字段能存能取:PUT mapping → GET 模板详情原样吐回。"""
-    tid = await _mk(client, "dep-roundtrip")
+    tid = await _mk(client, "nous-dep-roundtrip")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping", json=_mapping())
     assert r.status_code == 200, r.text
 
@@ -110,7 +110,7 @@ async def test_mapping_round_trip(client):
 @pytest.mark.asyncio
 async def test_depends_on_unknown_key_rejected(client):
     """指向不存在的 key → 拒绝(否则运行期静默退回静态 enum,症状查不出原因)。"""
-    tid = await _mk(client, "dep-unknown")
+    tid = await _mk(client, "nous-dep-unknown")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                          json=_mapping(options_depends_on="no_such_key"))
     _assert_rejected(r, "no_such_key")
@@ -118,7 +118,7 @@ async def test_depends_on_unknown_key_rejected(client):
 
 @pytest.mark.asyncio
 async def test_depends_on_self_rejected(client):
-    tid = await _mk(client, "dep-self")
+    tid = await _mk(client, "nous-dep-self")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                          json=_mapping(options_depends_on="styles"))
     _assert_rejected(r)
@@ -127,7 +127,7 @@ async def test_depends_on_self_rejected(client):
 @pytest.mark.asyncio
 async def test_depends_on_without_source_rejected(client):
     """只写 depends_on 不写 source:运行期不知道去哪儿取清单 → 发布时就拒。"""
-    tid = await _mk(client, "dep-nosource")
+    tid = await _mk(client, "nous-dep-nosource")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                          json=_mapping(options_source=None))
     _assert_rejected(r)
@@ -136,7 +136,7 @@ async def test_depends_on_without_source_rejected(client):
 @pytest.mark.asyncio
 async def test_unknown_source_rejected(client):
     """options_source 是枚举(目前只有 comfy_styles),乱写的来源直接拒。"""
-    tid = await _mk(client, "dep-badsource")
+    tid = await _mk(client, "nous-dep-badsource")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                          json=_mapping(options_source="from_mars"))
     _assert_rejected(r)
@@ -148,11 +148,11 @@ async def test_unknown_source_rejected(client):
 @pytest.mark.asyncio
 async def test_schema_exposes_dependency_keys(client):
     """schema 输出 x-options-depends-on / x-options-source,静态 enum + meta 照旧。"""
-    tid = await _mk(client, "dep-schema")
+    tid = await _mk(client, "nous-dep-schema")
     assert (await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                              json=_mapping())).status_code == 200
 
-    props = (await client.get("/v1/services/dep-schema/schema")).json()["input_schema"]["properties"]
+    props = (await client.get("/v1/services/nous-dep-schema/schema")).json()["input_schema"]["properties"]
     prop = props["styles"]
     assert prop["x-options-depends-on"] == "style_pack"
     assert prop["x-options-source"] == "comfy_styles"
@@ -267,7 +267,7 @@ async def test_prediction_endpoint_uses_dynamic_pack(client, monkeypatch):
     故意断言"拒绝"这一侧:通过的那一侧会真的排一个渲染任务去敲 sidecar(本机可能真
     跑着 ComfyUI),测试不该碰它。放行逻辑由上面的单元用例覆盖。
     """
-    tid = await _mk(client, "dep-predict")
+    tid = await _mk(client, "nous-dep-predict")
     assert (await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                              json=_mapping())).status_code == 200
 
@@ -275,7 +275,7 @@ async def test_prediction_endpoint_uses_dynamic_pack(client, monkeypatch):
     monkeypatch.setattr(style_options, "get_comfy_client", lambda: fake)
 
     r = await client.post(
-        "/v1/services/dep-predict/predictions",
+        "/v1/services/nous-dep-predict/predictions",
         headers={"Prefer": "respond-async"},
         json={"input": {"style_pack": "krea2_397styles-anime_动漫",
                         "styles": "sai-anime"}})
@@ -458,7 +458,7 @@ async def test_enum_less_mapping_keeps_multiple_flag(client):
     曾经它被嵌在 `if m.options` 里 —— 不冻结 options 的 mapping 存不下这个标志,
     schema 没有 x-multiple,运行期就拿动态清单整串比对 "a,b" → 多选必 422。
     """
-    tid = await _mk(client, "dep-enumless")
+    tid = await _mk(client, "nous-dep-enumless")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                          json=_mapping(options=None))
     assert r.status_code == 200, r.text
@@ -467,7 +467,7 @@ async def test_enum_less_mapping_keeps_multiple_flag(client):
     styles = next(p for p in detail["exposed_params"] if p["key"] == "styles")
     assert styles["multiple"] is True
 
-    prop = (await client.get("/v1/services/dep-enumless/schema")
+    prop = (await client.get("/v1/services/nous-dep-enumless/schema")
             ).json()["input_schema"]["properties"]["styles"]
     assert prop["x-multiple"] is True, "没有它,多选值会被整串比对"
     assert "enum" not in prop, "本来就没冻结静态清单"
@@ -509,7 +509,7 @@ async def test_enum_less_prediction_accepts_multi_select(client, monkeypatch):
     跟 test_prediction_endpoint_uses_dynamic_pack 同理只断言"拒绝"这一侧 —— 放行会
     真排一个渲染任务去敲 sidecar。合法项没进报错,就证明走的是逐项分支。
     """
-    tid = await _mk(client, "dep-enumless-predict")
+    tid = await _mk(client, "nous-dep-enumless-predict")
     assert (await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                              json=_mapping(options=None))).status_code == 200
 
@@ -517,7 +517,7 @@ async def test_enum_less_prediction_accepts_multi_select(client, monkeypatch):
     monkeypatch.setattr(style_options, "get_comfy_client", lambda: fake)
 
     r = await client.post(
-        "/v1/services/dep-enumless-predict/predictions",
+        "/v1/services/nous-dep-enumless-predict/predictions",
         headers={"Prefer": "respond-async"},
         json={"input": {"style_pack": "krea2_397styles-anime_动漫",
                         "styles": "krea-cel,not-a-style"}})
@@ -551,7 +551,7 @@ async def test_file_param_rejects_options_dependency(client):
     """文件类字段的值是**上传的文件**,不是从清单里选一项。给它挂动态清单 = 运行期拿
     一份风格名当白名单,上传必 422(2026-08-12 那个静态 enum 回归换条路复现)。
     """
-    tid = await _mk(client, "dep-file")
+    tid = await _mk(client, "nous-dep-file")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping", json=_file_mapping())
     _assert_rejected(r, "文件类参数")
 
@@ -559,7 +559,7 @@ async def test_file_param_rejects_options_dependency(client):
 @pytest.mark.asyncio
 async def test_file_param_rejects_bare_options_source(client):
     """只写 options_source 不写 depends_on 也拒 —— 它一样会让 schema 挂上动态清单。"""
-    tid = await _mk(client, "dep-file-src")
+    tid = await _mk(client, "nous-dep-file-src")
     r = await client.put(f"/api/v1/comfy-templates/{tid}/mapping",
                          json=_file_mapping(options_depends_on=None))
     _assert_rejected(r, "文件类参数")

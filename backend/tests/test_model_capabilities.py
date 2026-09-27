@@ -140,14 +140,14 @@ async def test_services_list_includes_capabilities(db_client, monkeypatch, model
 
     r = await db_client.post(
         "/api/v1/services/register-model",
-        json={"name": "cap-llm", "source_name": "cap_llm", "type": "llm"},
+        json={"name": "nous-cap-llm", "source_name": "cap_llm", "type": "llm"},
     )
     assert r.status_code == 201, r.text
     invalidate("services")
 
     r = await db_client.get("/api/v1/services")
     assert r.status_code == 200, r.text
-    svc = next(s for s in r.json() if s["name"] == "cap-llm")
+    svc = next(s for s in r.json() if s["name"] == "nous-cap-llm")
     assert svc["capabilities"] == {
         "context": 262144,
         "max_output": None,
@@ -166,13 +166,13 @@ async def test_services_list_capabilities_null_for_unknown_engine(db_client, mon
     monkeypatch.setattr(config_mod, "load_model_configs", lambda *a, **k: {})
     r = await db_client.post(
         "/api/v1/services/register-model",
-        json={"name": "ghost-llm", "source_name": "not_in_registry", "type": "llm"},
+        json={"name": "nous-ghost-llm", "source_name": "not_in_registry", "type": "llm"},
     )
     assert r.status_code == 201, r.text
     invalidate("services")
 
     r = await db_client.get("/api/v1/services")
-    svc = next(s for s in r.json() if s["name"] == "ghost-llm")
+    svc = next(s for s in r.json() if s["name"] == "nous-ghost-llm")
     assert svc["capabilities"] is None
 
 
@@ -181,7 +181,7 @@ async def test_launch_params_patch_invalidates_services_cache(db_client, models_
     """capabilities.context 就是 max_model_len —— 改了启动参数,服务列表不能再吐 30s 旧缓存。"""
     r = await db_client.post(
         "/api/v1/services/register-model",
-        json={"name": "awq-cap", "source_name": "qwen3_8_27b_abliterated_awq", "type": "llm"},
+        json={"name": "nous-awq-cap", "source_name": "qwen3_8_27b_abliterated_awq", "type": "llm"},
     )
     assert r.status_code == 201, r.text
     invalidate("services")
@@ -193,5 +193,5 @@ async def test_launch_params_patch_invalidates_services_cache(db_client, models_
     assert r.status_code == 200, r.text
 
     r = await db_client.get("/api/v1/services")
-    svc = next(s for s in r.json() if s["name"] == "awq-cap")
+    svc = next(s for s in r.json() if s["name"] == "nous-awq-cap")
     assert svc["capabilities"]["context"] == 12288

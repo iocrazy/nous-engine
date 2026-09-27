@@ -195,7 +195,7 @@ async def test_load_template_real_db_lookup(client):
     """真实现:不 monkeypatch load_template,直接建模板+映射后查询。"""
     wf = {"138": {"class_type": "T", "inputs": {"value": ""}},
           "92": {"class_type": "SaveVideo", "inputs": {}}}
-    r = await client.post("/api/v1/comfy-templates", json={"name": "bridge-db-test", "workflow": wf})
+    r = await client.post("/api/v1/comfy-templates", json={"name": "nous-bridge-db-test", "workflow": wf})
     assert r.status_code == 201, r.text
     tid = int(r.json()["id"])
     mapping = {"exposed_params": [{"key": "prompt", "label": "提示词", "type": "string",

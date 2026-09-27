@@ -4,7 +4,7 @@ import ImportComfyDialog from './ImportComfyDialog'
 import * as api from '../../api/comfyTemplates'
 
 vi.mock('../../api/comfyTemplates', () => ({
-  createComfyTemplate: vi.fn(async () => ({ id: 1, service_name: 'minimax-h3-r2v', node_count: 2 })),
+  createComfyTemplate: vi.fn(async () => ({ id: 1, service_name: 'nous-minimax-h3-r2v', node_count: 2 })),
   getObjectInfo: vi.fn(async () => ({})),
 }))
 
@@ -33,7 +33,7 @@ function importFile(overrides?: { name?: string }) {
     { type: 'application/json' },
   )
   fireEvent.change(screen.getByTestId('comfy-file-input'), { target: { files: [file] } })
-  return { file, name: overrides?.name ?? 'minimax-h3-r2v' }
+  return { file, name: overrides?.name ?? 'nous-minimax-h3-r2v' }
 }
 
 describe('ImportComfyDialog', () => {
@@ -50,9 +50,23 @@ describe('ImportComfyDialog', () => {
     const file = new File([JSON.stringify({ '1': { class_type: 'X', inputs: {} } })], 'wf.json',
       { type: 'application/json' })
     fireEvent.change(screen.getByTestId('comfy-file-input'), { target: { files: [file] } })
-    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'minimax-h3-r2v' } })
+    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'nous-minimax-h3-r2v' } })
     fireEvent.click(screen.getByRole('button', { name: /导入/ }))
-    await waitFor(() => expect(onImported).toHaveBeenCalledWith('minimax-h3-r2v'))
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith('nous-minimax-h3-r2v'))
+  })
+
+  it('服务名缺 nous- 前缀 → 显示中文规则提示且不提交', async () => {
+    const onImported = vi.fn()
+    render(<ImportComfyDialog open onClose={() => {}} onImported={onImported} />)
+    const file = new File([JSON.stringify({ '1': { class_type: 'X', inputs: {} } })], 'wf.json',
+      { type: 'application/json' })
+    fireEvent.change(screen.getByTestId('comfy-file-input'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'minimax-h3-r2v' } })
+    expect(await screen.findByText(/必须以 nous- 开头/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^导入$/ }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(api.createComfyTemplate).not.toHaveBeenCalled()
+    expect(onImported).not.toHaveBeenCalled()
   })
 
   it('sidecar 离线(getObjectInfo 失败)→ 跳过校验,照常导入', async () => {
@@ -60,9 +74,9 @@ describe('ImportComfyDialog', () => {
     const onImported = vi.fn()
     render(<ImportComfyDialog open onClose={() => {}} onImported={onImported} />)
     importFile()
-    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'minimax-h3-r2v' } })
+    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'nous-minimax-h3-r2v' } })
     fireEvent.click(screen.getByRole('button', { name: /^导入$/ }))
-    await waitFor(() => expect(onImported).toHaveBeenCalledWith('minimax-h3-r2v'))
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith('nous-minimax-h3-r2v'))
     // 导入时用的是原始(未经修正)workflow —— 校验被跳过,不是静默改数据
     const [, workflow] = vi.mocked(api.createComfyTemplate).mock.calls.at(-1)!
     expect((workflow as Record<string, { inputs: { vae_name: string } }>)['119'].inputs.vae_name).toBe(
@@ -75,7 +89,7 @@ describe('ImportComfyDialog', () => {
     const onImported = vi.fn()
     render(<ImportComfyDialog open onClose={() => {}} onImported={onImported} />)
     importFile()
-    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'minimax-h3-r2v' } })
+    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'nous-minimax-h3-r2v' } })
     fireEvent.click(screen.getByRole('button', { name: /^导入$/ }))
 
     // review 步出现,select 已预选建议值
@@ -84,9 +98,9 @@ describe('ImportComfyDialog', () => {
     expect(api.createComfyTemplate).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: /确认修正并导入/ }))
-    await waitFor(() => expect(onImported).toHaveBeenCalledWith('minimax-h3-r2v'))
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith('nous-minimax-h3-r2v'))
     const [name, workflow] = vi.mocked(api.createComfyTemplate).mock.calls.at(-1)!
-    expect(name).toBe('minimax-h3-r2v')
+    expect(name).toBe('nous-minimax-h3-r2v')
     expect((workflow as Record<string, { inputs: { vae_name: string } }>)['119'].inputs.vae_name).toBe(
       'minimax-h3/minimax_h3_video_vae_fp16.safetensors',
     )
@@ -96,7 +110,7 @@ describe('ImportComfyDialog', () => {
     vi.mocked(api.getObjectInfo).mockResolvedValue(OBJECT_INFO_WITH_VAE)
     render(<ImportComfyDialog open onClose={() => {}} onImported={() => {}} />)
     importFile()
-    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'minimax-h3-r2v' } })
+    fireEvent.change(await screen.findByPlaceholderText(/服务名/), { target: { value: 'nous-minimax-h3-r2v' } })
     fireEvent.click(screen.getByRole('button', { name: /^导入$/ }))
 
     const select = await screen.findByRole('combobox', { name: /vae_name/ })
