@@ -63,7 +63,7 @@ async def test_load_model_then_run_node():
 
         await ch.send_message(P.RunNode(
             task_id=7, node_id="sampler", node_type="tts",
-            model_key="fake-img-a", inputs={"steps": 3},
+            model_key="fake-img-a", inputs={},
         ))
         progresses, result = await _collect_until_result(ch)
         assert len(progresses) == 3  # 每 step 一个 NodeProgress
@@ -124,7 +124,7 @@ async def test_abort_during_node_cancels_it():
         # 跑一个 20 step 的长节点
         await ch.send_message(P.RunNode(
             task_id=9, node_id="sampler", node_type="tts",
-            model_key="fake-img-a", inputs={"steps": 20},
+            model_key="fake-img-a", inputs={},
         ))
         # 收到第一个 progress 后立刻 Abort
         first = await _recv(ch)

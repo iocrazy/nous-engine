@@ -33,7 +33,7 @@ async def test_workflow_full_lifecycle(scheduler_env):
                 node_id="sampler",
                 node_type="tts",
                 model_key=env.runner.model_key,
-                inputs={"steps": 1},
+                inputs={},
             )
         )
         assert result.status == "completed"
@@ -119,7 +119,7 @@ async def test_cancel_inflight_via_abort(fake_runner):
                     node_id="sampler",
                     node_type="tts",
                     model_key=runner.model_key,
-                    inputs={"steps": 30},  # 30 steps * 0.2s = 6s budget
+                    inputs={},  # config steps=30 × slow 0.2s = 6s budget
                 )
             )
         )
@@ -134,9 +134,9 @@ async def test_cancel_inflight_via_abort(fake_runner):
 
 @pytest.mark.asyncio
 async def test_mixed_node_workflow(scheduler_env, fake_vllm):
-    """image dispatch (subprocess IPC) + llm inline HTTP (vLLM mock) in parallel.
+    """tts dispatch (subprocess IPC) + llm inline HTTP (vLLM mock) in parallel.
 
-    spec §5.3 mixed-node row: scheduler routes image node to runner subprocess,
+    spec §5.3 mixed-node row: scheduler routes tts node to runner subprocess,
     workflow_executor routes llm node to vLLM HTTP directly — both complete
     and results merge.
     """
@@ -147,14 +147,14 @@ async def test_mixed_node_workflow(scheduler_env, fake_vllm):
     try:
         assert await env.runner.client.load_model(env.runner.model_key, config={}) is True
 
-        async def _image_branch():
+        async def _dispatch_branch():
             r = await env.runner.client.run_node(
                 P.RunNode(
                     task_id=300,
                     node_id="img",
                     node_type="tts",
                     model_key=env.runner.model_key,
-                    inputs={"steps": 1},
+                    inputs={},
                 )
             )
             return r.status
@@ -171,7 +171,7 @@ async def test_mixed_node_workflow(scheduler_env, fake_vllm):
             return resp.status_code
 
         img_status, llm_status = await asyncio.gather(
-            _image_branch(), _llm_branch()
+            _dispatch_branch(), _llm_branch()
         )
         assert img_status == "completed"
         assert llm_status == 200

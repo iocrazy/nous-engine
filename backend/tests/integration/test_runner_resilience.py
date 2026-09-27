@@ -78,7 +78,7 @@ async def test_runner_restart_can_load_and_run_again():
                 node_id="n",
                 node_type="tts",
                 model_key="fake-img-a",
-                inputs={"steps": 1},
+                inputs={},
             )
         )
         assert result.status == "completed"
@@ -144,7 +144,7 @@ async def test_abort_during_node_execution_main_process_view(fake_runner):
                     node_id="n",
                     node_type="tts",
                     model_key=runner.model_key,
-                    inputs={"steps": 30},  # 30 * 0.15s = 4.5s budget for cancel
+                    inputs={},  # config steps=30 × slow 0.15s = 4.5s budget for cancel
                 )
             )
         )

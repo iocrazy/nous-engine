@@ -84,7 +84,7 @@ async def test_runner_run_node_through_get_or_load():
         assert isinstance(await _recv(ch), P.Ready)
         await ch.send_message(P.RunNode(
             task_id=20, node_id="sampler", node_type="tts",
-            model_key="fake-img-a", inputs={"steps": 3},
+            model_key="fake-img-a", inputs={},
         ))
         progresses, result = await _collect_until_result(ch, 20)
         assert result.status == "completed"
@@ -102,7 +102,7 @@ async def test_runner_unknown_model_fails_node_not_runner():
         assert isinstance(await _recv(ch), P.Ready)
         await ch.send_message(P.RunNode(
             task_id=21, node_id="sampler", node_type="tts",
-            model_key="no-such-model", inputs={"steps": 1},
+            model_key="no-such-model", inputs={},
         ))
         _, result = await _collect_until_result(ch, 21)
         assert result.status == "failed"
@@ -118,19 +118,19 @@ async def test_runner_unknown_model_fails_node_not_runner():
 async def test_concurrent_same_model_runs_are_serialized():
     """核心验证（spec §1.3 / §4.5）：并发的同模型 RunNode 被 per-model 锁串行化.
 
-    一次性投 3 个同模型 RunNode（每个 steps 较多 → infer 有可观测耗时）。runner
+    一次性投 3 个同模型 RunNode（多步 fixture 每个 3 step → infer 有可观测耗时）。runner
     内 node-executor 是单 task 串行从队列取 —— 加上 ModelManager.load_model 的
     per-model asyncio.Lock，3 个节点的执行**不重叠**：每个节点的全部 NodeProgress
     应连续出现，不与另一节点的 progress 交错。
     """
-    proc, ch = _spawn_runner()
+    proc, ch = _spawn_runner(models_yaml_path=_FIXTURE_MULTISTEP)
     try:
         assert isinstance(await _recv(ch), P.Ready)
         task_ids = [30, 31, 32]
         for tid in task_ids:
             await ch.send_message(P.RunNode(
                 task_id=tid, node_id="sampler", node_type="tts",
-                model_key="fake-img-a", inputs={"steps": 6},
+                model_key="fake-img-a", inputs={},
             ))
         order: list[int] = []
         results: dict[int, P.NodeResult] = {}
