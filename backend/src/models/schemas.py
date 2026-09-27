@@ -14,16 +14,6 @@ class TaskStatus(str, Enum):
 
 # --- Requests ---
 
-class ImageGenerateRequest(BaseModel):
-    prompt: str
-    negative_prompt: str = ""
-    width: int = Field(default=1024, ge=512, le=2048)
-    height: int = Field(default=1024, ge=512, le=2048)
-    num_steps: int = Field(default=30, ge=1, le=100)
-    guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
-    seed: int | None = None
-
-
 class VideoGenerateRequest(BaseModel):
     prompt: str
     negative_prompt: str = ""

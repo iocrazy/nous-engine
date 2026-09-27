@@ -255,21 +255,17 @@ async def find_referencing_services(session, engine_key: str) -> list[dict]:
 
 
 def invalidate_all_caches() -> None:
-    """删完清 5 层缓存,否则引擎库最长 30s 内仍显示已删的条目。
+    """删完清 3 层缓存,否则引擎库最长 30s 内仍显示已删的条目。
 
     刻意按**模块属性**调用(而非 from-import 绑定):这些失效函数在测试里被 monkeypatch,
     早绑定会拿到打补丁前的旧引用。
     """
     from src.api import response_cache  # noqa: PLC0415
-    from src.services import component_scanner  # noqa: PLC0415
-    from src.services import lora_scanner  # noqa: PLC0415
     from src.services import model_metadata_service  # noqa: PLC0415
     from src.services import model_scanner  # noqa: PLC0415
 
     model_scanner.invalidate_scan_cache()
     model_metadata_service.invalidate_local_scan_cache()
-    lora_scanner.invalidate_cache()
-    component_scanner.invalidate_component_cache()
     response_cache.invalidate("engines")
 
 

@@ -119,24 +119,5 @@ class ConnectionManager:
         for ws in dead:
             self._model_subscribers.remove(ws)
 
-    async def broadcast_component_state(self, component_key: str, state: str, error: str | None = None) -> None:
-        """Push a component load-state change to /ws/models subscribers (spec §6.3)."""
-        if not self._model_subscribers:
-            return
-        message = json.dumps({
-            "event": "component_state_changed",
-            "component_key": component_key,
-            "state": state,
-            "error": error,
-        })
-        dead: list[WebSocket] = []
-        for ws in list(self._model_subscribers):
-            try:
-                await ws.send_text(message)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self._model_subscribers.remove(ws)
-
 
 ws_manager = ConnectionManager()

@@ -1,19 +1,10 @@
 from src.models.schemas import (
-    ImageGenerateRequest,
     TTSRequest,
     VideoGenerateRequest,
     ImageUnderstandRequest,
     TaskResponse,
     TaskStatus,
 )
-
-
-def test_image_request():
-    req = ImageGenerateRequest(prompt="a cat in space")
-    assert req.prompt == "a cat in space"
-    assert req.width == 1024
-    assert req.height == 1024
-    assert req.num_steps == 30
 
 
 def test_tts_request():

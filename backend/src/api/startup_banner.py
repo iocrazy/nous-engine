@@ -93,9 +93,9 @@ def _residents(app) -> list[str]:
         return []
 
 
-# 推理/图像栈的关键模块(inference/image extras)。全在 backend/.venv,裸 uv sync 会裁掉
+# 推理栈的关键模块(inference extra)。全在 backend/.venv,裸 uv sync 会裁掉
 # → 每次加载才静默 ModuleNotFoundError(2026-07-06 事故)。开机预检,缺了大声报。
-_STACK_MODULES = ("vllm", "torch", "diffusers", "safetensors", "transformers")
+_STACK_MODULES = ("vllm", "torch", "safetensors", "transformers")
 
 
 def _inference_stack(find_spec=None) -> tuple[str, list[str]]:
