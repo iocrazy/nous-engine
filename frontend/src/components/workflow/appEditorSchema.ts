@@ -11,9 +11,6 @@ export interface EditorNodeLike {
   position?: { x: number; y: number }
 }
 
-// 复合控件首期不暴露(暴露成单字段体验差),标 TODO(spec §3)。
-const UNSUPPORTED_WIDGETS = new Set<WidgetDef['widget']>(['lora_stack', 'clip_stack'])
-
 function optionsToEnum(
   options?: WidgetDef['options'],
 ): { enum: string[]; enum_labels?: Record<string, string> } | null {
@@ -71,10 +68,7 @@ export function widgetToExposed(
       return { ...base, type: 'string' }
     case 'select':
     case 'model_select':
-    case 'component_select':
-    case 'lora_select':
-    case 'agent_select':
-    case 'seedvr2_model_select': {
+    case 'agent_select': {
       const en = optionsToEnum(widget.options)
       return { ...base, type: 'string', constraints: en ?? {} }
     }
@@ -117,14 +111,12 @@ export interface ExposableRow {
 export function exposableRowsFor(node: EditorNodeLike): ExposableRow[] {
   const def = DECLARATIVE_NODES[node.type]
   if (def && def.widgets.length > 0) {
-    return def.widgets
-      .filter((w) => !UNSUPPORTED_WIDGETS.has(w.widget))
-      .map((w) => ({
-        input_name: w.name,
-        label: w.label || w.name,
-        widget: w,
-        param: widgetToExposed(node.id, w, node),
-      }))
+    return def.widgets.map((w) => ({
+      input_name: w.name,
+      label: w.label || w.name,
+      widget: w,
+      param: widgetToExposed(node.id, w, node),
+    }))
   }
   // fallback:跳过数组值(那是上游连线 [nodeId, idx],不是用户可填值)。
   const data = node.data ?? {}

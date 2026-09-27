@@ -54,7 +54,6 @@ const NodePackagesOverlay = lazy(() => import('../overlays/NodePackagesOverlay')
 const ServicesList = lazy(() => import('../../pages/ServicesList'))
 const ServiceDetailRoute = lazy(() => import('../../pages/ServiceDetailRoute'))
 const WorkflowsList = lazy(() => import('../../pages/WorkflowsList'))
-const Studio = lazy(() => import('../../pages/Studio'))
 const UsagePage = lazy(() => import('../../pages/UsagePage'))
 const ApiKeysList = lazy(() => import('../../pages/ApiKeysList'))
 const ApiKeyDetail = lazy(() => import('../../pages/ApiKeyDetail'))
@@ -980,7 +979,6 @@ export default function NodeEditor() {
         {activeOverlay === 'workflows-list' && <WorkflowsList />}
         {activeOverlay === 'usage' && <UsagePage />}
         {activeOverlay === 'status' && <StatusOverlay />}
-        {activeOverlay === 'studio' && <Studio />}
         {activeOverlay === 'history' && <HistoryOverlay />}
       </Suspense>
 

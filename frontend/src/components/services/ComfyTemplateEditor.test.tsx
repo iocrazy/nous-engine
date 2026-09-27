@@ -5,7 +5,7 @@ import ComfyTemplateEditor, { type ComfyTemplateEditorProps } from './ComfyTempl
 import * as api from '../../api/comfyTemplates'
 
 // ComfyTemplateEditor 保存后要 qc.invalidateQueries(...)(见组件内注释),所以现在需要
-// 一个真实 QueryClientProvider 才能渲染 —— 复用 ComponentSelectWidget.test.tsx 的 wrap() 写法。
+// 一个真实 QueryClientProvider 才能渲染 —— 用真实 client 包一层 wrap()。
 function renderEditor(props: ComfyTemplateEditorProps) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const spy = vi.spyOn(qc, 'invalidateQueries')
