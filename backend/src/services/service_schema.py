@@ -257,3 +257,8 @@ def validate_service_input(
             if "maximum" in spec and v > spec["maximum"]:
                 errors.append(f"{k}: must be <= {spec['maximum']}")
     return errors
+
+
+# 公开别名:skill_run 等调用方用,不直接 import 私有名。
+FILE_INPUT_TYPES = _FILE_IN_TYPES
+input_key = _input_key

@@ -130,7 +130,8 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   API 响应里 **`gpu` 永远是主卡 int、`gpus` 是唯一的列表字段**(单卡为 None)。
 - **模型放置只能由控制面改变;数据面对放置只读**(spec 2026-09-05 engine-app-boundary)。
   这里的「数据面」是**五个 LLM 兼容路由模块**:`openai_compat` / `anthropic_compat` /
-  `ollama_compat` / `responses` / `context_cache`。未加载的模型一律即刻 503
+  `ollama_compat` / `responses` / `context_cache`,外加 `/v1/skill-runs/*`(它经共用的
+  `src/api/chat_invoke.py` 调 chat,同一测试文件静态锁住)。未加载的模型一律即刻 503
   `model_not_ready`,不在请求路径上加载;`/v1/models` 与 Ollama 的 `/api/tags` 只列
   已加载的 model 类服务(共用 `routes/_readiness.py`,发现到的 == 现在就能调的);
   `resident: true` 是**唯一**的常驻手段,已发布工作流不再钉住模型。
@@ -268,6 +269,19 @@ RAM pinned stash、latent 接力、`image` runner 组、创作台页面已于 20
 ComfyUI 桥**。代码存档在 tag **`image-engine-native-final`**(删除 PR 的 base commit):
 `git show image-engine-native-final:backend/src/services/inference/image_modular.py` 或
 `git checkout image-engine-native-final -- <路径>`。`models/nous/media/` 的权重没删(ComfyUI 共用)。
+
+## skill-runs(Skill 驱动工作流编排)
+
+- `POST /v1/skill-runs/preview`(Chat 模型执行调用方**内联**的 SKILL.md → 最终文本)+
+  `POST /v1/skill-runs/generate`(文本写进 `prompt_field` → 提交任意已发布工作流)。
+  接入说明 `docs/skill-runs.md`,spec `docs/superpowers/specs/2026-09-26-skill-runs-orchestration-design.md`。
+- **编排代码不认识任何具体服务/节点**:`services/skill_run.py` 与 `routes/skill_runs.py` 不得出现
+  qwen / comfy / node_id(`tests/test_skill_runs_generic.py` 锁住)。某个模板的节点映射有问题,
+  改模板数据(`/api/v1/comfy-templates/{id}/mapping`),别往编排里加特例。
+- chat 非流式核心(readiness / 引擎引用 / 用量 / 配额)与 prediction 提交核心各**只有一份**:
+  `src/api/chat_invoke.py`、`src/api/prediction_submit.py`;`/v1/chat/completions`、
+  `/v1/services/{name}/predictions` 与 skill-runs 共用。改其中行为时三条路由一起受影响。
+- 真机验证 `uv run python tests/manual/verify_skill_runs.py`(Qwen Image 2.1 t2i + edit,非 CI)。
 
 ## ComfyUI 桥 (comfy bridge)
 

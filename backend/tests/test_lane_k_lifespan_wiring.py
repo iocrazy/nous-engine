@@ -180,7 +180,11 @@ async def test_routes_read_runner_clients_by_group(monkeypatch, tmp_path):
     import inspect
 
     src1 = inspect.getsource(workflows_mod.execute_workflow_direct)
-    src2 = inspect.getsource(predictions_mod.create_prediction)
+    # 提交核心 2026-09-26 搬到 src/api/prediction_submit.py(与 /v1/skill-runs/generate 共用);
+    # create_prediction 经 submit_prediction 走同一条 runner_clients 路径。
+    submit_mod = importlib.reload(importlib.import_module("src.api.prediction_submit"))
+    assert "submit_prediction(" in inspect.getsource(predictions_mod.create_prediction)
+    src2 = inspect.getsource(submit_mod.submit_prediction)
 
     # Lane K 之后,两条 workflow 执行路径都要看 runner_clients dict（按 group/role 路由）。
     # 旧实现读单个 `runner_client`(singular) 必须被替换 —— 否则永远拿不到注入的 per-group client。

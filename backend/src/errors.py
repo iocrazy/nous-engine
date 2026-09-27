@@ -101,6 +101,20 @@ class ServiceUnavailableError(NousError):
     http_status = 503
 
 
+class UnprocessableError(NousError):
+    """422 — 请求结构合法,但语义上不可用(空 Skill、字段选错等)。"""
+
+    type = "invalid_request_error"
+    http_status = 422
+
+
+class BadGatewayError(NousError):
+    """502 — 上游答了,但答案不可用(空输出、被截断、结构不对)。"""
+
+    type = "upstream_error"
+    http_status = 502
+
+
 class ModelNotFoundError(NotFoundError):
     """Adapter requested for a model id that has no spec (yaml or scan miss).
 
