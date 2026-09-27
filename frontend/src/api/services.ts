@@ -20,12 +20,13 @@ export interface ExposedParam {
   param_key?: string
 }
 
-/** 静态枚举:该服务工作流依赖的一个模型/组件。加载状态前端实时叠加
- *  (component 按 file 匹配组件状态;engine 按 engine_key 匹配 /v1/engines)。 */
+/** 静态枚举:该服务工作流依赖的一个引擎。加载状态前端实时叠加(按 engine_key 匹配
+ *  /v1/engines)。后端 2026-09-26 起不再产出 component 引用(随自建图像引擎删除)。 */
 export interface ServiceModelRef {
-  kind: 'component' | 'engine'
+  kind: 'engine'
   role: string | null
   label: string
+  /** 恒为 null;后端保留该字段以不改 API 形状 */
   file: string | null
   engine_key: string | null
 }

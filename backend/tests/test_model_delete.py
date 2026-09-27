@@ -9,13 +9,12 @@ from unittest.mock import MagicMock
 import pytest
 
 
-def _stub_roots(tmp_path, monkeypatch, lora_root=None):
+def _stub_roots(tmp_path, monkeypatch):
     """把 model_deleter 的 settings 指到 tmp 树。返回 settings mock。"""
     from src.services import model_deleter as mod
 
     settings = MagicMock()
     settings.LOCAL_MODELS_PATH = str(tmp_path)
-    settings.LORA_PATHS = str(lora_root) if lora_root else str(tmp_path / "media" / "loras")
     monkeypatch.setattr(mod, "get_settings", lambda: settings)
     return settings
 
@@ -47,40 +46,6 @@ def test_resolve_registry_model_points_at_local_path_dir(tmp_path, monkeypatch):
     assert t.is_dir is True
     assert t.engine_key == "qwen3_6_35b_a3b_fp8"
     assert t.path == tmp_path / "llm/Qwen3.6-35B-A3B-FP8"
-
-
-def test_resolve_seedvr2_points_at_single_dit_file(tmp_path, monkeypatch):
-    """seedvr2:<filename> → media/SEEDVR2/<filename> 单文件。"""
-    d = tmp_path / "media/SEEDVR2"
-    d.mkdir(parents=True)
-    (d / "seedvr2_ema_7b_fp8.safetensors").write_bytes(b"x" * 512)
-    _stub_roots(tmp_path, monkeypatch)
-
-    from src.services.model_deleter import resolve_target
-
-    t = resolve_target("seedvr2:seedvr2_ema_7b_fp8.safetensors", {})
-
-    assert t.kind == "upscale"
-    assert t.is_dir is False
-    assert t.engine_key is None
-    assert t.path == d / "seedvr2_ema_7b_fp8.safetensors"
-
-
-def test_resolve_component_uses_abs_path_from_name(tmp_path, monkeypatch):
-    """component:<role>:<abs_path> → 该 abs_path 单文件;role=loras 归 kind=lora。"""
-    d = tmp_path / "media/loras"
-    d.mkdir(parents=True)
-    f = d / "some-lora.safetensors"
-    f.write_bytes(b"x" * 256)
-    _stub_roots(tmp_path, monkeypatch)
-
-    from src.services.model_deleter import resolve_target
-
-    t = resolve_target(f"component:loras:{f}", {})
-
-    assert t.kind == "lora"
-    assert t.is_dir is False
-    assert t.path == f
 
 
 def test_resolve_unknown_engine_key_raises_404(tmp_path, monkeypatch):
@@ -175,21 +140,6 @@ def test_safe_target_downgrades_symlinked_dir_to_link_only(tmp_path, monkeypatch
     assert_safe_target(t)
 
     assert t.is_dir is False
-
-
-def test_safe_target_accepts_lora_under_separate_lora_root(tmp_path, monkeypatch):
-    """LORA_PATHS 可以指向 LOCAL_MODELS_PATH 之外的根,该根一并进白名单。"""
-    models = tmp_path / "nous"
-    lora_root = tmp_path / "comfyui" / "models" / "loras"
-    (lora_root / "flux").mkdir(parents=True)
-    f = lora_root / "flux" / "style.safetensors"
-    f.write_bytes(b"x" * 32)
-    models.mkdir()
-    _stub_roots(models, monkeypatch, lora_root=lora_root)
-
-    from src.services.model_deleter import Target, assert_safe_target
-
-    assert_safe_target(Target("c", "lora", f, False))  # 不抛即通过
 
 
 # ── delete_disk ───────────────────────────────────────────────────────────
@@ -665,45 +615,19 @@ async def test_delete_with_force_passes_service_gate_and_keeps_the_service(
     assert names == ["doomed-api"]  # 服务本身不动
 
 
-async def test_delete_rejects_target_outside_models_root(delete_client, monkeypatch):
-    """component 条目塞外部绝对路径 → 400,外部文件毫发无伤。"""
+async def test_delete_rejects_model_local_path_escaping_models_root(delete_client, monkeypatch):
+    """替代已删的 test_delete_rejects_target_outside_models_root(其 component 条目名随
+    自建图像引擎删除):registry 条目的 local_path 逃出模型根 → 400,外部目录毫发无伤。"""
     client, models_root, *_ = delete_client
-    victim = models_root.parent / "victim.safetensors"
-    victim.write_bytes(b"important")
-    _patch_scan(monkeypatch, {})
+    victim = models_root.parent / "victim-dir"
+    victim.mkdir()
+    (victim / "important.bin").write_bytes(b"important")
+    _patch_scan(monkeypatch, {"evil": {"local_path": "../victim-dir"}})
 
-    resp = await client.post(
-        "/api/v1/engines/delete", json={"name": f"component:vae:{victim}"}
-    )
+    resp = await client.post("/api/v1/engines/delete", json={"name": "evil"})
 
     assert resp.status_code == 400
-    assert victim.exists()
-
-
-async def test_delete_single_component_file_skips_registry_cleanup(
-    delete_client, monkeypatch
-):
-    """组件/LoRA 没有 engine key —— 只删文件 + 清缓存,不碰 models.d / DB。"""
-    client, models_root, _md, *_ = delete_client
-    d = models_root / "media" / "vae"
-    d.mkdir(parents=True)
-    f = d / "ae.safetensors"
-    f.write_bytes(b"x" * 128)
-    _patch_scan(monkeypatch, {})
-
-    resp = await client.post(
-        "/api/v1/engines/delete", json={"name": f"component:vae:{f}"}
-    )
-
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert not f.exists()
-    assert body["freed_bytes"] == 128
-    assert body["registry_cleaned"] == {
-        "models_d_yaml": False,
-        "model_metadata": False,
-        "runtime_overrides": 0,
-    }
+    assert (victim / "important.bin").exists()
 
 
 async def test_delete_drops_the_just_deleted_yaml_from_code_refs(

@@ -7,7 +7,7 @@ export type ModelLoadState = 'cold' | 'loading' | 'loaded' | 'failed'
 export interface ResolvedModelRef extends ServiceModelRef {
   state: ModelLoadState
   detail: string | null
-  /** 已加载时实际落的卡(引擎类);组件 / 未加载 → null */
+  /** 已加载时实际落的卡;未加载 → null */
   gpu: number | null
 }
 
@@ -29,6 +29,8 @@ function engineToState(e: EngineInfo | undefined): ModelLoadState {
 
 /** Overlay live load-state onto a service's static model refs.
  *  - engine refs → matched by engine_key against /api/v1/engines name
+ *  The backend no longer emits component refs (native image engine deleted 2026-09-26),
+ *  so every ref is an engine ref.
  *  Shares the global ws-driven ['engines'] query, so many cards mounting this
  *  stay cheap + live. */
 export function useServiceModelStatus(models: ServiceModelRef[] | undefined): ServiceModelStatus {
@@ -37,8 +39,6 @@ export function useServiceModelStatus(models: ServiceModelRef[] | undefined): Se
   return useMemo(() => {
     const engineByName = new Map((engines ?? []).map((e) => [e.name, e]))
     const refs: ResolvedModelRef[] = (models ?? []).map((m) => {
-      // component refs came only from native image workflows (deleted from prod 2026-09-26); backend stops emitting them in Task 4.
-      if (m.kind === 'component') return { ...m, state: 'cold' as const, detail: null, gpu: null }
       const e = m.engine_key ? engineByName.get(m.engine_key) : undefined
       return { ...m, state: engineToState(e), detail: e?.status_detail ?? null, gpu: e?.loaded_gpu ?? null }
     })
@@ -61,9 +61,6 @@ export const MODEL_STATE_VIS: Record<ModelLoadState, { label: string; color: str
 
 export const MODEL_ROLE_LABEL: Record<string, string> = {
   diffusion_models: '扩散模型',
-  clip: 'CLIP',
-  vae: 'VAE',
-  checkpoint: 'Checkpoint',
   llm: 'LLM',
   tts: 'TTS',
 }

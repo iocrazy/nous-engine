@@ -64,12 +64,12 @@ def _validate_name(name: str) -> str:
 
 
 class ServiceModelRef(BaseModel):
-    """Static ref to a model/component a service depends on. Live load-state
+    """Static ref to a registry engine a service depends on. Live load-state
     is overlaid client-side (see src/services/service_models.py)."""
-    kind: str  # 'component' | 'engine'
-    role: str | None = None  # diffusion_models|clip|vae|checkpoint|llm|tts
+    kind: str  # 'engine'(2026-09-26 起不再产出 'component',随自建图像引擎删除)
+    role: str | None = None  # llm|tts|diffusion_models(旧 image_generate 快照)
     label: str
-    file: str | None = None  # component abs path (matched by file)
+    file: str | None = None  # 恒为 None;保留字段以不改 API 形状
     engine_key: str | None = None  # registry engine key (matched by name)
 
 

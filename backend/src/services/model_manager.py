@@ -58,7 +58,7 @@ class LoadedModel(BaseModel):
 
     def cards(self) -> list[int]:
         """这个模型占着哪几张卡 —— 「gpu_indices 优先、退回主卡」这条回退逻辑的唯一实现
-        (此前散在 evict_lru / _evictable_mb_on_card / _resolve_auto_card 三处)。"""
+        (evict_lru 等处共用)。"""
         idxs = [int(i) for i in (self.gpu_indices or []) if i is not None and i >= 0]
         if idxs:
             return idxs
@@ -1000,73 +1000,6 @@ class ModelManager:
         # (OOM-evict-retry)以为腾了空转重试。返回 None = 本轮没驱逐成功。
         logger.info("evict_lru: %r 变 in-use,跳过卸载,未腾出显存", model_id)
         return None
-
-    def _evictable_mb_on_card(self, idx: int) -> int:
-        """该卡上「可驱逐」adapter 的估计显存之和(非常驻/未被引用/未在 infer/未 stash)——
-        = 「先腾后载」能从这张卡腾出来的量。"""
-        total = 0
-        for mid, e in self._models.items():
-            # 张量并行模型跨多张卡,只比主卡会把它在副卡上的那份显存当成"腾不出来"
-            # → 副卡被低估、守卫误判装不下。按全组算,且每张卡只计**均分后的一份**
-            # (整份计到每张卡上是重复计数)。
-            cards = e.cards()
-            if idx not in cards:
-                continue
-            if e.spec.resident or self._references.get(mid) or mid in self._in_use:
-                continue
-            if getattr(e, "stashed", False):
-                continue  # RAM stash:权重已挪 CPU,该卡 free 已含这部分,计入=双计
-            total += max(0, int((getattr(e.spec, "vram_mb", 0) or 0) / max(1, len(cards))))
-        return total
-
-    def _card_effective_free_mb(self, idx: int) -> int | None:
-        """该卡「真空闲 + 可驱逐空间」(None=查不到 free)。守卫先腾后载后实际能用的量。"""
-        free = self._free_vram_mb(f"cuda:{idx}")
-        if free is None:
-            return None
-        return free + self._evictable_mb_on_card(idx)
-
-    def _resolve_auto_card(self, need_mb: int) -> int:
-        """**只增强 auto**(spec 2026-06-07):先按「真空闲」挑(allocator,守组隔离);没卡有
-        真空闲装得下,再按「真空闲 + 可驱逐空间」挑(守卫会先腾后载);都不行返回 -1(退 CPU)。
-        显式选卡不走这(尊重用户选的卡)。"""
-        # reserve=False:这是放置探测,不做在途占坑,否则会泄漏预留
-        # (C1 的占坑只用于主进程 load_model)。
-        idx = self._allocator.get_best_gpu(need_mb, reserve=False)
-        if idx >= 0:
-            return idx
-        # 没卡有真空闲装得下 → 看哪张卡「腾掉空闲 adapter 后」装得下,挑 free+evictable 最大的。
-        best, best_eff = -1, -1
-        # 张量并行模型占多张卡 → 候选卡集合要并上整组,否则副卡永远进不了候选。
-        _cards = {c for e in self._models.values() for c in e.cards()}
-        for i in _cards:
-            eff = self._card_effective_free_mb(i)
-            if eff is not None and eff >= need_mb and eff > best_eff:
-                best, best_eff = i, eff
-        return best
-
-    @staticmethod
-    def _free_vram_mb(device: str) -> int | None:
-        """目标卡空闲显存(MB)。'cpu'/'auto'/无 GPU/查询失败 → None(跳过保护)。
-        用 nvidia-smi(避免 import torch);best-effort,失败不阻塞。"""
-        if not device.startswith("cuda:"):
-            return None
-        try:
-            idx = int(device.split(":", 1)[1])
-        except (ValueError, IndexError):
-            return None
-        try:
-            import subprocess
-            out = subprocess.run(
-                ["nvidia-smi", f"--id={idx}",
-                 "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if out.returncode != 0:
-                return None
-            return int(out.stdout.strip().splitlines()[0])
-        except Exception:  # noqa: BLE001 — best-effort,任何失败都跳过保护
-            return None
 
     def loaded_models_snapshot(self) -> list[dict]:
         """当前已加载模型的结构化快照,用于跨进程上报(runner 子进程 → 主进程,
