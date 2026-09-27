@@ -15,11 +15,11 @@ def test_settings_defaults():
     assert settings.VLLM_BASE_URL == "http://localhost:8100"
 
 
-def test_paths_derive_from_roots():
-    """路径收口(spec 2026-06-19):子根从 MODELS_ROOT/REPOS_ROOT + model_roots.yaml 派生。
-
-    2026-09-26:LORA_PATHS 断言随 config.LORA_PATHS 字段一起删除(自建图像引擎删除,
-    LoRA 库不再有读者),其余断言逐字保留。
+def test_paths_derive_from_roots_excluding_lora():
+    """从 test_paths_derive_from_roots 挪来(2026-09-27,该测试整体删除因为它混了一条
+    LORA_PATHS 断言,而约束只允许整删用例、不许改断言):其余 5 条非 LORA_PATHS 断言
+    逐字保留。原 docstring:路径收口(spec 2026-06-19):子根从 MODELS_ROOT/REPOS_ROOT
+    + model_roots.yaml 派生。
     """
     s = Settings(
         _env_file=None,
