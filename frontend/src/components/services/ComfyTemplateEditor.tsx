@@ -55,6 +55,8 @@ interface FieldMeta {
 }
 
 const NUMERIC_TYPES = new Set(['integer', 'number'])
+// 与后端 comfy_templates._FILE_IN_TYPES 同一集合:这些类型的值是上传的文件。
+const FILE_TYPES = new Set(['image', 'file', 'audio', 'video', 'binary', 'media'])
 // C2/I1 fix: 'image' 让这个字段在 Playground 渲染成文件选择器(值以 data URI 形式提交,
 // 见 SchemaDrivenForm.tsx classifyField 认的 file|image|audio|video|binary 类型集合)。
 // 后端 comfy_bridge.py 的上传触发条件同步放宽到接受这个词汇(见 _UPLOAD_TYPES)——挑
@@ -591,6 +593,7 @@ function NodeConfigPopover({
             const type = cur?.type ?? meta.type
             const numeric = NUMERIC_TYPES.has(type)
             const seedLike = isSeedLike(r.inputName, type)
+            const fileLike = FILE_TYPES.has(type)
             return (
               <div
                 key={r.inputName}
@@ -665,6 +668,22 @@ function NodeConfigPopover({
                       onChange={(e) => onPatch(r.inputName, { random: e.target.checked })}
                     />
                     每次调用随机取值(不由调用方传入)
+                  </label>
+                )}
+
+                {fileLike && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text)', opacity: active ? 1 : 0.5 }}>
+                    <input
+                      type="checkbox"
+                      aria-label={`未传时剪掉 ${r.inputName}`}
+                      checked={!!cur?.omit_when_empty}
+                      disabled={!active}
+                      // 可省略 ⇒ 非必填(后端拒 required + omit_when_empty 的组合)
+                      onChange={(e) => onPatch(r.inputName, e.target.checked
+                        ? { omit_when_empty: true, required: false }
+                        : { omit_when_empty: false })}
+                    />
+                    未传时剪掉该支路(可选参考图:不传就不喂模板占位图)
                   </label>
                 )}
               </div>
