@@ -157,6 +157,14 @@ golden 回归。它还牵着 ~470 个单元测试用例和 ~60 个 manual smoke,
 | `pages/studioWorkflows.ts` | 8 个 studio 预设工作流的模板;plan 里核实有没有非图像预设,**没有就整删** |
 | `components/overlays/ModelsOverlay.tsx` | 删 SeedVR2 / 组件 预热·常驻·卸载 区块 |
 | `components/overlays/DashboardOverlay.tsx` | 删 `useUnloadImageAdapters` 入口;`useLoadedAdapters` 留 |
+| `pages/Studio.tsx`(1120 行)+ `App.tsx` 的 `/studio` 路由 + `IconRail.tsx` 的「创作台」项 | **整删**(2026-09-26 补盘:创作台就是原生图像工作流的专用页面,`studioWorkflows.ts` 全是它的预设) |
+| `components/nodes/{ComponentSelectWidget,ComponentStatusHeader,ClipStackWidget}.test.tsx` 及其组件 | 整删 |
+
+RAM stash 的处理(2026-09-26 补盘):`ModelManager.stash_model` / `stash_ram_bytes` /
+`_stash_ram_reserve_bytes` 是**adapter 级**、引擎无关的(调 `adapter.stash()`),**留**;
+`_stash_component` / `_restore_component` / `_trim_stash_lru` 与 `pinned_stash.py` 是**组件级**、
+只服务 diffusers 组件池,**删**。`monitor.py` 与 runner Pong 的 `pinned_ram_mb` 随 pinned_stash 删,
+`stash_ram_mb` 留。
 
 ### 2.7 必须留(删了会搞挂桥或别的引擎)
 
