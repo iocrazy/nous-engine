@@ -42,6 +42,7 @@ from src.services.inference.vllm_endpoint import (
     get_vllm_base_url,
 )
 from src.services.model_resolver import ModelNotFound, resolve_target_service
+from src.utils.url_security import UnsafeURLError, validate_chat_media_urls
 from src.services.ollama_adapter import (
     ollama_chat_to_openai,
     ollama_generate_to_openai,
@@ -170,6 +171,12 @@ async def ollama_chat(
 ):
     instance_preauth, api_key = auth
     body = await request.json()
+    # SSRF 防护:messages 原样转给 vLLM,content 里的媒体 URL 会被 vLLM 服务端 fetch
+    # (与 /v1/chat/completions 同一校验;2026-09-27 前这条路完全没校验)。
+    try:
+        await validate_chat_media_urls(body.get("messages"))
+    except UnsafeURLError as e:
+        raise InvalidRequestError(str(e), code="unsafe_image_url") from e
     requested_model = body.get("model") or None
 
     instance = await _resolve_model_instance(

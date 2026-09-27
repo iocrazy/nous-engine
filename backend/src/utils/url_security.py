@@ -67,12 +67,48 @@ def validate_external_image_url(url: str) -> None:
         )
 
 
-async def validate_chat_image_urls(messages: list | None) -> None:
-    """遍历 OpenAI chat messages 的 content 数组,对每个 image_url part 做 SSRF 校验。
+# vLLM chat_utils 会 fetch 的 URL 字段(不论块的 type 是什么:无 type 块、带 uuid 的块、
+# Responses 风格的 input_image 都按字段名取 URL,见 vllm/entrypoints/chat_utils.py
+# `_parse_chat_message_content_mm_part`)。值可以是字符串,也可以是 {"url": ...}。
+_MEDIA_URL_FIELDS = ("image_url", "audio_url", "video_url")
 
-    vLLM 服务端会 fetch messages[].content[].image_url.url → 任何下游 API-key 持有者
-    可用 http://169.254.169.254/... 或 http://127.0.0.1:<port> 探测内网/云 metadata。
-    与 understand/webhook 口径一致(放行 data:/公网 https,拒私网/http/非法主机)。
+
+def validate_external_media_url(url: str) -> None:
+    """chat content part 里交给 vLLM fetch 的媒体 URL。比 `validate_external_image_url` 严:
+
+    放行:`data:` 内联(不发起网络请求)、`https://<公网主机>`。
+    拒绝:http、file://、其它 scheme,以及**无 scheme**(chat 路径上没有「本地路径」这回事,
+    vLLM 自己也只收 http/data/file)。
+    """
+    if url.startswith("data:"):
+        return
+    if urlparse(url).scheme.lower() != "https":
+        raise UnsafeURLError(
+            "media url in chat content must be https:// (public host) or inline data:; "
+            f"got {url[:80]!r}"
+        )
+    validate_external_image_url(url)
+
+
+def _part_media_urls(part: object) -> list[str]:
+    if not isinstance(part, dict):
+        return []
+    urls: list[str] = []
+    for field in _MEDIA_URL_FIELDS:
+        value = part.get(field)
+        if isinstance(value, dict):
+            value = value.get("url")
+        if isinstance(value, str) and value:
+            urls.append(value)
+    return urls
+
+
+async def validate_chat_media_urls(messages: list | None) -> None:
+    """遍历 OpenAI chat messages(所有 role)的 content 数组,对每个会被 vLLM fetch 的媒体 URL
+    做 SSRF 校验(放行 data:/公网 https,拒私网/http/file/无 scheme)。
+
+    2026-09-27 前只看 `type == "image_url"`:video_url / audio_url / 无 type 块 / 带 uuid 的块
+    都能把 http://169.254.169.254 之类的地址送到 vLLM 服务端去抓。
     getaddrinfo 阻塞 → 逐个 to_thread。命中即抛 UnsafeURLError,调用方转 400。
     """
     import asyncio
@@ -81,7 +117,9 @@ async def validate_chat_image_urls(messages: list | None) -> None:
         if not isinstance(content, list):
             continue
         for part in content:
-            if isinstance(part, dict) and part.get("type") == "image_url":
-                url = (part.get("image_url") or {}).get("url")
-                if isinstance(url, str) and url:
-                    await asyncio.to_thread(validate_external_image_url, url)
+            for url in _part_media_urls(part):
+                await asyncio.to_thread(validate_external_media_url, url)
+
+
+# 旧名:openai_compat / skill_runs / 既有测试按此 import。
+validate_chat_image_urls = validate_chat_media_urls
