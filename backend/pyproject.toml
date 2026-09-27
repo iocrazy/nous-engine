@@ -21,7 +21,7 @@ dependencies = [
     # WebAuthn / passkey + TOTP for /sys/admin/passkey + /sys/admin/totp routes
     "webauthn>=2.5",
     "pyotp>=2.9",
-    # msgpack: V1.5 GPU Runner IPC wire format (main process <-> image/TTS
+    # msgpack: V1.5 GPU Runner IPC wire format (main process <-> TTS
     # runner subprocess over multiprocessing.Pipe). Small, pure-wheel, no
     # native CUDA deps — safe in the API-server venv. See spec 3.3.
     "msgpack>=1.1",
@@ -46,8 +46,9 @@ dependencies = [
 # causes NVIDIA driver resets (X session logout). See conftest.py top-of-file
 # comment about CUDA_VISIBLE_DEVICES for additional defense-in-depth.
 # TTS extras: cosyvoice2 引擎运行时依赖**最小子集**(CosyVoice repo 经 sys.path 引入,代码不装包)。
-# 不能整套灌它的 requirements.txt —— 钉 diffusers==0.29.0/numpy 1.26 等,会撞图像引擎钉死 commit。
-# 本子集真机收敛验证过(import CosyVoice2 OK,不触碰 diffusers/numpy/torch 钉)。
+# 不能整套灌它的 requirements.txt —— 它钉 diffusers==0.29.0/numpy 1.26 等旧版本。
+# 本子集真机收敛验证过(import CosyVoice2 OK,不触碰 numpy/torch 钉)。
+# torchaudio 不在这里显式列:由 vllm(inference)与 voxcpm 传递引入,版本随 vllm 的 torch 钉。
 tts = [
     "hyperpyyaml>=1.2",
     "onnxruntime-gpu>=1.18",
@@ -87,50 +88,11 @@ inference = [
     "librosa>=0.10",
 ]
 
-# Image generation extras: diffusers + accelerate + peft for Flux.2 family.
-# Install: uv sync --extra image
-# Same isolation reasoning as `inference`: API server code never imports these.
-image = [
-    # diffusers main has Flux.2 + Modular Diffusers + Ideogram4Pipeline(2026-06-11 bump:
-    # Ideogram-4 接入需要;golden 回归 SSIM=1.0 零回归,spike 真机出图验过)。(ModularPipeline +
-    # ComponentsManager). Modular Diffusers is EXPERIMENTAL (0.38.0.dev0) — its API
-    # breaks across commits. PIN to the exact commit the image engine was validated
-    # against (spec 2026-05-22-image-engine-modular-diffusers). 升级前必须跑
-    # `tests/manual/smoke_image_ab.py`(见 CLAUDE.md「图像引擎」),SSIM 过阈值再 bump。
-    "diffusers @ git+https://github.com/huggingface/diffusers.git@784fa62652fb2719d415830f918fc32a49ecc7a1",
-    "accelerate>=1.0",
-    "peft>=0.13",
-    "safetensors>=0.4",
-    "sentencepiece>=0.2",  # Qwen3 tokenizer
-    "protobuf>=4.25",      # transformers tokenizer protobuf path
-    # PR-2 SSIM regression test gate (tests/test_image_sampler_ssim.py) —
-    # only loaded when NOUS_SSIM_TEST=1. scikit-image pulls scipy.
-    "scikit-image>=0.24",
-    # fp8 weight-only 量化(torchao Float8WeightOnlyConfig)——大模型塞小卡(省 ~½ 显存)。
-    # 在 torch 2.10 即可(只省显存;Ampere 无 fp8 核不加速,见 spec 2026-05-25)。
-    "torchao>=0.17",
-    # einops:rearrange / Rearrange / repeat — anima MiniTrainDIT 用(spec 2026-05-26-anima-port)。
-    # 极小(~150KB),diffusers 内部也用。
-    "einops>=0.8",
-    # SeedVR2 超分引擎(vendored NumZ src,Apache 2.0,见 seedvr2_vendor/)依赖。
-    # 无 flash-attn/无自编译 CUDA;flash-attn 可选(回退 SDPA)。PR-1 集成(project_seedvr2_integration)。
-    "torchvision==0.28.0",          # SeedVR2 VAE/图像变换;钉 0.28.0(配 torch 2.13,vllm 0.28 也要这版)
-    "torchaudio==2.11.0",           # TTS(cosyvoice2 等)音频 IO;2026-06-03 全栈 bump 时掉了(回归:
-                                    # cosyvoice2 ModuleNotFoundError),钉 2.11.0 配 torch 2.11
-    "omegaconf>=2.3.0",             # SeedVR2 config
-    "rotary_embedding_torch>=0.5.3",  # SeedVR2 DiT RoPE
-    "gguf",                         # SeedVR2 7B GGUF 量化加载
-    "opencv-python",                # SeedVR2 视频/图像 I/O
-]
-
 [tool.uv]
 override-dependencies = [
-    # 钉死 commit(同 diffusers 做法,见 CLAUDE.md「图像引擎」)。原裸 git → 每次全新安装
-    # 拉 HEAD,HF 主线一改可能悄悄搞挂图像引擎/tokenizer。此 commit = 当前 uv.lock 已解析、
-    # 生产正在跑的已知可用版本,钉它零行为变化,只锁死未来不再漂。升级前须跑 smoke_image_ab.py。
+    # 精确钉死版本,不漂:原裸 git → 每次全新安装拉 HEAD,HF 主线一改可能悄悄搞挂 tokenizer。
     # 2026-09-04:从 5.6.0.dev0 的 git commit 改钉正式版 5.16.1 —— Qwen3.8(Qwen3.5 架构)
-    # 需要 transformers ≥5.12;vllm 0.26 要 ≥5.5.3;diffusers 钉的 commit 只要 ≥4.41。仍是
-    # 精确钉死,不漂。升级后跑过 tests 全量 + smoke_image_ab.py golden 回归再合。
+    # 需要 transformers ≥5.12;vllm 0.26 要 ≥5.5.3。升级后跑过 tests 全量再合。
     "transformers==5.16.1",
 ]
 
