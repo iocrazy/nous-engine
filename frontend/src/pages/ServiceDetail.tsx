@@ -18,6 +18,7 @@ import {
 import {
   endpointFor,
   NAME_RE,
+  NAME_RULE_HINT,
   useDeleteService,
   usePatchService,
   useService,
@@ -171,7 +172,7 @@ function Header({ svc }: { svc: ServiceDetailT }) {
       return
     }
     if (!NAME_RE.test(next)) {
-      setErr('格式:小写字母开头,仅小写字母/数字/连字符,长度 2-63')
+      setErr(NAME_RULE_HINT)
       return
     }
     const ok = await confirmDialog({

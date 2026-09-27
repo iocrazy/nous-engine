@@ -37,6 +37,7 @@ from src.services.workflow_snapshot import (
     _node_types_by_id,
     _snapshot_hash,
     NAME_RE,
+    NAME_RULE_MSG,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["workflow-publish"])
@@ -86,9 +87,7 @@ class PublishBody(BaseModel):
     @classmethod
     def _check_name(cls, v: str) -> str:
         if not NAME_RE.match(v):
-            raise ValueError(
-                "service name must match ^[a-z][a-z0-9-]{1,62}$",
-            )
+            raise ValueError(NAME_RULE_MSG)
         return v
 
 

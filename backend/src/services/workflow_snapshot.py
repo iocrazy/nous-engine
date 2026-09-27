@@ -15,8 +15,11 @@ from typing import Any
 
 from src.models.workflow import Workflow
 
-# 服务名校验(路由与发布共用):小写字母开头,a-z0-9-,总长 2-63。
-NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
+# 服务名校验(路由与发布共用,只用于写路径):必须以 `nous-` 开头(2026-09-27 用户决定,
+# 让 API 调用方能精确定位本引擎的服务),其后 a-z0-9 开头、a-z0-9-,总长 ≤63。
+# 前端 `frontend/src/api/services.ts` 的 NAME_RE 必须与此逐字一致。
+NAME_RE = re.compile(r"^nous-[a-z0-9][a-z0-9-]{0,57}$")
+NAME_RULE_MSG = "服务名必须以 nous- 开头,只允许小写字母、数字、-,总长 ≤63"
 
 # category → 计量维度。发布/快速置备/类别回填共用的纯数据映射。
 _METER_DIM_BY_CATEGORY = {"llm": "tokens", "tts": "chars", "vl": "calls", "image": "images"}

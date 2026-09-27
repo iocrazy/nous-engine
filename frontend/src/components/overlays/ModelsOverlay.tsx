@@ -8,6 +8,7 @@ import {
   type EngineInfo, type LoadedAdapter, type VramBudgetMode, type VramBudgetInfo,
 } from '../../api/engines'
 import { apiFetch } from '../../api/client'
+import { suggestServiceName } from '../../api/services'
 import { useToastStore } from '../../stores/toast'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu'
 import DeleteModelDialog from '../models/DeleteModelDialog'
@@ -172,16 +173,12 @@ export default function ModelsOverlay() {
           label: '创建 API 接入点',
           onClick: async () => {
             const model = ctxMenu.model!
-            // service name = 客户端请求里要传的 model 标识,必须匹配 ^[a-z][a-z0-9-]{1,62}$
-            // (旧代码用「${display_name} API」带空格/大写 → 违反 ck_service_instances_name_fmt 直接 500)。
-            // slug 化 + 短后缀保唯一(name 有 UNIQUE 约束,重复建会 409/500)。
-            const slug = (model.name || model.display_name)
-              .toLowerCase()
-              .replace(/[^a-z0-9-]+/g, '-')
-              .replace(/^[^a-z]+/, '')
-              .replace(/-+$/g, '')
-              .slice(0, 50) || 'model'
-            const serviceName = `${slug}-${Date.now().toString(36).slice(-4)}`
+            // service name = 客户端请求里要传的 model 标识,必须满足 NAME_RE(nous- 前缀)。
+            // slug 化 + 短后缀保唯一(name 有 UNIQUE 约束,重复建会 409)。
+            const serviceName = suggestServiceName(
+              model.name || model.display_name,
+              Date.now().toString(36).slice(-4),
+            )
             try {
               // 1) 把模型登记成服务(v3 /services/register-model,双轨收敛 #3;
               //    M:N 解析按 name 匹配 request.model)

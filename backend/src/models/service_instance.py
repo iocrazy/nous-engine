@@ -33,8 +33,10 @@ class ServiceInstance(Base):
     source_id = Column(BigInteger, nullable=True, index=True)
     source_name = Column(String(128), nullable=True)
     # v3 contract: name is the public identifier and the routing key
-    # (`/v1/apps/{name}` and `?model={name}`). Must match `^[a-z][a-z0-9-]{1,62}$`,
-    # enforced by Pydantic at the API boundary and a CHECK in PG.
+    # (`/v1/apps/{name}` and `?model={name}`). Writes must match
+    # `workflow_snapshot.NAME_RE` (`^nous-[a-z0-9][a-z0-9-]{0,57}$`, 2026-09-27),
+    # enforced at the API boundary; the PG CHECK is the older, looser
+    # `^[a-z][a-z0-9-]{1,62}$` (a superset, left as-is).
     name = Column(String(100), nullable=False, unique=True)
     type = Column(String(20), default="tts", nullable=False)
     status = Column(String(20), default="active", nullable=False)

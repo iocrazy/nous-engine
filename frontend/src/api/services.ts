@@ -267,4 +267,25 @@ export function endpointFor(svc: Pick<ServiceRow, 'name' | 'category'>): string 
   }
 }
 
-export const NAME_RE = /^[a-z][a-z0-9-]{1,62}$/
+// 服务名规则(2026-09-27 用户决定):必须以 `nous-` 开头,让 API 调用方能精确定位本引擎
+// 的服务。与后端 `backend/src/services/workflow_snapshot.py` 的 NAME_RE 逐字一致;只用于
+// 写路径(新建/发布/导入/改名)。
+export const NAME_PREFIX = 'nous-'
+export const NAME_RE = /^nous-[a-z0-9][a-z0-9-]{0,57}$/
+export const NAME_RULE_HINT = '必须以 nous- 开头,只允许小写字母、数字、-,总长 ≤63'
+
+const NAME_MAX_LEN = 63
+
+/** 从任意原始串(模型 key / 显示名)推导一个合法服务名:slug 化 → 补 `nous-` 前缀
+ *  (已带则不重复)→ 追加 `-${suffix}` 保唯一。结果总满足 NAME_RE。 */
+export function suggestServiceName(raw: string, suffix: string): string {
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^nous-/, '')
+    .replace(/^-+|-+$/g, '')
+  const tail = `-${suffix}`
+  const room = NAME_MAX_LEN - NAME_PREFIX.length - tail.length
+  const body = slug.slice(0, room).replace(/-+$/g, '') || 'model'
+  return `${NAME_PREFIX}${body}${tail}`
+}

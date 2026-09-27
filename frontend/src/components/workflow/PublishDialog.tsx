@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   NAME_RE,
+  NAME_RULE_HINT,
   usePublishWorkflow,
   type ExposedParam,
   type ServiceCategory,
@@ -178,10 +179,10 @@ export default function PublishDialog({
           <div style={{ padding: 20, overflow: 'auto' }}>
             <Section label="服务名称">
               <input value={name} onChange={(e) => setName(e.target.value.trim())}
-                placeholder="例如:ltx-drama" style={inputStyle} />
+                placeholder="例如:nous-ltx-drama" style={inputStyle} />
               {name && !nameValid && (
                 <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 6 }}>
-                  必须匹配 {NAME_RE.source}
+                  {NAME_RULE_HINT}
                 </div>
               )}
             </Section>

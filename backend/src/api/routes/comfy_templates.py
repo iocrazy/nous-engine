@@ -32,7 +32,7 @@ from src.models.database import get_async_session
 from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
-from src.services.workflow_snapshot import NAME_RE
+from src.services.workflow_snapshot import NAME_RE, NAME_RULE_MSG
 
 router = APIRouter(prefix="/api/v1/comfy-templates", tags=["comfy-templates"])
 health_router = APIRouter(prefix="/api/v1/comfy", tags=["comfy-health"])
@@ -43,10 +43,7 @@ _object_info_cache: tuple[float, dict] | None = None
 
 def _validate_name(name: str) -> str:
     if not NAME_RE.match(name):
-        raise ValueError(
-            "service name must match ^[a-z][a-z0-9-]{1,62}$ "
-            "(start with a-z, then a-z/0-9/-, total 2-63 chars)",
-        )
+        raise ValueError(NAME_RULE_MSG)
     return name
 
 

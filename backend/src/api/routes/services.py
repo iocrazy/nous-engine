@@ -45,6 +45,7 @@ from src.services.workflow_snapshot import (
     _node_types_by_id,
     _snapshot_hash,
     NAME_RE,
+    NAME_RULE_MSG,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["services"])
@@ -53,10 +54,7 @@ logger = logging.getLogger(__name__)
 
 def _validate_name(name: str) -> str:
     if not NAME_RE.match(name):
-        raise ValueError(
-            "service name must match ^[a-z][a-z0-9-]{1,62}$ "
-            "(start with a-z, then a-z/0-9/-, total 2-63 chars)",
-        )
+        raise ValueError(NAME_RULE_MSG)
     return name
 
 
