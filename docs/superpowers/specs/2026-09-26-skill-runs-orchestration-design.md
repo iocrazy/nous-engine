@@ -50,7 +50,7 @@ negative prompt / 比例 / 镜头参数等结构化字段的「结构化输出�
   "options": {                                 // 全部可选
     "temperature": 0.7,
     "max_tokens": 1024,
-    "thinking": "disabled"                     // enabled | disabled | auto,默认 auto
+    "thinking": "disabled"                     // enabled | disabled | auto,默认 disabled
   }
 }
 ```
@@ -63,7 +63,9 @@ SSRF 校验(放行 `data:` 与公网 https)。
 执行语义:
 
 - `skill.content` 去掉 YAML frontmatter 后的正文 = **system message**;`input` = **user message**。
-- frontmatter 只取 `name` 用于日志与响应;缺 frontmatter 合法(name 为 null)。
+- frontmatter 只取 `name` 用于日志与响应;缺 frontmatter 合法(name 为 null);frontmatter 不是合法 YAML 映射 → 422 `skill_invalid_frontmatter`。
+- `input` 为空串 / 空数组 → 422 `empty_input`。
+- `thinking` 默认 `disabled`:思考 token 计入 `max_tokens`(默认 2048),写 prompt 类 Skill 开思考极易截断成 502。
 - 正文为空(去空白后)→ 422 `skill_empty`。
 - 最终文本 = `choices[0].message.content` 去首尾空白。`reasoning_content`(reasoning
   parser 分离的思考)不返回、不注入。
@@ -84,7 +86,7 @@ SSRF 校验(放行 `data:` 与公网 https)。
 
 | 情形 | 状态 / code |
 |---|---|
-| 模型服务不存在 / key 无授权 | 404 `model_not_found` / 403 |
+| 模型服务不存在 / M:N key 对它无授权 | 404(与 predictions 同一套服务解析) |
 | 服务不是 `model` 类 | 400 `not_a_chat_model` |
 | 模型未加载(含加载中) | 503 `model_not_ready`(**绝不在请求路径上加载**) |
 | image_url 不安全 | 400 `unsafe_image_url` |
@@ -115,7 +117,7 @@ SSRF 校验(放行 `data:` 与公网 https)。
 - `text` 去空白后非空,否则 422 `empty_text`。
 - `prompt_field` 必须是该服务 input schema 里的属性,且 `type == "string"`,且不是文件类
   (`image`/`file`/`audio`/`video`/`binary`/`media`)。否则 422 `invalid_prompt_field`,
-  错误体带 `string_fields: [...]`(该服务可用的文本字段),便于调用方自查。
+  错误体带 `text_fields: [...]`(该服务可用的文本字段:string、非文件类、无 enum/动态选项),便于调用方自查。
 - `input` 里已含 `prompt_field` → 422 `prompt_field_conflict`(来源歧义,不静默覆盖)。
 
 之后合并 `{**input, prompt_field: text}`,**走与 `/v1/services/{name}/predictions` 同一个
@@ -134,20 +136,20 @@ SSRF 校验(放行 `data:` 与公网 https)。
 
 ## 4. 代码结构
 
-新增(均**不出现** qwen / comfy / 节点 ID):
+新增(`skill_run.py` 与 `skill_runs.py` **不出现** qwen / comfy / 节点 ID)。共用 helper 放 `src/api/` 而非 `src/services/`:它们抛 HTTP 错误、要 import `routes/_readiness`,放服务层就是服务层反向 import API 层(CLAUDE.md 明令避免)。
 
 | 文件 | 职责 |
 |---|---|
-| `src/services/skill_run.py` | 纯逻辑无 I/O:解析 SKILL.md(frontmatter 解析提为公共函数 `parse_frontmatter`,`skill_manager` 改用它)、组 messages、从 chat 响应取最终文本并分类错误、按 service input schema 校验 `prompt_field` |
-| `src/services/chat_invoke.py` | 从 `openai_compat.chat_completions` 抽出:`resolve_chat_target(...)`(服务解析 + readiness 503 + adapter)与非流式核心 `invoke_chat(...) -> ChatResult`(引擎引用护栏 C3、thinking 注入、max_tokens 夹紧、调 vLLM、usage 记录、配额扣减) |
-| `src/services/prediction_submit.py` | 从 `predictions.create_prediction` 抽出:`submit_prediction(...)`(schema 校验 → 注入 → ExecutionTask → 同步/异步等待 → Prediction dict) |
-| `src/api/service_access.py` | 服务解析 + 鉴权的共用函数(现 `predictions._resolve_service`、`openai_compat._admin_lookup_service` 等搬来),新路由不 import 别的路由模块的私有函数 |
+| `src/services/skill_run.py` | 纯逻辑无 I/O:解析 SKILL.md(frontmatter 切分提为 `src/utils/frontmatter.split_frontmatter`,`skill_manager` 改用它)、组 messages、从 chat 响应取最终文本并分类错误、按 service input schema 校验 `prompt_field` |
+| `src/api/chat_invoke.py` | 从 `openai_compat.chat_completions` 抽出:`resolve_chat_endpoint(...) -> ChatEndpoint`(readiness 503 + max_model_len)、`clamped_max_tokens`、`inject_thinking`、`preflight_quota`/`post_consume_quota`,与非流式核心 `invoke_chat_nonstream(...) -> ChatHttpResult`(引擎引用护栏 C3、调 vLLM、usage 记录、配额扣减) |
+| `src/api/prediction_submit.py` | 从 `predictions.create_prediction` 抽出:`submit_prediction(...)`(schema 校验 → 注入 → ExecutionTask → 同步/异步等待 → Prediction dict) |
+| `src/api/service_access.py` | 服务解析 + 鉴权的共用函数(`predictions._auth_predictions` / `_resolve_service` 搬来),新路由不 import 别的路由模块的私有函数 |
 | `src/api/routes/skill_runs.py` | 薄路由:鉴权 → 解析服务 → 调上面三块 |
 
 修改:
 
-- `openai_compat.chat_completions`:非流式分支改调 `invoke_chat`;流式分支保持原样,
-  其前置解析与 readiness 改调 `resolve_chat_target`。行为不变。
+- `openai_compat.chat_completions`:非流式分支改调 `invoke_chat_nonstream`;流式分支保持原样,
+  其 readiness 改调 `resolve_chat_endpoint`。服务解析(admin / M:N / legacy)留在原处。行为不变。
 - `predictions.create_prediction`:主体改调 `submit_prediction`。行为不变。
 - `src/api/main.py`:注册 `skill_runs.router`。
 
@@ -156,7 +158,7 @@ SSRF 校验(放行 `data:` 与公网 https)。
 - `tests/test_data_plane_readonly.py`:静态锁定模块清单加 `skill_runs`(数据面对放置只读)。
 - 新 `tests/test_skill_runs_generic.py`:静态断言 `skill_run.py` / `skill_runs.py` 源码不含
   `qwen`、`comfy`、`node_id`(不区分大小写)—— 把「不依赖特定服务/节点」锁进 CI。
-- 重构后既有 chat / predictions 测试**一行不改**全部通过,作为回归网。
+- 重构后既有 chat / predictions 测试全部通过,作为回归网。只有两处**按源码位置断言**的测试随代码搬家改路径(`test_playground_admin_session_llm` 的 `get_vllm_base_url` 打桩点、`test_prediction_service_pr2` 的源码 grep),行为断言不动。
 
 ## 5. Qwen Image 2.1 接入
 
@@ -179,12 +181,12 @@ SSRF 校验(放行 `data:` 与公网 https)。
 - `skill_run.py`:有/无 frontmatter、空正文、字符串与 content parts 输入、空输出、截断、
   `prompt_field` 缺失 / 非 string / 文件类 / 与 input 冲突。
 - `/preview`:httpx mock vLLM —— 成功、503 未就绪、404 未知服务、400 非 model 服务、
-  403 无 grant key、usage 记录、admin 旁路、unsafe image_url。
+  404 无 grant 的 M:N key、usage 记录、admin 旁路、unsafe image_url。
 - `/generate`:mock runner,用一个**通用假 workflow 服务**且文本字段名为 `caption`
   (刻意不叫 `prompt`)跑同步 / `respond-async` / 各 422,证明与 Qwen 无关。
 - 回归:既有 chat / predictions 全套。
 
-端到端(真机、非 CI):`tests/manual/verify_skill_runs.py`,打生产 `:8000`:
+端到端(真机、非 CI):`tests/manual/verify_skill_runs.py`,打生产 `:8000` —— 端点须先随 PR 合并上线(`infra/ship.sh`,需用户放行)才能跑:
 
 - 文生图:preview(qwen3-8-27b + t2i Skill)→ generate `qwen21-text-to-image`
   `respond-async` → 轮询 succeeded → 确认有图片产物。
