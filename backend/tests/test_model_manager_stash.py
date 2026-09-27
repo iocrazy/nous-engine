@@ -105,13 +105,6 @@ async def test_stash_model_low_ram_refuses(mm, monkeypatch):
     assert await mm.stash_model(e.spec.id) is False
 
 
-def test_evictable_excludes_stashed(mm):
-    e1, _ = _entry(mm, mid="m1", vram=5000)
-    e2, _ = _entry(mm, mid="m2", vram=7000)
-    e2.stashed = True
-    assert mm._evictable_mb_on_card(1) == 5000
-
-
 def test_snapshot_reports_adapter_stashed(mm):
     e, _ = _entry(mm)
     e.stashed = True

@@ -1,14 +1,13 @@
-"""Display-only enumeration of the models / components a published service
+"""Display-only enumeration of the registry engines a published service
 depends on, for the service overview UI ("有多少模型 + 对应加载情况").
 
 This is **purely static** ref extraction from a frozen workflow snapshot —
 NOT model management (it deliberately does not touch the registry /
 ModelManager, sidestepping the unified-model-mgmt gap). Live load-state is
-overlaid client-side: components matched by file against the component-state
-registry, engines matched by key against /api/v1/engines. Matching by file
-(not the full file|device|dtype|lora state_key) keeps the overview robust to
-device/dtype/lora resolution details — the question the overview answers is
-"is this model loaded at all", not "loaded with which exact knobs".
+overlaid client-side: engines matched by key against /api/v1/engines.
+
+2026-09-26:自建图像引擎删除后不再产出 `kind: "component"` 引用(flux2 组件加载节点
+随之消失,出图走 ComfyUI 桥),只剩 `kind: "engine"`。
 
 Snapshot shape (see workflow_publish._build_snapshot):
     {"nodes": {"<id>": {"class_type": <type>, "inputs": <node.data>}}}
@@ -16,16 +15,7 @@ Older / editor shape (list of {id, type, data}) is also tolerated.
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Iterator
-
-# flux2 single-file component loaders → role. These carry a `file` (abs path)
-# in their inputs; checkpoint loads a whole-model dir but is still one ref.
-_COMPONENT_ROLE_BY_TYPE: dict[str, str] = {
-    "flux2_load_diffusion_model": "diffusion_models",
-    "flux2_load_vae": "vae",
-    "flux2_load_checkpoint": "checkpoint",
-}
 
 # Registry-engine nodes that reference an *image* model via `model_key` rather
 # than a component file. Without this set the generic `"model_key" in inp`
@@ -61,15 +51,11 @@ def _node_inputs(node: dict) -> dict:
     return v if isinstance(v, dict) else {}
 
 
-def _label_for_file(path: str) -> str:
-    return os.path.basename(path.rstrip("/")) or path
-
-
 def extract_service_models(snapshot: dict | None) -> list[dict[str, Any]]:
-    """Return the distinct model/component refs a snapshot depends on.
+    """Return the distinct engine refs a snapshot depends on.
 
-    Each ref: {kind: 'component'|'engine', role, label, file, engine_key}.
-    Order follows first appearance; dedup by file (components) / key (engines).
+    Each ref: {kind: 'engine', role, label, file: None, engine_key}.
+    Order follows first appearance; dedup by engine key.
     """
     refs: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -84,34 +70,6 @@ def extract_service_models(snapshot: dict | None) -> list[dict[str, Any]]:
         ntype = _node_type(node)
         ntlow = ntype.lower()
         inp = _node_inputs(node)
-
-        # --- CLIP: dynamic multi-encoder (clips=[{file,...}]) or back-compat single file ---
-        if ntype == "flux2_load_clip":
-            files: list[str] = []
-            clips = inp.get("clips")
-            if isinstance(clips, list):
-                files = [c["file"] for c in clips if isinstance(c, dict) and c.get("file")]
-            elif inp.get("file"):
-                files = [inp["file"]]
-            for f in files:
-                add(
-                    {"kind": "component", "role": "clip", "label": _label_for_file(f),
-                     "file": f, "engine_key": None},
-                    f"component:{f}",
-                )
-            continue
-
-        # --- single-file components: diffusion / vae / checkpoint ---
-        role = _COMPONENT_ROLE_BY_TYPE.get(ntype)
-        if role:
-            f = inp.get("file")
-            if f:
-                add(
-                    {"kind": "component", "role": role, "label": _label_for_file(f),
-                     "file": f, "engine_key": None},
-                    f"component:{f}",
-                )
-            continue
 
         # --- registry engines: editor `llm` (model_key) / `tts_engine` (engine) /
         #     trivial quick-provision `LLMEngine`/`TTSEngine`/`VLEngine` (engine) ---

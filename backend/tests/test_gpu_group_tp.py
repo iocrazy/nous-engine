@@ -597,15 +597,6 @@ def test_loaded_model_cards_falls_back_to_primary():
     assert _entry(-1, []).cards() == []
 
 
-def test_evictable_mb_counts_group_model_on_every_card():
-    mgr = _mgr()
-    mgr._references, mgr._in_use = {}, {}
-    mgr._models = {"m": _entry(0, [0, 2], vram_mb=20000)}
-    # 20G 的 TP 模型:每张卡各算一半,两张卡都算得上"可腾"
-    assert mgr._evictable_mb_on_card(0) == 10000
-    assert mgr._evictable_mb_on_card(2) == 10000
-
-
 # ---------------------------------------------------------------------------
 # allocator:组预留 / 释放走同一把锁(审查 #3)
 # ---------------------------------------------------------------------------

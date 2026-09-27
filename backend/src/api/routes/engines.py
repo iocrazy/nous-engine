@@ -1005,8 +1005,8 @@ async def scheduler_status(request: Request):
 # 两步式:先 /delete/preflight 拿「将删什么、将释放多少、谁在挡」,前端据此渲染确认框;
 # 再 /delete 真删。**执行端点服务端重跑一遍预检**,不信任前端除 force 外的任何输入。
 #
-# 用 POST 而非 DELETE /{name}:组件条目名形如
-# `component:diffusion_models:/abs/path/x.safetensors`,含 `/`,做不了 path 参数。
+# 用 POST 而非 DELETE /{name}:最初是为了当年的组件条目名(含绝对路径 `/`,做不了 path
+# 参数);那类条目已随自建图像引擎删除(2026-09-26),端点形状保持不变以免前端改动。
 
 
 async def _delete_preflight(name: str, request: Request, session: AsyncSession) -> dict:
@@ -1015,8 +1015,8 @@ async def _delete_preflight(name: str, request: Request, session: AsyncSession) 
     target = md.resolve_target(name, configs)
     md.assert_safe_target(target)
 
-    # 硬 blocker:还在显存里(问 ModelManager)。超分/组件/LoRA 文件自 2026-09-26 起
-    # 不再有任何进程加载(自建图像引擎已删),没有「还在显存里」这一说。
+    # 硬 blocker:还在显存里(问 ModelManager)。删除目标只剩整模型(kind=model),
+    # 超分/组件/LoRA 条目已随自建图像引擎删除(2026-09-26)。
     loaded: dict | None = None
     if target.kind == "model":
         if _is_engine_loaded(name, request):
