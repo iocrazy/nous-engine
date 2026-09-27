@@ -49,9 +49,8 @@ def aggregate_runner_loaded(app_state: Any) -> list[dict]:
 def _norm(path: str) -> str:
     """文件路径归一化到可比较的基名(去目录/扩展名,小写)。
 
-    引擎库卡片代表一个组件文件(如 'Flux2-Klein-9B-True-v2-bf16.safetensors' 或
-    diffusers 整模型目录),而 loaded adapter 的 source_files 是真实绝对路径;靠
-    basename(不含扩展名)做宽松匹配。
+    引擎库卡片代表一个组件文件或模型目录(如 TTS 的 checkpoint 目录),而 loaded
+    adapter 的 source_files 是真实绝对路径;靠 basename(不含扩展名)做宽松匹配。
     """
     base = os.path.basename(path.rstrip("/"))
     stem = base.rsplit(".", 1)[0] if "." in base else base

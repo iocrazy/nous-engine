@@ -131,7 +131,7 @@ export default function HistoryOverlay() {
           <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 40 }}>加载中…</div>
         ) : items.length === 0 ? (
           <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 60 }}>
-            还没有出图记录 — 到创作台或服务 Playground 跑一次就会出现在这里。
+            还没有出图记录 — 到服务 Playground 跑一次就会出现在这里。
           </div>
         ) : (
           <div

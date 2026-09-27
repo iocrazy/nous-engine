@@ -22,9 +22,11 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 _METER_DIM_BY_CATEGORY = {"llm": "tokens", "tts": "chars", "vl": "calls", "image": "images"}
 
 # 暴露输出字段白名单:`_IMAGE_NODE_TYPES` 里的产出节点只能引用这些字段。
-# 集成 image_generate 与组件路径 flux2_vae_decode 都发 {image_url, media_type,
-# width, height, image_uuid, image_expires};image_generate 另带 steps/seed/loras/
-# duration_ms。取并集作允许集。
+# image_generate / flux2_vae_decode 已随原生图像引擎删除,不再是可创建的节点类型;
+# 这两个集合(连同下面的 `_IMAGE_DETECT_TYPES`)按它们当年的行为原样保留,只用来
+# 分类发布时冻结的旧快照,不代表当前仍存在这些节点。字段清单来自它们当年发的
+# {image_url, media_type, width, height, image_uuid, image_expires};image_generate
+# 另带 steps/seed/loras/duration_ms。取并集作允许集。
 _IMAGE_OUTPUT_FIELDS = {
     "image_url",
     "image",          # base64 fallback for dev mode

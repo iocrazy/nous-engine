@@ -278,8 +278,8 @@ async def unload_loaded_adapter(request: Request, body: dict = Body(...)):
     """卸载**已加载的 combo adapter**(引擎库「已加载」卡的卸载按钮,统一模型管理收尾 PR-2)。
 
     body: `model_id`(combo 哈希 id,/loaded-adapters 列的)。按 aggregate_runner_loaded 找它所在
-    runner group → 向该 runner 派 UnloadModel + 对账快照。combo = 工作流动态组装的单文件(unet+clip+vae)
-    /anima/SeedVR2 等,model_id 是哈希。没加载则 no-op。状态经下个 Pong 反映。"""
+    runner group → 向该 runner 派 UnloadModel + 对账快照。combo = runner 子进程动态加载的模型
+    实体(如 TTS 引擎的 checkpoint),model_id 是哈希。没加载则 no-op。状态经下个 Pong 反映。"""
     from src.services.runner_models import aggregate_runner_loaded  # noqa: PLC0415
     model_id = str(body.get("model_id") or "")
     if not model_id:

@@ -1,5 +1,6 @@
-// 收敛后(spec 2026-05-21):Family B 的小写 unet/clip/vae 端口已删;细粒度图
-// (flux2-components)用大写 MODEL/CLIP/VAE/CONDITIONING/LATENT(经 plugin defs 走字符串)。
+// 收敛后(spec 2026-05-21):Family B 的小写 unet/clip/vae 端口已删。曾用大写
+// MODEL/CLIP/VAE/CONDITIONING/LATENT(经 plugin defs 走字符串,绕过本 union)服务于
+// flux2-components 细粒度图,该图已随自建图像引擎删除,当前没有节点再用这套大写类型。
 export type PortType = 'text' | 'audio' | 'image' | 'message' | 'data' | 'any'
 
 /** Node type identifier. Built-in types are listed below; plugin packages can add more at runtime. */

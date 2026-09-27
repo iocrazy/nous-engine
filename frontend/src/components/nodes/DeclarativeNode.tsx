@@ -186,8 +186,8 @@ function WidgetRenderer({
   }
 }
 
-/** 图像上传 widget:选/拖/粘贴图 → base64 data URI 存进 node.data。喂 image→image 节点
- *  (SeedVR2 超分等)。有图显示缩略图 + 重传;无图显示上传框。 */
+/** 图像上传 widget:选/拖/粘贴图 → base64 data URI 存进 node.data。喂下游 image 类型节点
+ *  (调色/合并/对比等)。有图显示缩略图 + 重传;无图显示上传框。 */
 function ImageUploadWidget({
   value,
   onChange,

@@ -1,11 +1,11 @@
 name: image-io
 version: "1.0"
-description: "图像 I/O 节点 — 图像输入(上传)等通用图像来源/汇,喂 image→image 节点(如 SeedVR2 超分)"
+description: "图像 I/O 节点 — 图像输入(上传)等通用图像来源/汇,喂下游 image 类型节点(调色/合并/对比/落地)"
 author: "nous-center"
 
 # image_input:把上传的图(base64 data URI)落盘签 URL,产出 image 端口 →
-# 接下游 image→image 节点(SeedVR2 超分等)。inline 节点(主进程,CPU:解码+写盘),
-# 不吃 GPU。补齐「现有图作来源」的能力 —— 此前只有 flux2_vae_decode(生成)产 image 端口。
+# 接下游 image 类型节点(调色/合并/对比/image_output 落地等)。inline 节点(主进程,CPU:
+# 解码+写盘),不吃 GPU。补齐「现有图作来源」的能力 —— image 端口协议与 image_output sink 对齐。
 
 nodes:
 
@@ -16,7 +16,7 @@ nodes:
     badgeColor: "var(--info)"
     inputs: []
     outputs:
-      # type: image —— 与 flux2_vae_decode 输出 / image_output·seedvr2_upscale 输入同类型,
+      # type: image —— 与 image_output sink / image-color-match 等节点同类型,
       # UI 可连(sourceType===targetType)。
       - { id: image, type: image, label: 图像 }
     widgets:
@@ -24,10 +24,9 @@ nodes:
       - { name: image, label: "图像", widget: image_upload }
 
   # 参考图合并(多参考编辑)—— 两路 image → 一路 image(逗号串签名 URL)。可串联(输出接下一个
-  # 合并的 参考图A)扩到 3+ 张。下游链路本就支持逗号串:KSampler 透传(flux2_ksampler.image)→
-  # runner 逐 URL 解析本地路径(runner_process._build_request)→ 引擎拆列表喂 Flux2Pipeline
-  # image=(image_modular,与 ComfyUI ReferenceLatent 链等价)。需要专用节点的原因:KSampler
-  # 单 image 端口接多条边时 workflow_executor 显式 handle 路由是后到覆盖先到,合并必须在上游做。
+  # 合并的 参考图A)扩到 3+ 张。原下游消费方(flux2_ksampler→runner→Flux2Pipeline,按逗号拆开
+  # 喂多图)已随自建图像引擎删除,当前没有节点解析这个逗号串格式,产出原样透传。需要专用节点
+  # 合并的原因仍成立:workflow_executor 单 image 端口接多条边是后到覆盖先到,合并须在上游做。
   image_ref_join:
     label: "参考图合并"
     category: image
