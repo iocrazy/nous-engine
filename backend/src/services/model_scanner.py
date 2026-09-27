@@ -9,7 +9,7 @@ from src.config import _apply_runtime_overrides, get_settings, load_model_config
 
 logger = logging.getLogger(__name__)
 
-# 进程内 TTL 缓存,和 lora_scanner 对齐。scan_models 会 iterdir 走盘 + 每候选目录
+# 进程内 TTL 缓存。scan_models 会 iterdir 走盘 + 每候选目录
 # open()+json.load + _estimate_vram rglob;/api/v1/engines 与 /api/v1/models 两个独立
 # @cached prefix 各 miss 各扫一遍(每 30s 最多 2 次全扫)。这层模块级缓存让实际走盘频率
 # 与响应缓存解耦。/scan 端点或重启会 invalidate。性能 P1-4。
@@ -30,29 +30,14 @@ def invalidate_scan_cache() -> None:
     _SCAN_CACHE["base"] = None
 
 
-# `diffusers/` contains complete model directories. Component buckets contain
-# individual weights and are enumerated by component-node executors.
-_MEDIA_MODEL_SUBDIRS = {"diffusers"}
-
-
 def _iter_candidate_model_dirs(type_dir: Path):
-    """Yield (model_dir, local_path) pairs for one type/ tree.
-
-    LLM/TTS/VL/embedding stay depth-2 (`<type>/<model>`). Complete media models
-    are depth-3 under `diffusers/`. Component buckets are skipped because their
-    individual weights are listed by component-node executors.
+    """Yield (model_dir, local_path) pairs for one type/ tree — all depth-2 (`<type>/<model>`).
 
     2026-09-11:embedding 从 `text/embedding/<model>` 提成顶层桶 `embedding/<model>`
     (`text/` 下只有这一个 bucket,那层纯属多余),depth-3 特例随之删除。
+    2026-09-26:`media/diffusers/<model>` 的 depth-3 特例随自建图像引擎删除(那些条目
+    adapter 恒空,只在模型页当摆设;出图走 ComfyUI 桥,权重由 ComfyUI 自己管)。
     """
-    if type_dir.name == "media":
-        for sub in sorted(type_dir.iterdir()):
-            if not sub.is_dir() or sub.name not in _MEDIA_MODEL_SUBDIRS:
-                continue
-            for model_dir in sorted(sub.iterdir()):
-                if model_dir.is_dir():
-                    yield model_dir, f"{type_dir.name}/{sub.name}/{model_dir.name}"
-        return
     for model_dir in sorted(type_dir.iterdir()):
         if model_dir.is_dir():
             yield model_dir, f"{type_dir.name}/{model_dir.name}"
@@ -63,7 +48,6 @@ def scan_models() -> dict[str, dict[str, Any]]:
 
     Auto-detects:
     - LLM: has config.json with "model_type" field
-    - Image (diffusers): has model_index.json (under `media/diffusers/<X>/`)
     - TTS: matched by models.yaml only (no auto-detect)
 
     Returns merged dict: models.yaml configs + auto-detected models,运行时覆盖已叠加。
@@ -149,11 +133,7 @@ def _detect_model(model_dir: Path, local_path: str) -> dict[str, Any] | None:
     """Auto-detect model type from directory contents.
 
     LLM and VL detections fill `adapter` so the registry can synthesize a
-    ModelSpec on demand and the load button actually works. Image/video
-    intentionally do NOT fill `adapter` — there's no diffusers adapter
-    implemented yet, so leaving it blank lets the UI render a "未注册"
-    badge and disable the load button instead of letting the user click
-    into a confusing "Unknown model" failure.
+    ModelSpec on demand and the load button actually works.
     """
 
     # 目录带 .nous-external 标记 = 由外部微服务托管(如 MOSS-Transcribe-Diarize 走
@@ -188,30 +168,6 @@ def _detect_model(model_dir: Path, local_path: str) -> dict[str, Any] | None:
                     "local_path": local_path,
                     "auto_detected": True,
                 }
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # Check for diffusers model (model_index.json)
-    model_index = model_dir / "model_index.json"
-    if model_index.exists():
-        try:
-            with open(model_index) as f:
-                idx = json.load(f)
-            class_name = idx.get("_class_name", "")
-
-            # Determine if image or video
-            is_video = "video" in class_name.lower() or "wan" in model_dir.name.lower()
-
-            return {
-                "name": model_dir.name,
-                "type": "video" if is_video else "image",
-                # NB: no `adapter` — diffusers adapter is unimplemented.
-                "gpu": 0,
-                "vram_gb": _estimate_vram(model_dir),
-                "resident": False,
-                "local_path": local_path,
-                "auto_detected": True,
-            }
         except (json.JSONDecodeError, OSError):
             pass
 

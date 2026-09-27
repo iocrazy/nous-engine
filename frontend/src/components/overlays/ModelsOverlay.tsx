@@ -107,22 +107,15 @@ export default function ModelsOverlay() {
   const handleToggle = useCallback(
     (engine: EngineInfo) => {
       if (engine.status === 'loading') return // ignore while loading
-      if (engine.kind === 'lora') {
-        useToastStore.getState().add(
-          `${engine.display_name} 是 LoRA，随图像 pipeline 加载，不能独立预加载`, 'info')
-        return
-      }
-      // 超分/组件:自建图像引擎已删,引擎库不再能单独加载/卸载(不能落到下面的整模型端点)。
-      if (engine.kind && engine.kind !== 'model') return
       if (engine.status === 'loaded') {
         unloadEngine.mutate(engine.name)
         return
       }
       if (!engine.has_adapter) {
-        // Auto-detected diffusers without an adapter — backend would 422
+        // Auto-detected without an adapter — backend would 422
         // anyway. Surface the same hint without making the request.
         useToastStore.getState().add(
-          `${engine.name} 未注册：图像/视频 adapter 未实现，需要先在 backend/configs/models.yaml 添加 adapter`,
+          `${engine.name} 未注册：adapter 未实现，需要先在 backend/configs/models.yaml 添加 adapter`,
           'error',
         )
         return
@@ -132,10 +125,8 @@ export default function ModelsOverlay() {
     [loadEngine, unloadEngine],
   )
 
-  // 常驻 toggle 只对 registry 整模型(yaml /resident);超分/组件/LoRA 等 catalog 条目不适用。
   const handleToggleResident = useCallback(
     (engine: EngineInfo) => {
-      if (engine.kind && engine.kind !== 'model') return
       setResident.mutate({ name: engine.name, resident: !engine.resident })
     },
     [setResident],
@@ -143,39 +134,24 @@ export default function ModelsOverlay() {
 
   const hasAnyMissing = (engines ?? []).some((e) => !e.has_metadata)
 
-  // 统一引擎库:catalog 扩展条目(超分/组件/LoRA)—— 非 registry 模型,resident/GPU/API/元数据
-  // 等操作不适用,菜单里禁用(载/卸经 handleToggle 给提示)。
-  const isExtra = !!(ctxMenu.model?.kind && ctxMenu.model.kind !== 'model')
-  // catalog 条目(超分/组件/LoRA)没有常驻语义。
-  const residentDisabled = isExtra
   // Build context menu items for the active model
   const menuItems: MenuItem[] = ctxMenu.model
     ? [
         {
-          label: ctxMenu.model.kind === 'lora' ? 'LoRA · 随模型加载'
-            : isExtra ? '不可单独加载'
-            : ctxMenu.model.status === 'loaded' ? '卸载模型'
+          label: ctxMenu.model.status === 'loaded' ? '卸载模型'
             : ctxMenu.model.status === 'loading' ? '加载中...'
             : !ctxMenu.model.has_adapter ? '未注册（无 adapter）'
             : '加载模型',
           onClick: () => handleToggle(ctxMenu.model!),
           disabled:
             ctxMenu.model.status === 'loading'
-            || isExtra
             || (ctxMenu.model.status !== 'loaded' && !ctxMenu.model.has_adapter),
         },
         {
-          label: ctxMenu.model.resident
-            ? (isExtra ? '取消常驻' : '取消自动加载')
-            : (isExtra ? '设为常驻' : '设为自动加载'),
+          label: ctxMenu.model.resident ? '取消自动加载' : '设为自动加载',
           onClick: () => handleToggleResident(ctxMenu.model!),
-          disabled: residentDisabled,
+          disabled: false,
         },
-        // GPU 分配 / 创建 API / 刷新元数据 只对**已注册整模型**适用(改 yaml / 起 instance / 拉元数据)——
-        // 组件/LoRA/超分这些 catalog 条目用不上,以前显示但全灰会让人困惑(用户:为啥 GPU 分配点不了)。
-        // 整段对 isExtra 隐藏;组件选卡走上面的「预加载到指定 GPU」。组件 L1 PR。
-        ...(!isExtra
-          ? [
         { label: '', divider: true },
         {
           label: 'GPU 分配',
@@ -234,7 +210,7 @@ export default function ModelsOverlay() {
               useToastStore.getState().add(`创建失败: ${e.message}`, 'error')
             }
           },
-          disabled: isExtra || ctxMenu.model.status !== 'loaded',
+          disabled: ctxMenu.model.status !== 'loaded',
         },
         { label: '', divider: true },
         {
@@ -257,8 +233,6 @@ export default function ModelsOverlay() {
                 disabled: false,
               } as MenuItem,
             ]
-          : []),
-          ] as MenuItem[]
           : []),
         { label: '', divider: true },
         {
@@ -914,25 +888,8 @@ function ModelCard({
             自动检测
           </span>
         )}
-        {/* 统一引擎库 kind 徽标:超分(SeedVR2,可加载)/ 组件 / LoRA(随 pipeline 加载,不独立加载)。 */}
-        {model.kind && model.kind !== 'model' && (
-          <span
-            title={
-              model.kind === 'upscale'
-                ? 'SeedVR2 超分(by-key 可独立加载)'
-                : '单文件组件，随图像 pipeline 加载，不能独立加载'
-            }
-            style={{
-              fontSize: 8, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
-              background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
-              color: 'var(--accent)',
-            }}
-          >
-            {model.kind === 'upscale' ? '超分' : model.kind === 'lora' ? 'LoRA' : '组件'}
-          </span>
-        )}
-        {/* 红色「未注册」只给真·无 adapter 的整模型(如 ERNIE-Image);组件/LoRA/超分有自己的徽标。 */}
-        {!model.has_adapter && (!model.kind || model.kind === 'model') && (
+        {/* 红色「未注册」只给真·无 adapter 的模型。 */}
+        {!model.has_adapter && (
           <span
             title="adapter 未实现，无法加载。需先在 backend/configs/models.yaml 添加 adapter 字段。"
             style={{

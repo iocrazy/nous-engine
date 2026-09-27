@@ -1,5 +1,7 @@
-"""V1' P1 — scanner now walks media/diffusers/<X> at depth 3 and intentionally
-skips the component sub-buckets (diffusion_models/, text_encoders/, vae/).
+"""V1' P1 — scanner walks every type tree at depth 2 and never surfaces the media
+weight buckets (diffusion_models/, text_encoders/, vae/) as models.
+
+2026-09-26:media/diffusers/<X> 的 depth-3 识别随自建图像引擎删除。
 """
 from __future__ import annotations
 
@@ -20,27 +22,6 @@ def _stub_settings_to(tmp_path, monkeypatch):
     _gs.cache_clear()
     # Empty yaml configs so we only see auto-detection in these tests.
     monkeypatch.setattr(scanner_mod, "load_model_configs", lambda **kw: {})
-
-
-def _make_diffusers_dir(base, rel: str, class_name: str = "Flux2Pipeline"):
-    d = base / rel
-    d.mkdir(parents=True)
-    (d / "model_index.json").write_text(json.dumps({"_class_name": class_name}))
-    return d
-
-
-def test_scanner_finds_diffusers_at_image_diffusers_depth3(tmp_path, monkeypatch):
-    """media/diffusers/<X>/ with model_index.json must be auto-detected."""
-    _make_diffusers_dir(tmp_path, "media/diffusers/Flux2-klein-9B")
-    _make_diffusers_dir(tmp_path, "media/diffusers/ERNIE-Image", "ErnieImagePipeline")
-    _stub_settings_to(tmp_path, monkeypatch)
-
-    from src.services.model_scanner import scan_models
-    found = scan_models()
-
-    paths = {v["local_path"]: v["type"] for v in found.values()}
-    assert paths.get("media/diffusers/Flux2-klein-9B") == "image"
-    assert paths.get("media/diffusers/ERNIE-Image") == "image"
 
 
 def test_scanner_skips_image_component_subdirs(tmp_path, monkeypatch):

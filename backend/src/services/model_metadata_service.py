@@ -230,8 +230,8 @@ def _scan_local_models_uncached() -> set[str]:
       tts/<MODEL>                          — depth 2
       embedding/<MODEL>                    — depth 2(2026-09-11 从
                                              text/embedding/ 提成顶层桶)
-      media/<sub>/<MODEL>                  — depth 3, diffusers models and
-                                             component buckets
+
+    media/ 的 depth-3 特例随自建图像引擎删除(2026-09-26)。
     """
     settings = get_settings()
     base = Path(settings.LOCAL_MODELS_PATH)
@@ -240,14 +240,6 @@ def _scan_local_models_uncached() -> set[str]:
     found = set()
     for type_dir in base.iterdir():
         if not type_dir.is_dir():
-            continue
-        if type_dir.name == "media":
-            for child in type_dir.iterdir():
-                if not child.is_dir():
-                    continue
-                for model_dir in child.iterdir():
-                    if model_dir.is_dir():
-                        found.add(f"{type_dir.name}/{child.name}/{model_dir.name}")
             continue
         for model_dir in type_dir.iterdir():
             if model_dir.is_dir():

@@ -81,16 +81,9 @@ class EngineInfo(BaseModel):
     supports_gpu_group: bool = False
     vram_gb: float
     resident: bool
-    # 统一引擎库(2026-06-02):区分目录条目种类供前端分组。
-    #   model     = 整模型 / registry 引擎(可独立加载)
-    #   upscale   = SeedVR2 等 by-key 超分(可独立加载)
-    #   component = 单文件组件(diffusion_models/clip/vae)—— 随 pipeline 加载,不独立可加载
-    #   lora      = LoRA 文件 —— 随模型加载
+    # 目录条目种类。2026-09-26 自建图像引擎删除后只剩 model(整模型 / registry 引擎);
+    # 超分 / 单文件组件 / LoRA 条目(upscale/component/lora)已随图像引擎删掉。
     kind: str = "model"
-    # 单文件 diffusion_models 组件的推断架构(z-image/flux2/anima)—— 引擎库预热时传给
-    # /component/preload 的 arch(反推参考库 + 桥接 loader 分派),避免默认 flux2 错配 Z-Image 等。
-    # 统一模型管理收尾 PR-2。None=非组件或无法推断(回退 flux2)。
-    arch: str | None = None
     local_path: str | None = None
     local_exists: bool = False
     status_detail: str | None = None
@@ -107,8 +100,7 @@ class EngineInfo(BaseModel):
     has_metadata: bool = False
     auto_detected: bool = False
     # False when the model was discovered on disk but no adapter is wired
-    # up to actually load it (e.g. ERNIE-Image: diffusers checkpoint with
-    # no DiffusersImageAdapter implemented yet). UI uses this to disable
+    # up to actually load it. UI uses this to disable
     # the load button instead of letting the user click into a confusing
     # "Unknown model" failure.
     has_adapter: bool = True
@@ -119,10 +111,6 @@ class EngineInfo(BaseModel):
     # 注意 `in_use`(正在推理)是第三种「暂时走不了」的状态,与 resident / held_by 并列
     # ——它不落在本字段里,由 unload 的 409 `engine_in_use` 表达(2026-09-05 复审)。
     held_by: list[str] = []
-    # 单文件组件(kind=component/lora)的 L1 cache 身份串(file|device|dtype|loras)。已加载组件
-    # 才有(来自 loaded_components 快照),供前端常驻 toggle 按它精确匹配(避 device='auto' 错配)。
-    # 组件 L1 PR-3a。非组件 / 未加载 → None。
-    state_key: str | None = None
 
 
 class EngineLoadResponse(BaseModel):
