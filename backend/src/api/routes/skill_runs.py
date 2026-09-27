@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,10 +21,18 @@ from src.api.chat_invoke import (
     preflight_quota,
     resolve_chat_endpoint,
 )
+from src.api.prediction_submit import check_submittable, submit_prediction
 from src.api.service_access import Auth, auth_bearer_or_admin_session, resolve_service_for_call
 from src.errors import InvalidRequestError
 from src.models.database import get_async_session
-from src.services.skill_run import build_chat_body, extract_final_text, parse_skill
+from src.services.service_schema import build_service_io_schema
+from src.services.skill_run import (
+    build_chat_body,
+    extract_final_text,
+    merge_prompt_input,
+    parse_skill,
+    text_input_fields,
+)
 from src.utils.url_security import UnsafeURLError, validate_chat_image_urls
 
 router = APIRouter(prefix="/v1/skill-runs", tags=["skill-runs"])
@@ -48,6 +56,15 @@ class PreviewRequest(BaseModel):
     skill: SkillSpec
     input: str | list[dict[str, Any]]
     options: PreviewOptions = Field(default_factory=PreviewOptions)
+
+
+class GenerateRequest(BaseModel):
+    service: str
+    prompt_field: str
+    text: str
+    input: dict[str, Any] = Field(default_factory=dict)
+    webhook: str | None = None
+    webhook_events_filter: list[str] | None = None
 
 
 @router.post("/preview", response_model=None)
@@ -105,3 +122,30 @@ async def preview(
         "usage": {k: usage.get(k, 0) for k in _USAGE_KEYS},
         "finish_reason": finish_reason,
     }
+
+
+@router.post("/generate", response_model=None)
+async def generate(
+    body: GenerateRequest,
+    request: Request,
+    response: Response,
+    prefer: str | None = Header(default=None),
+    auth: Auth = Depends(auth_bearer_or_admin_session),
+    session: AsyncSession = Depends(get_async_session),
+) -> dict[str, Any]:
+    """把最终文本写进 prompt_field,提交任意已发布工作流;返回 Prediction(同 predictions)。"""
+    instance, api_key = await resolve_service_for_call(session, auth, body.service)
+    check_submittable(instance)  # 先于字段校验:给 model 服务的是「走 chat」而不是「字段不对」
+    schema = build_service_io_schema(
+        instance.exposed_inputs, instance.exposed_outputs, instance.workflow_snapshot)
+    inputs = merge_prompt_input(
+        body.input, body.prompt_field, body.text,
+        text_input_fields(schema["input_schema"], instance.exposed_inputs),
+    )
+    result = await submit_prediction(
+        session, app_state=request.app.state, instance=instance, api_key=api_key,
+        inputs=inputs, prefer=prefer,
+        webhook=body.webhook, webhook_events_filter=body.webhook_events_filter,
+    )
+    response.status_code = result.status_code
+    return result.prediction
