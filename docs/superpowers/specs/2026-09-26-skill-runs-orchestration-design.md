@@ -44,7 +44,7 @@ negative prompt / 比例 / 镜头参数等结构化字段的「结构化输出�
 
 ```jsonc
 {
-  "model": "qwen3-8-27b",                     // model 类 Chat 服务名(ServiceInstance.name)
+  "model": "qwen3-8-27b-twolven",             // model 类 Chat 服务名(ServiceInstance.name)
   "skill": { "content": "---\nname: x\n---\n正文…" },  // SKILL.md 全文;对象形给以后扩展留位
   "input": "黄昏窗台上的猫",                    // 字符串,或 content parts 数组(见下)
   "options": {                                 // 全部可选
@@ -75,7 +75,7 @@ SSRF 校验(放行 `data:` 与公网 https)。
 ```jsonc
 {
   "text": "…最终 prompt…",
-  "model": "qwen3-8-27b",
+  "model": "qwen3-8-27b-twolven",
   "skill": { "name": "qwen-image-t2i" },
   "usage": { "prompt_tokens": 812, "completion_tokens": 143, "total_tokens": 955 },
   "finish_reason": "stop"
@@ -90,6 +90,7 @@ SSRF 校验(放行 `data:` 与公网 https)。
 | 服务不是 `model` 类 | 400 `not_a_chat_model` |
 | 模型未加载(含加载中) | 503 `model_not_ready`(**绝不在请求路径上加载**) |
 | image_url 不安全 | 400 `unsafe_image_url` |
+| content part 不在白名单(非 `text` / `image_url`、缺 type、非对象、字段形状不对) | 422 `invalid_input_part`(不转给上游) |
 | SKILL 正文为空 | 422 `skill_empty` |
 | 模型输出为空 | 502 `skill_empty_output` |
 | `finish_reason == "length"` | 502 `skill_output_truncated`(截断的 prompt 绝不交给工作流) |
@@ -188,7 +189,7 @@ SSRF 校验(放行 `data:` 与公网 https)。
 
 端到端(真机、非 CI):`tests/manual/verify_skill_runs.py`,打生产 `:8000` —— 端点须先随 PR 合并上线(`infra/ship.sh`,需用户放行)才能跑:
 
-- 文生图:preview(qwen3-8-27b + t2i Skill)→ generate `qwen21-text-to-image`
+- 文生图:preview(qwen3-8-27b-twolven + t2i Skill)→ generate `qwen21-text-to-image`
   `respond-async` → 轮询 succeeded → 确认有图片产物。
 - 图像编辑:preview(input 带原图 `image_url`)→ generate `qwen21-image-edit`
   (`input.image` 为原图 data URL)→ 确认有图片产物。

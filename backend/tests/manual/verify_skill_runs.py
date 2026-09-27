@@ -4,7 +4,7 @@
 鉴权:backend/.env 的 ADMIN_TOKEN(bearer 旁路)。
 
     cd backend && uv run python tests/manual/verify_skill_runs.py \
-        [--base http://127.0.0.1:8000] [--model qwen3-8-27b] [--out ./skill_runs_out]
+        [--base http://127.0.0.1:8000] [--model qwen3-8-27b-twolven] [--out ./skill_runs_out]
 
 流程:preview(t2i Skill)→ generate qwen21-text-to-image → 下载图;
       preview(edit Skill + 上一步的图)→ generate qwen21-image-edit(input.image=同一张图)→ 下载图。
@@ -102,7 +102,7 @@ def _download_first_image(c: httpx.Client, base: str, pred: dict[str, Any], dest
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8000")
-    ap.add_argument("--model", default="qwen3-8-27b")
+    ap.add_argument("--model", default="qwen3-8-27b-twolven")
     ap.add_argument("--out", default="./skill_runs_out")
     args = ap.parse_args()
     out_dir = Path(args.out)
