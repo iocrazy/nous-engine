@@ -34,16 +34,9 @@ def _validate_path(base: Path, untrusted: str) -> Path:
 
 def _parse_frontmatter(raw: str) -> tuple[dict, str]:
     """Split SKILL.md into (frontmatter_dict, body_text)."""
-    import yaml
+    from src.utils.frontmatter import split_frontmatter
 
-    if not raw.startswith("---"):
-        return {}, raw
-    parts = raw.split("---", 2)
-    if len(parts) < 3:
-        return {}, raw
-    fm = yaml.safe_load(parts[1]) or {}
-    body = parts[2].lstrip("\n")
-    return fm, body
+    return split_frontmatter(raw)
 
 
 def _build_raw(name: str, description: str, body: str) -> str:
