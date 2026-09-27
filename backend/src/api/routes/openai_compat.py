@@ -28,6 +28,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps_auth import verify_bearer_token_any
+from src.api.chat_invoke import (
+    _THINKING_MODEL_PATTERNS,  # noqa: F401 — 旧 import 路径兼容
+    clamped_max_tokens,
+    invoke_chat_nonstream,
+    resolve_chat_endpoint,
+)
+from src.api.chat_invoke import granted_services as _granted_services
+from src.api.chat_invoke import inject_thinking as _maybe_inject_thinking
+from src.api.chat_invoke import post_consume_quota as _post_consume_quota
+from src.api.chat_invoke import preflight_quota as _preflight_quota
+from src.api.chat_invoke import supports_thinking as _supports_thinking  # noqa: F401
 from src.config import get_settings
 from src.errors import (
     APIError,
@@ -87,91 +98,6 @@ async def sse_with_error_envelope(inner):
         yield f"data: {json.dumps(err.to_dict())}\n\n"
     finally:
         yield "data: [DONE]\n\n"
-
-
-# --- thinking-mode model whitelist ---
-# Models whose chat template honors `chat_template_kwargs.enable_thinking`.
-# Match is by case-insensitive substring on the engine name. If a model is not
-# listed, the `extra_body.thinking` field is silently ignored (per Step 2 spec
-# decision C+A: whitelist with silent fallback).
-_THINKING_MODEL_PATTERNS = (
-    "qwen3",  # qwen3.5-35b, qwen3-8b, etc.
-    "deepseek-r1",
-    "deepseek-v3",
-    "doubao-seed-1.8",
-    "doubao-seed-2",
-)
-
-
-def _supports_thinking(engine_name: str) -> bool:
-    n = (engine_name or "").lower()
-    return any(p in n for p in _THINKING_MODEL_PATTERNS)
-
-
-async def _preflight_quota(session, api_key_id: int, service_id: int) -> None:
-    """推理前拦已耗尽配额的 key(返回 402);无 grant 的 legacy key 放行。安全 P2。"""
-    from src.services.quota_gate import preflight_check
-    from src.services.resource_pack import QuotaExhausted
-    try:
-        await preflight_check(session, api_key_id=api_key_id, service_id=service_id)
-    except QuotaExhausted as e:
-        raise HTTPException(402, detail=f"quota exhausted: {e}")
-
-
-async def _post_consume_quota(api_key_id: int, service_id: int, units: int) -> None:
-    """Charge `units` against the (api_key, service) grant post-inference.
-
-    Best-effort: legacy keys (no grant) are silently skipped. allow_overshoot(H1):
-    工作已交付,额度被并发抢光也强制记账(扣成负),不漏计 —— 旧代码在此吞
-    QuotaExhausted → 输给 CAS 竞争的并发流式请求拿到免费未计费 token。preflight
-    已把滥用收敛到 ~并发数,超扣由下个请求的 preflight 挡住自我修正。只有无 pack
-    (无限量)grant 才会走到 QuotaExhausted 分支。
-    """
-    if units <= 0:
-        return
-    from src.models.database import get_session_factory
-    from src.services.quota_gate import NoActiveGrant, consume_for_request
-    from src.services.resource_pack import QuotaExhausted
-
-    sf = get_session_factory()
-    async with sf() as s:
-        try:
-            await consume_for_request(
-                s, api_key_id=api_key_id, service_id=service_id, units=units,
-                allow_overshoot=True,
-            )
-            await s.commit()
-        except NoActiveGrant:
-            return
-        except QuotaExhausted:
-            # 无 pack 的无限量 grant —— 无处可扣,正常跳过。
-            logger.debug(
-                "no resource pack for api_key=%s service=%s (unmetered)",
-                api_key_id, service_id,
-            )
-
-
-def _maybe_inject_thinking(body: dict, engine_name: str) -> None:
-    """Translate `body['thinking'] = {'type': enabled|disabled|auto}` into
-    `body['chat_template_kwargs']['enable_thinking'] = bool` for vLLM.
-
-    - Pops `thinking` from body either way (vLLM rejects unknown top-level fields).
-    - If model isn't whitelisted, silently drop (per Ark `extra_body` semantics:
-      non-standard fields are best-effort, not hard contract).
-    - `auto` = leave unset, let model default.
-    """
-    thinking = body.pop("thinking", None)
-    if not isinstance(thinking, dict):
-        return
-    t = thinking.get("type")
-    if t not in ("enabled", "disabled", "auto"):
-        return
-    if not _supports_thinking(engine_name):
-        return
-    if t == "auto":
-        return
-    kwargs = body.setdefault("chat_template_kwargs", {})
-    kwargs["enable_thinking"] = (t == "enabled")
 
 
 async def _auth_bearer_or_admin(
@@ -280,24 +206,13 @@ async def chat_completions(
             detail=f"Unsupported instance source_type: {instance.source_type}",
         )
 
-    engine_name = instance.source_name or str(instance.source_id)
-    # spec §4.5 D6/D8: direct-to-vLLM HTTP. base-URL lookup via single source of truth.
+    # spec §4.5 D6/D8: direct-to-vLLM HTTP;未就绪即刻 503(数据面对放置只读,见 chat_invoke)。
     model_mgr = getattr(request.app.state, "model_manager", None)
-    try:
-        base_url = get_vllm_base_url(model_mgr, engine_name)
-    except VLLMNotLoaded as e:
-        # 2026-09-05 spec §5:数据面对放置只读 —— 未就绪即刻 503,绝不在请求路径上加载。
-        from src.api.routes._readiness import ready_model_names  # noqa: PLC0415
-        raise ModelNotReadyError(
-            body.get("model") or engine_name,
-            ready_models=ready_model_names(
-                model_mgr, await _granted_services(session, api_key) if api_key else []),
-        ) from e
-    except VLLMNoEndpoint as e:
-        raise HTTPException(500, detail=str(e)) from e
-
-    # Adapter handle still needed downstream for max_model_len clamp (line ~283).
-    adapter = model_mgr.get_adapter(engine_name)
+    endpoint = await resolve_chat_endpoint(
+        session, model_mgr=model_mgr, instance=instance, api_key=api_key,
+        requested_model=body.get("model"),
+    )
+    engine_name, base_url = endpoint.engine_name, endpoint.base_url
 
     body["model"] = ""  # vLLM uses its own model path
 
@@ -387,22 +302,23 @@ async def chat_completions(
     _maybe_inject_thinking(body, engine_name)
 
     # Clamp max_tokens
-    max_model_len = getattr(adapter, "max_model_len", 4096) or 4096
-    if body.get("max_tokens") and body["max_tokens"] > max_model_len - 512:
-        body["max_tokens"] = max(max_model_len - 512, max_model_len // 2)
+    clamped = clamped_max_tokens(body.get("max_tokens"), endpoint.max_model_len)
+    if clamped is not None:
+        body["max_tokens"] = clamped
 
     is_stream = body.get("stream", False)
     start_ms = time.monotonic()
 
-    # C3:代理请求期间对 engine 加引用,防 memory_guard(每 5s 查 free<4GB,而 vLLM 常态
-    # 吃到 ~90%)或 idle-TTL 在**流式输出中途**把这个正在服务的 vLLM 进程 evict 掉 →
-    # 客户端连接被硬断。ref 在下面 streaming/non-streaming 两条路径的 finally 里释放。
-    # 放在选路后、真正发请求前 —— 之前的 inject/clamp 是纯 dict 操作,不会 raise 泄漏。
-    proxy_ref = f"proxy-{uuid.uuid4().hex}"
-    if model_mgr is not None:
-        model_mgr.add_reference(engine_name, proxy_ref)
-
     if is_stream:
+        # C3:代理请求期间对 engine 加引用,防 memory_guard(每 5s 查 free<4GB,而 vLLM 常态
+        # 吃到 ~90%)或 idle-TTL 在**流式输出中途**把这个正在服务的 vLLM 进程 evict 掉 →
+        # 客户端连接被硬断。ref 在下面 _stream_proxy 的 finally 里释放(非流式由
+        # chat_invoke.invoke_chat_nonstream 自己加/放引用)。
+        # 放在选路后、真正发请求前 —— 之前的 inject/clamp 是纯 dict 操作,不会 raise 泄漏。
+        proxy_ref = f"proxy-{uuid.uuid4().hex}"
+        if model_mgr is not None:
+            model_mgr.add_reference(engine_name, proxy_ref)
+
         # Streaming: inject include_usage, proxy SSE chunks
         body.setdefault("stream_options", {})["include_usage"] = True
 
@@ -478,40 +394,15 @@ async def chat_completions(
         )
 
     else:
-        # Non-streaming: proxy request, extract usage
-        try:
-            async with httpx.AsyncClient(timeout=300, proxy=None) as client:
-                resp = await client.post(f"{base_url.rstrip('/')}/v1/chat/completions", json=body)
-
-            duration = int((time.monotonic() - start_ms) * 1000)
-
-            if resp.status_code != 200:
-                return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
-
-            data = resp.json()
-            usage = data.get("usage", {})
-
-            # Record usage
-            from src.services.usage_service import record_llm_usage
-            await record_llm_usage(
-                model=engine_name,
-                prompt_tokens=usage.get("prompt_tokens", 0),
-                completion_tokens=usage.get("completion_tokens", 0),
-                duration_ms=duration,
-                instance_id=instance.id,
-                api_key_id=api_key.id if api_key else None,
-                agent_id=agent_id if settings.NOUS_ENABLE_AGENT_INJECTION else None,
-            )
-            if api_key is not None:  # admin 会话(Playground)不扣配额
-                await _post_consume_quota(
-                    api_key.id, instance.id, usage.get("total_tokens", 0),
-                )
-
-            return Response(content=resp.content, media_type="application/json")
-        finally:
-            # C3:非流式请求结束(含异常)释放 engine 引用。
-            if model_mgr is not None:
-                model_mgr.remove_reference(engine_name, proxy_ref)
+        result = await invoke_chat_nonstream(
+            model_mgr=model_mgr, endpoint=endpoint, body=body,
+            instance=instance, api_key=api_key,
+            agent_id=agent_id if settings.NOUS_ENABLE_AGENT_INJECTION else None,
+        )
+        return Response(
+            content=result.content, status_code=result.status_code,
+            media_type="application/json",
+        )
 
 
 # --- /v1/audio/speech ---
@@ -1601,25 +1492,6 @@ def _model_object(svc: ServiceInstance, configs: dict, ready: bool) -> "ModelObj
 class ModelListResponse(BaseModel):
     object: str = "list"
     data: list[ModelObject]
-
-
-async def _granted_services(session: AsyncSession, api_key: InstanceApiKey):
-    """该 key active-grant 的全部服务(ServiceInstance),按类目+名排序 —— 与
-    /v1/chat·/v1/embeddings·/v1/images 同款 M:N scope。"""
-    from sqlalchemy import select  # noqa: PLC0415
-
-    from src.models.api_gateway import ApiKeyGrant  # noqa: PLC0415
-
-    rows = await session.execute(
-        select(ServiceInstance)
-        .join(ApiKeyGrant, ApiKeyGrant.service_id == ServiceInstance.id)
-        .where(
-            ApiKeyGrant.api_key_id == api_key.id,
-            ApiKeyGrant.status == "active",
-        )
-        .order_by(ServiceInstance.category, ServiceInstance.name)
-    )
-    return rows.scalars().all()
 
 
 @router.get("/v1/models", response_model=ModelListResponse)

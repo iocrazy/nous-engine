@@ -32,7 +32,9 @@ def asked_engines(monkeypatch):
         asked.append(engine_name)
         raise VLLMNotLoaded(engine_name)
 
+    from src.api import chat_invoke
     monkeypatch.setattr(openai_compat, "get_vllm_base_url", _fake)
+    monkeypatch.setattr(chat_invoke, "get_vllm_base_url", _fake)
     return asked
 
 
