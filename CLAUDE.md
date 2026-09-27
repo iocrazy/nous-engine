@@ -106,7 +106,8 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
 - 两张卡(PCI 序,`src/api/main.py` setdefault 了 `CUDA_DEVICE_ORDER=PCI_BUS_ID`):
   `cuda:0` = RTX PRO 5000 Blackwell 71.7GiB(`GPU-f4334111-b8d2-4df3-ea0f-6177698f8ce9`)
   承**全部推理服务**(LLM/ASR/embedding/OCR);`cuda:1` = RTX PRO 6000 Blackwell 95.6GiB
-  (`GPU-d24ed424-5712-55e9-9b95-77d997ac80dc`)**ComfyUI 独占**,systemd 单元用 UUID 钉卡
+  (`GPU-d24ed424-5712-55e9-9b95-77d997ac80dc`)**ComfyUI 主用**(2026-09-27 起唯一例外:按需加载的
+  Qwen3-VL-Reranker-8B `gpu: 1`、非常驻、ttl 1h,加载前确认 ComfyUI 没在渲染),systemd 单元用 UUID 钉卡
   (索引随插拔漂移,UUID 不会;MOSS ASR 子进程同理用 UUID)。2026-09-20 原先两张 RTX 3090
   (旧索引 0/2,NVLink 互联)已物理拔除,`hardware.yaml` 的跨卡组 `llm-tp` 随之删除,现在
   只有 `llm`/`tts` 两个**单卡组**(`image` 组已随图像引擎删除,见「图像引擎」节),**没有
@@ -144,8 +145,8 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   API 响应里 **`gpu` 永远是主卡 int、`gpus` 是唯一的列表字段**(单卡为 None)。
 - **模型放置只能由控制面改变;数据面对放置只读**(spec 2026-09-05 engine-app-boundary)。
   这里的「数据面」是**五个 LLM 兼容路由模块**:`openai_compat` / `anthropic_compat` /
-  `ollama_compat` / `responses` / `context_cache`,外加 `/v1/skill-runs/*`(它经共用的
-  `src/api/chat_invoke.py` 调 chat,同一测试文件静态锁住)。未加载的模型一律即刻 503
+  `ollama_compat` / `responses` / `context_cache`,外加 `/v1/skill-runs/*` 与 `/v1/rerank`(经共用的
+  `src/api/chat_invoke.py` 调上游,同一测试文件静态锁住)。未加载的模型一律即刻 503
   `model_not_ready`,不在请求路径上加载;`/v1/models` 与 Ollama 的 `/api/tags` 只列
   已加载的 model 类服务(共用 `routes/_readiness.py`,发现到的 == 现在就能调的);
   `resident: true` 是**唯一**的常驻手段,已发布工作流不再钉住模型。
@@ -156,14 +157,15 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   (两者共用 `ModelManager.get_loaded_adapter` 的按需加载路径),仍会在执行期按需加载模型
   (待单开 spec)。
 - **GPU 0(Pro 5000)常驻名单**(2026-09-20 迁移后实测,`vram_mb` 见各模型 yaml 注释):
-  MOSS ASR 9000 + qwen3.8-27B-AWQ 25500 + WeMM-Embedding-4B 24800 = 59300 MiB ≈
-  57.9 GiB,上限 72 − 4 = 68 GiB(见上条容量测)。**Unlimited-OCR 不设 resident**(四样全
+  MOSS ASR 9000 + qwen3.8-27B-AWQ 25500 + WeMM-Embedding-4B 24800 + Qwen3-VL-Reranker-2B 8060
+  = 67360 MiB ≈ 65.8 GiB,上限 72 − 4 = 68 GiB(见上条容量测)—— **GPU 0 已无常驻余量**,再加
+  常驻得先腾。**Unlimited-OCR 不设 resident**(四样全
   常驻要 72.08 GiB 超卡),走 `ttl_seconds: 3600` 按需加载 —— 数据面不懒加载(见上条),
   闲置卸载后调用方会先吃一个 503 `model_not_ready`,得从控制面手动重新加载,不会自动补起。
 - **各模型 `gpu_memory_utilization` 实测地板**(Pro 5000 71.12 GiB 开机可见口径,换卡/
   改 `max_model_len`/`max_num_seqs` 必须重新标定,别照抄旧卡数字):qwen3.8 = 0.35
   (0.34 实测 KV 差 0.44 GiB 起不来,真地板)、WeMM-Embedding-4B = 0.34、Unlimited-OCR =
-  0.20。**用户硬决定:qwen3.8-27B-AWQ 永不搬到 Pro 6000**(哪怕以后 Pro 6000 有空余量),
+  0.20、Qwen3-VL-Reranker-2B = 0.11(估算地板 ≈ 0.09)。**用户硬决定:qwen3.8-27B-AWQ 永不搬到 Pro 6000**(哪怕以后 Pro 6000 有空余量),
   别再建议换卡。
 - **Pascal 卡在本机不可用**(2026-09-20 排查结论,别再重查):驱动 595 是开源内核模块,
   要求 GPU 自带 GSP(Turing 及以后才有),Pascal(GTX 1060 等)probe 直接失败;而
@@ -274,6 +276,18 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
 - 改这两个模型的 yaml 或升 vLLM 后,跑
   `uv run python tests/manual/verify_wemm_embedding.py {4b|9b}`(真模型/GPU,非 CI)——
   CI 有 Popen 护栏起不了真 vLLM,配置能不能起、向量对不对只靠这个 standalone 脚本。
+
+## 重排 (rerank)
+
+- `POST /v1/rerank`(Cohere/Jina 兼容形,= vLLM 原生 `/v1/rerank`),接入说明 `docs/rerank.md`。
+  模型 yaml `type: rerank` → 服务 category `rerank`;路由只接 rerank 类 model 服务(否则 400
+  `not_a_rerank_model`)。content part 白名单与 skill-runs preview 共用 `skill_run.validate_content_parts`。
+- Qwen3-VL-Reranker 在 vLLM 0.28 靠 `vllm_runner: pooling` + `hf-overrides`
+  (`Qwen3VLForSequenceClassification` / `classifier_from_token: [no, yes]` /
+  `is_original_qwen3_reranker`)+ `chat-template {model_dir}/additional_chat_templates/reranker.jinja`
+  起,**三样缺一不可**(缺模板分数无意义、缺 overrides 按生成模型起 /v1/rerank 404)。
+- 2B 与 8B 分数尺度不同(8B 整体偏低),调用方别拿一个阈值套两档。
+- 改这两份 yaml 或升 vLLM 后跑 `uv run python tests/manual/verify_rerank.py`(真模型,非 CI)。
 
 ## 图像引擎 —— 已删除(2026-09-27)
 

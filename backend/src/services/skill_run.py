@@ -70,7 +70,8 @@ MAX_TEXT_PART_CHARS = 100_000
 MAX_IMAGE_URL_CHARS = 16 * 1024 * 1024
 
 
-def _validate_content_parts(parts: list[dict[str, Any]]) -> None:
+def validate_content_parts(parts: list[dict[str, Any]]) -> None:
+    """content parts 白名单 + 单 part 尺寸上限(preview 与 /v1/rerank 共用)。"""
     for i, part in enumerate(parts):
         if not isinstance(part, dict):
             raise _bad_part(f"input[{i}] 不是对象")
@@ -107,7 +108,7 @@ def build_chat_body(
     if _is_empty_input(user_input):
         raise UnprocessableError("input 为空", code="empty_input", param="input")
     if isinstance(user_input, list):
-        _validate_content_parts(user_input)
+        validate_content_parts(user_input)
     body: dict[str, Any] = {
         "model": "",  # vLLM 用自己的模型路径(同 /v1/chat/completions)
         "messages": [

@@ -292,7 +292,7 @@ def recommend_vram_budget_gb(model_type: str, weights_gb: float) -> float:
     其余(保守)×1.3。给 UI 显示「推荐」+ auto 落地参考。"""
     w = max(0.0, float(weights_gb or 0))
     t = (model_type or "").lower()
-    if t in ("embedding", "tts"):
+    if t in ("embedding", "rerank", "tts"):
         rec = w * 1.25
     elif t in ("llm", "understand", "vl"):
         rec = w + 6.0

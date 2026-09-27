@@ -1,0 +1,32 @@
+# qwen3_vl_reranker_8b — 多模态重排(8B,按需加载,落 GPU 1)
+# 一模型一文件(configs/models.d/);改此模型只动本文件。架构 / 模板说明同 qwen3_vl_reranker_2b.yaml。
+adapter: src.services.inference.llm_vllm.VLLMAdapter
+id: qwen3_vl_reranker_8b
+source: Qwen/Qwen3-VL-Reranker-8B
+paths:
+  main: embedding/Qwen3-VL-Reranker-8B
+type: rerank
+# 2026-09-27 Pro 6000 实测(max_model_len 8192 / max_num_seqs 4):
+#   权重 15.87 GiB、峰值激活 1.09、CUDA graph 0.04、KV ≈ 0.14 MiB/token;
+#   最低 ≈ 18.1 GiB,4 路满长并发 ≈ 21.5 GiB。0.23 × 94.97 ≈ 21.8 GiB。
+vram_mb: 22400
+# 2026-09-27 用户决定:8B 放 GPU 1(Pro 6000,原 ComfyUI 独占)**按需加载**,不常驻 ——
+# GPU 0 装完常驻 + 2B 已无余量。它会与 ComfyUI 抢这张卡:加载前确认 ComfyUI 没在渲染,
+# 用完靠 ttl 卸载还给 ComfyUI。数据面不懒加载:卸载后调用方先吃 503 model_not_ready,
+# 要从控制面(模型页)手动加载。
+gpu: 1
+resident: false
+ttl_seconds: 3600
+params:
+  vllm_runner: pooling
+  max_model_len: 8192
+  max_num_seqs: 4
+  # 比例是**占 Pro 6000 总量**;挪回 GPU 0 必须重算(同 CLAUDE.md 2026-09-11 事故)。
+  gpu_memory_utilization: 0.23
+  vllm_args:
+    hf-overrides:
+      architectures: ["Qwen3VLForSequenceClassification"]
+      classifier_from_token: ["no", "yes"]
+      is_original_qwen3_reranker: true
+    chat-template: "{model_dir}/additional_chat_templates/reranker.jinja"
+    limit-mm-per-prompt: {"image": 1, "video": 0}

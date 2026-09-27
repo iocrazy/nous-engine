@@ -1,0 +1,40 @@
+# qwen3_vl_reranker_2b — 多模态重排(query × document → 相关性分数,文本 / 图像)
+# 一模型一文件(configs/models.d/);改此模型只动本文件。
+#
+# Qwen/Qwen3-VL-Reranker-2B。vLLM 0.28 按官方做法当「序列分类」模型起:hf-overrides 把架构
+# 换成 Qwen3VLForSequenceClassification,并用 "no"/"yes" 两个 token 的 logit 构造分类头
+# (is_original_qwen3_reranker)。起来后 vLLM 暴露 /v1/rerank、/rerank、/score;
+# 引擎对外只开 /v1/rerank(routes/rerank.py,Cohere/Jina 兼容形)。
+adapter: src.services.inference.llm_vllm.VLLMAdapter
+id: qwen3_vl_reranker_2b
+source: Qwen/Qwen3-VL-Reranker-2B
+paths:
+  main: embedding/Qwen3-VL-Reranker-2B
+type: rerank
+# 2026-09-27 Pro 5000 实测(max_model_len 8192 / max_num_seqs 4):
+#   权重 + 非 torch 4.55 GiB、峰值激活 0.94、CUDA graph 0.05(在 util 预算之外)、KV ≈ 0.107 MiB/token。
+#   util 0.13 → KV 4.07 GiB(8192 下 4.65x 并发);0.11 → KV 2.63 GiB(3.01x);估算地板 ≈ 0.09。
+# 取 0.11:GPU 0 常驻已占 ~59.7 GB,再多就吃掉看门狗的 4 GiB 余量。0.11 × 71.12 ≈ 7.82 GiB。
+vram_mb: 8060
+# 常驻在 GPU 0(Pro 5000,推理卡)。数据面不懒加载,不常驻就会 503 model_not_ready。
+# GPU 0 常驻:MOSS 9000 + qwen3.8 25500 + WeMM-4B 24800 + 本模型 8060 = 67360 MiB ≤ 68 GiB 上限
+# (tests/test_resident_capacity.py 兜)。再往 GPU 0 加常驻前先算这笔账。
+gpu: 0
+resident: true
+params:
+  # pooling runner 必须显式给,否则 vLLM 按生成模型起,/v1/rerank 404。
+  vllm_runner: pooling
+  max_model_len: 8192
+  # 重排是短请求、无生成;4 路够用。调大要同步抬 gpu_memory_utilization。
+  max_num_seqs: 4
+  gpu_memory_utilization: 0.11
+  vllm_args:
+    hf-overrides:
+      architectures: ["Qwen3VLForSequenceClassification"]
+      classifier_from_token: ["no", "yes"]
+      is_original_qwen3_reranker: true
+    # 官方 rerank 模板(拼 system 指令 + <Query>/<Document> + 末尾的 yes/no 判定位)。
+    # 不给的话 vLLM 用生成模板,分数没有意义。
+    chat-template: "{model_dir}/additional_chat_templates/reranker.jinja"
+    # 一个 query / document 一张图;不收视频(引擎侧也只放行 text / image_url part)。
+    limit-mm-per-prompt: {"image": 1, "video": 0}

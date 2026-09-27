@@ -192,8 +192,13 @@ async def invoke_chat_nonstream(
     instance: ServiceInstance,
     api_key: InstanceApiKey | None,
     agent_id: str | None = None,
+    path: str = "/v1/chat/completions",
 ) -> ChatHttpResult:
-    """POST 到 vLLM,成功时记用量 + 扣配额(admin 会话不扣)。上游非 200 原样带回,不记账。"""
+    """POST 到 vLLM,成功时记用量 + 扣配额(admin 会话不扣)。上游非 200 原样带回,不记账。
+
+    `path`:默认 chat;`/v1/rerank` 等 pooling 端点复用同一套引用护栏 / 用量 / 配额
+    (响应里 usage 只有 prompt_tokens/total_tokens 时 completion 记 0)。
+    """
     # C3:请求期间对 engine 加引用,防 memory_guard / idle-TTL 中途 evict。finally 释放。
     proxy_ref = f"proxy-{uuid.uuid4().hex}"
     if model_mgr is not None:
@@ -202,7 +207,7 @@ async def invoke_chat_nonstream(
     try:
         async with httpx.AsyncClient(timeout=300, proxy=None) as client:
             resp = await client.post(
-                f"{endpoint.base_url.rstrip('/')}/v1/chat/completions", json=body)
+                f"{endpoint.base_url.rstrip('/')}{path}", json=body)
         duration = int((time.monotonic() - start) * 1000)
         if resp.status_code != 200:
             return ChatHttpResult(status_code=resp.status_code, content=resp.content, data=None)

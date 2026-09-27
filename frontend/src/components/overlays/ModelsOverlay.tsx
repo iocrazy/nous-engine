@@ -21,6 +21,7 @@ import { copyTextOrToast } from '../../utils/clipboard'
 const TYPE_LABELS: Record<string, string> = {
   llm: '语言模型 LLM',
   embedding: '向量嵌入 Embedding',
+  rerank: '重排 Rerank',
   tts: '语音合成 TTS',
   asr: '语音识别 ASR',
   image: '图像生成 Image',
@@ -28,11 +29,11 @@ const TYPE_LABELS: Record<string, string> = {
   understand: '多模态理解 VL',
 }
 
-const TYPE_ORDER = ['llm', 'embedding', 'tts', 'asr', 'image', 'video', 'understand']
+const TYPE_ORDER = ['llm', 'embedding', 'rerank', 'tts', 'asr', 'image', 'video', 'understand']
 
 // 走 vLLM 适配器的类目 —— 只有它们有 gpu_memory_utilization 旋钮可配显存预算(spec 2026-06-13)。
 // asr(Qwen3-ASR)也走 vLLM,同样可配显存预算。
-const VLLM_TYPES = new Set(['llm', 'embedding', 'understand', 'vl', 'asr'])
+const VLLM_TYPES = new Set(['llm', 'embedding', 'rerank', 'understand', 'vl', 'asr'])
 
 // m11-style tag colors per model type — keeps semantic differentiation
 // without the eye-watering rainbow of the legacy "everything is a chip" UI.
@@ -43,6 +44,7 @@ const TYPE_TAG_STYLE: Record<string, { bg: string; color: string }> = {
   video:      { bg: 'rgba(244,114,182,0.15)', color: 'rgb(244,114,182)' },                          // pink
   understand: { bg: 'rgba(59,130,246,0.15)',  color: 'var(--info, #3b82f6)' },                      // blue
   embedding:  { bg: 'rgba(234,179,8,0.15)',   color: 'rgb(234,179,8)' },                            // yellow
+  rerank:     { bg: 'rgba(249,115,22,0.15)',  color: 'rgb(249,115,22)' },                           // orange
   asr:        { bg: 'rgba(14,165,233,0.15)',  color: 'rgb(14,165,233)' },                           // sky
 }
 
@@ -50,6 +52,7 @@ const TYPE_TAG_STYLE: Record<string, { bg: string; color: string }> = {
 const TAB_LABELS: Record<string, string> = {
   llm: '语言模型',
   embedding: '向量',
+  rerank: '重排',
   tts: '语音合成',
   asr: '语音识别',
   image: '图像',

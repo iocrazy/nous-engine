@@ -22,7 +22,9 @@ NAME_RE = re.compile(r"^nous-[a-z0-9][a-z0-9-]{0,57}$")
 NAME_RULE_MSG = "服务名必须以 nous- 开头,只允许小写字母、数字、-,总长 ≤63"
 
 # category → 计量维度。发布/快速置备/类别回填共用的纯数据映射。
-_METER_DIM_BY_CATEGORY = {"llm": "tokens", "tts": "chars", "vl": "calls", "image": "images"}
+_METER_DIM_BY_CATEGORY = {
+    "llm": "tokens", "tts": "chars", "vl": "calls", "image": "images", "rerank": "tokens",
+}
 
 # 暴露输出字段白名单:`_IMAGE_NODE_TYPES` 里的产出节点只能引用这些字段。
 # image_generate / flux2_vae_decode 已随原生图像引擎删除,不再是可创建的节点类型;

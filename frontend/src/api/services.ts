@@ -4,7 +4,7 @@ import { apiFetch } from './client'
 // ---------- shared types ----------
 
 export type ServiceStatus = 'active' | 'paused' | 'deprecated' | 'retired'
-export type ServiceCategory = 'llm' | 'tts' | 'vl' | 'app' | 'image' | 'asr' | 'embedding'
+export type ServiceCategory = 'llm' | 'tts' | 'vl' | 'app' | 'image' | 'asr' | 'embedding' | 'rerank'
 
 export interface ExposedParam {
   key?: string
@@ -260,6 +260,7 @@ export function endpointFor(svc: Pick<ServiceRow, 'name' | 'category'>): string 
   switch (svc.category) {
     case 'llm': return `POST /v1/chat/completions · ${m}`
     case 'embedding': return `POST /v1/embeddings · ${m}`
+    case 'rerank': return `POST /v1/rerank · ${m}`
     case 'tts': return `POST /v1/audio/speech · ${m}`
     case 'asr': return `POST /v1/audio/transcriptions · ${m}`
     case 'image': return `POST /v1/images/generations · ${m}`

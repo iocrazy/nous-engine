@@ -82,7 +82,7 @@ def _vision(cfg: dict, args: dict[str, Any]) -> bool:
     model_type = (cfg.get("type") or "").lower()
     if model_type in _CONFIG_JSON_VISION_TYPES:
         return _config_json_vision(cfg)
-    if model_type == "embedding":
+    if model_type in ("embedding", "rerank"):
         return _mm_image_limit(args)
     return False
 
