@@ -198,3 +198,19 @@ async def test_preview_clamps_max_tokens(api_client, bearer_headers, fake_vllm):
                               json=_req(options={"max_tokens": 100000}), headers=bearer_headers)
     assert r.status_code == 200, r.text
     assert fake_vllm["bodies"][0]["max_tokens"] == 3584   # api_client 的 max_model_len=4096
+
+
+@pytest.mark.asyncio
+async def test_preview_quota_exhausted_is_402_and_never_calls_upstream(
+        api_client, bearer_headers, fake_vllm):
+    from sqlalchemy import select
+
+    from src.models.api_gateway import ApiKeyGrant, ResourcePack
+    sf = api_client.app.state.async_session_factory
+    async with sf() as s:
+        grant = (await s.execute(select(ApiKeyGrant))).scalars().first()
+        s.add(ResourcePack(grant_id=grant.id, name="spent", total_units=10, used_units=10))
+        await s.commit()
+    r = await api_client.post("/v1/skill-runs/preview", json=_req(), headers=bearer_headers)
+    assert r.status_code == 402, r.text
+    assert fake_vllm["bodies"] == []

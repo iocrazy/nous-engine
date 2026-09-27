@@ -61,6 +61,21 @@ jobs:
           if [[ "$latest" != "$SHA" ]]; then
             echo "master 已前进到 ${latest:0:12},本次 ${SHA:0:12} 跳过 —— 新提交的 CI 完成后会部署最新。"
             echo "skip=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 已被手动部署(生产机上直接 ./infra/deploy.sh)完整上线过 → 不再重启一次(2026-09-27:
+          # #766 合并 36s 后有人手动 deploy,master CI 跑完这里又重启一遍,模型白卸载重载)。
+          # 「完整」要四条同时成立,否则照常部署:同步到 SHA 之后后端重启过、前端 dist 重建过、
+          # 且 /healthz 200 —— 只 reset 了代码但 build/重启失败的半截状态不能被这里跳过掩盖。
+          head="$(git -C "$PROD" rev-parse HEAD)"
+          synced_at="$(git -C "$PROD" reflog -1 --format=%ct HEAD)"
+          started_at="$(date -d "$(systemctl show -p ActiveEnterTimestamp --value nous-engine-backend)" +%s 2>/dev/null || echo 0)"
+          dist_at="$(stat -c %Y "$PROD/frontend/dist/index.html" 2>/dev/null || echo 0)"
+          health="$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 5 http://127.0.0.1:8000/healthz || echo 000)"
+          if [[ "$head" == "$SHA" && "$started_at" -gt "$synced_at" && "$dist_at" -gt "$synced_at" && "$health" == "200" ]]; then
+            echo "生产已在 ${SHA:0:12} 且完整上线过(同步后后端重启 + dist 重建 + healthz 200),跳过,不再重启。"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "### ✅ ${SHA:0:12} 已由手动部署上线,本次跳过" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: 上线前闸门

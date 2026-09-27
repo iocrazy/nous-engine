@@ -213,3 +213,32 @@ def test_merge_prompt_input_conflict():
     with pytest.raises(UnprocessableError) as ei:
         merge_prompt_input({"caption": "old"}, "caption", "new", ["caption"])
     assert ei.value.code == "prompt_field_conflict"
+
+
+# ---------- 单个 content part 的尺寸上限(2026-09-27 审查延后项) ----------
+
+def test_text_part_too_long_is_422():
+    from src.services.skill_run import MAX_TEXT_PART_CHARS
+    parts = [{"type": "text", "text": "x" * (MAX_TEXT_PART_CHARS + 1)}]
+    with pytest.raises(UnprocessableError) as ei:
+        build_chat_body(_SKILL, parts, temperature=None, max_tokens=None, thinking="auto")
+    assert ei.value.code == "invalid_input_part"
+
+
+def test_image_url_too_long_is_422():
+    from src.services.skill_run import MAX_IMAGE_URL_CHARS
+    url = "data:image/png;base64," + "A" * MAX_IMAGE_URL_CHARS
+    parts = [{"type": "image_url", "image_url": {"url": url}}]
+    with pytest.raises(UnprocessableError) as ei:
+        build_chat_body(_SKILL, parts, temperature=None, max_tokens=None, thinking="auto")
+    assert ei.value.code == "invalid_input_part"
+
+
+def test_parts_at_the_limit_pass():
+    from src.services.skill_run import MAX_IMAGE_URL_CHARS, MAX_TEXT_PART_CHARS
+    parts = [
+        {"type": "text", "text": "x" * MAX_TEXT_PART_CHARS},
+        {"type": "image_url", "image_url": {"url": "d" * MAX_IMAGE_URL_CHARS}},
+    ]
+    body = build_chat_body(_SKILL, parts, temperature=None, max_tokens=None, thinking="auto")
+    assert body["messages"][1]["content"] == parts

@@ -64,6 +64,10 @@ def _is_empty_input(user_input: str | list[dict[str, Any]]) -> bool:
 # 预览只放行文本与图片两类 content part;其余(video_url / audio_url / 无 type …)
 # 一律 422,不透传给上游 —— 这些类型绕过图片 URL 的 SSRF 校验。
 _ALLOWED_PART_TYPES = ("text", "image_url")
+# 单个 part 的尺寸上限(整体只限了 32 个 part,不限单个就等于没限):文本 100k 字符;
+# image_url(多为 data: URL)16 MiB 字符 ≈ 12 MB 图片,远大于实际出图/编辑原图(~3 MB)。
+MAX_TEXT_PART_CHARS = 100_000
+MAX_IMAGE_URL_CHARS = 16 * 1024 * 1024
 
 
 def _validate_content_parts(parts: list[dict[str, Any]]) -> None:
@@ -73,12 +77,18 @@ def _validate_content_parts(parts: list[dict[str, Any]]) -> None:
         ptype = part.get("type")
         if ptype not in _ALLOWED_PART_TYPES:
             raise _bad_part(f"input[{i}] 的 type={ptype!r} 不受支持(只收 text / image_url)")
-        if ptype == "text" and not isinstance(part.get("text"), str):
-            raise _bad_part(f"input[{i}] 的 text part 缺少字符串 text")
+        if ptype == "text":
+            text = part.get("text")
+            if not isinstance(text, str):
+                raise _bad_part(f"input[{i}] 的 text part 缺少字符串 text")
+            if len(text) > MAX_TEXT_PART_CHARS:
+                raise _bad_part(f"input[{i}] 的 text 超过 {MAX_TEXT_PART_CHARS} 字符")
         if ptype == "image_url":
             image_url = part.get("image_url")
             if not isinstance(image_url, dict) or not isinstance(image_url.get("url"), str):
                 raise _bad_part(f"input[{i}] 的 image_url 必须是含字符串 url 的对象")
+            if len(image_url["url"]) > MAX_IMAGE_URL_CHARS:
+                raise _bad_part(f"input[{i}] 的 image_url 超过 {MAX_IMAGE_URL_CHARS} 字符(约 12 MB 图片)")
 
 
 def _bad_part(message: str) -> UnprocessableError:
