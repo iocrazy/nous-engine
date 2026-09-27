@@ -33,6 +33,12 @@ _SAFE_SUBTYPE = re.compile(r"^[a-z0-9][a-z0-9.+-]{0,31}$")
 _UNSAFE_FILENAME = re.compile(r"[/\\\[\]]|\.\.|://|^\s|\s$")
 
 
+# 桥**会上传**的 mapping 类型(大小写敏感,按 mapping 里的原样比对)。桥的上传分支与
+# `omit_when_empty` 剪枝都只认这个集合;PUT mapping 校验 `omit_when_empty` 时也用它
+# (comfy_templates.py),保证「存得进去」==「桥会生效」。注意没有 `binary`。
+UPLOAD_TYPES = frozenset({"media", "image", "file", "audio", "video"})
+
+
 class UploadInputError(ValueError):
     """文件类入参不合法(调用方的错,不是 sidecar 的错)。"""
 

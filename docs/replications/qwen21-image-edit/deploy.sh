@@ -9,8 +9,8 @@
 #
 # 按**服务名**查模板 id(模板名 `qwen21-image-edit` 与服务名不同);服务不存在就报错 ——
 # 这个脚本只同步已存在的服务,不新建(新建走 POST /api/v1/comfy-templates + 本目录产物)。
-# workflow 与仓库不同 → `PUT /{id}` 重传;之后(或 mapping 有差异时)`PUT /{id}/mapping`;
-# 都相同则什么也不写。可重跑。
+# 顺序:mapping 与仓库不同 → 先 `PUT /{id}/mapping`;workflow 不同 → 再 `PUT /{id}` 重传
+# (原因见下方注释);都相同则什么也不写。可重跑。
 #
 # 产物来源:`node ../upscale/convert.cjs variants.json <out>`(ComfyUI 官方前端
 # app.graphToPrompt,拦截一切非 GET),之后做了两处与现网对齐的归一:476 的 unet_name 路径
@@ -36,19 +36,23 @@ jq -e '.exposed_params | length == 0 or (.[0] | has("omit_when_empty"))' <<<"$cu
   || { echo "ERROR 后端还不认 omit_when_empty(先上线新代码)" >&2; exit 1; }
 
 changed=0
-if ! jq -e --slurpfile wf "$WF" '.workflow_json == $wf[0]' <<<"$cur" >/dev/null; then
-  jq -n --slurpfile wf "$WF" '{workflow: $wf[0]}' \
-    | curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid" -d @- >/dev/null
-  echo "  workflow 已同步($(jq 'length' "$WF") 个节点)"
-  changed=1
-fi
+# **先 mapping 后 workflow**:反过来的话,新 workflow 上线到 mapping 写完之间,7 条新 LoadImage
+# 没有 omit_when_empty,不传参考图的请求会把占位图喂进模型。先写 mapping 是安全的 ——
+# update_mapping 不按 workflow 校验,桥遇到 mapping 指向当前图里不存在的节点只 warning 跳过
+# (旧 workflow 下 image2..8 就是没效果,和现在一样)。
 # 回读把没写的字段补成 null/false,比较前两边都去掉 null/false/空值(同 upscale/deploy.sh)。
 norm='map(with_entries(select(.value != null and .value != false and .value != [] and .value != {})))'
-if (( changed )) || ! jq -e --slurpfile m "$MAP" \
+if ! jq -e --slurpfile m "$MAP" \
     "(.exposed_params | $norm) == (\$m[0].exposed_params | $norm)" <<<"$cur" >/dev/null; then
   curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid/mapping" \
     --data-binary "@$MAP" >/dev/null
   echo "  mapping 已同步($(jq '.exposed_params | length' "$MAP") 个参数)"
+  changed=1
+fi
+if ! jq -e --slurpfile wf "$WF" '.workflow_json == $wf[0]' <<<"$cur" >/dev/null; then
+  jq -n --slurpfile wf "$WF" '{workflow: $wf[0]}' \
+    | curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid" -d @- >/dev/null
+  echo "  workflow 已同步($(jq 'length' "$WF") 个节点)"
   changed=1
 fi
 (( changed )) || echo "  已是最新,未改动"

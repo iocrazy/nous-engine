@@ -34,7 +34,11 @@ from src.services.comfy.graph_prune import downstream_nodes, prune_graph
 from src.services.comfy.object_info import get_node_infos
 from src.services.comfy.outputs import collect_outputs, history_error
 from src.services.comfy.thumbnail import extract_first_frame
-from src.services.comfy.upload_inputs import check_plain_filename, decode_data_uri
+from src.services.comfy.upload_inputs import (
+    UPLOAD_TYPES,
+    check_plain_filename,
+    decode_data_uri,
+)
 from src.services.comfy.video_audio import ensure_audio_track
 from src.services.image_output_storage import write_image as _write_media_sync
 from src.services.nodes.registry import register
@@ -117,7 +121,7 @@ async def load_template(template_id) -> tuple[dict, list[dict]]:
 # 让 Playground 渲染文件选择器),旧代码这里只认字面量 "media" 一种,导致编辑器选出来的
 # 类型永远走不到上传分支(data URI 原样当字符串塞进图,ComfyUI 侧炸)。任意一个"这是待
 # 上传素材"型都触发同一条上传逻辑。
-_UPLOAD_TYPES = frozenset({"media", "image", "file", "audio", "video"})
+_UPLOAD_TYPES = UPLOAD_TYPES  # 单一真相源在 comfy/upload_inputs.py
 
 
 def _prevalidate_files(exposed_params: list[dict], data: dict) -> dict[str, tuple[bytes, str, str]]:
@@ -218,6 +222,11 @@ class ComfyUIWorkflowNode:
         decoded = await _with_audio_tracks(decoded)
         omitted = _omitted_nodes(exposed_params, data)
         omitted_keys = set(omitted.values())
+        # 标了 omit_when_empty 且没传的文件参数:剪掉它的 LoadImage 与只为它服务的支路,
+        # 不让模板里烤死的占位图喂进模型(见 docs/comfy-bridge-notes.md)。拓扑不依赖补丁值,
+        # 所以在**任何上传之前**剪 —— GraphPruneError 时不会留下别的参数的孤儿上传。
+        if omitted:
+            graph = await _prune_omitted(graph, omitted, template_id)
 
         for m in exposed_params:
             key = m["key"]
@@ -246,7 +255,7 @@ class ComfyUIWorkflowNode:
             if value is None:
                 continue
             if key in omitted_keys:
-                continue  # 空串也算没传;整条支路稍后剪掉,不往要删的节点里写值
+                continue  # 空串也算没传;整条支路上面已剪掉,不往已删的节点里写值
 
             node = graph.get(node_id)
             if node is not None:
@@ -260,11 +269,6 @@ class ComfyUIWorkflowNode:
                     "但该节点不在当前 graph 中(工作流重新上传后映射未更新?),已跳过该参数",
                     template_id, key, node_id,
                 )
-
-        # 标了 omit_when_empty 且没传的文件参数:剪掉它的 LoadImage 与只为它服务的支路,
-        # 不让模板里烤死的占位图喂进模型(见 docs/comfy-bridge-notes.md)。
-        if omitted:
-            graph = await _prune_omitted(graph, omitted, template_id)
 
         # 渲染期间的取消探测(2026-09-03 事故):`/interrupt` 只在 ComfyUI 的节点边界
         # 生效,卡在某个节点内部(比如等一个连接已 CLOSE_WAIT 的 HF 下载)时救不回来,
