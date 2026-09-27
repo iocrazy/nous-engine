@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Upload, X } from 'lucide-react'
 import { createComfyTemplate, getObjectInfo } from '../../api/comfyTemplates'
-import { NAME_RE } from '../../api/services'
+import { NAME_RE, NAME_RULE_HINT } from '../../api/services'
 import type { ComfyWorkflow } from './comfyGraphLayout'
 import { applyModelFixes, findInvalidModelRefs, issueKey, type ModelRefFix, type ModelRefIssue } from './workflowModelCheck'
 
@@ -307,12 +307,12 @@ export default function ImportComfyDialog({ open, onClose, onImported }: ImportC
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value.trim())}
-                placeholder="服务名，例如：minimax-h3-r2v"
+                placeholder="服务名，例如：nous-minimax-h3-r2v"
                 style={inputStyle}
               />
               {name && !nameValid && (
                 <ErrorText>
-                  必须匹配 {NAME_RE.source}（小写字母开头，只允许 a-z 0-9 -，2-63 字符）
+                  {NAME_RULE_HINT}
                 </ErrorText>
               )}
             </Section>

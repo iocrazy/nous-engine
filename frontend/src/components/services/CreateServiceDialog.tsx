@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useEngines, type EngineInfo } from '../../api/engines'
-import { useQuickProvision, NAME_RE, type ServiceCategory } from '../../api/services'
+import { useQuickProvision, NAME_RE, NAME_RULE_HINT, type ServiceCategory } from '../../api/services'
 
 export interface CreateServiceDialogProps {
   open: boolean
@@ -122,12 +122,12 @@ export default function CreateServiceDialog({ open, onClose, onCreated }: Create
         <input
           value={name}
           onChange={(e) => setName(e.target.value.trim())}
-          placeholder="例如：qwen-chat"
+          placeholder="例如：nous-qwen-chat"
           style={inputStyle}
         />
         {name && !nameValid && (
           <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 6 }}>
-            必须匹配 {NAME_RE.source}（小写字母开头，只允许 a-z 0-9 -，2-63 字符）
+            {NAME_RULE_HINT}
           </div>
         )}
       </Section>

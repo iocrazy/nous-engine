@@ -81,7 +81,7 @@ description: 复刻 ComfyUI 工作流到 nous-center 全流程 SOP:解析 JSON �
 
 - 服务版 = **单链**(只留生效 lane);A/B 版留画布调试。
 - `POST /api/v1/workflows/{id}/publish`:
-  - `name` 必须 `^[a-z][a-z0-9-]{1,62}$`
+  - `name` 必须 `^nous-[a-z0-9][a-z0-9-]{0,57}$`(以 `nous-` 开头,2026-09-27 起强制)
   - `exposed_inputs`:`{node_id, key, input_name, label, type, required, default}`;
     image_input 的 input_name 用 `image`,text_input 用 `text`,
     ksampler 可暴露 width/height/seed,lora 节点可暴露 strength。
