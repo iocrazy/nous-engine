@@ -514,8 +514,8 @@ def test_placement_explicit_group_on_unsupported_adapter_degrades_to_single(capl
     """审查 #15/#21:适配器不支持组 → 按单卡处理 + warning,不做组预留(幻影预留)。"""
     stats = _stats({0: 20000, 1: 90000, 2: 20000})
     mgr = _mgr(stats)
-    spec = _spec(adapter_class="src.services.inference.image_modular.ModularImageBackend",
-                 model_type="image", gpus=[0, 2], vram_mb=8000)
+    spec = _spec(adapter_class="src.workers.tts_engines.moss_tts.MOSSTTSEngine",
+                 model_type="tts", gpus=[0, 2], vram_mb=8000)
     with caplog.at_level("WARNING"):
         pl = mgr._resolve_placement("m", spec)
     assert pl.gpu_indices == [0]

@@ -29,9 +29,8 @@ export interface EngineInfo {
   supports_gpu_group?: boolean
   vram_gb: number
   resident: boolean
-  /** 目录条目种类。2026-09-26 自建图像引擎删除后后端只产出 model(整模型/引擎);
-   *  upscale/component/lora 是历史值,仅剩模型页图像子 tab 的分桶逻辑还在比较。缺省 model。 */
-  kind?: 'model' | 'upscale' | 'component' | 'lora'
+  /** 目录条目种类。2026-09-26 自建图像引擎删除后后端只产出 model(整模型/引擎)。 */
+  kind?: 'model'
   local_path: string | null
   local_exists: boolean
   // Remote metadata
@@ -48,9 +47,9 @@ export interface EngineInfo {
   auto_detected: boolean
   /**
    * False = the model was discovered on disk but no adapter is wired up
-   * (image / video diffusers right now). UI must disable the load
-   * button — the backend will 422 with a config hint anyway, but it's
-   * cleaner to gate the button than to let users click a doomed action.
+   * for it. UI must disable the load button — the backend will 422 with
+   * a config hint anyway, but it's cleaner to gate the button than to
+   * let users click a doomed action.
    */
   has_adapter: boolean
   loaded_gpu: number | null

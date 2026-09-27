@@ -74,10 +74,9 @@ class LoRASpec(BaseModel):
 
     name: str
     strength: float = Field(1.0, ge=-2, le=2)
-    # PR-4: component path carries the absolute LoRA file path so the runner
-    # can load it without a name→path registry lookup (from_components sets
-    # _lora_paths={}). Legacy yaml path leaves this None and resolves via
-    # _lora_paths[name] as before.
+    # 2026-09-26 自建图像引擎已删:曾经消费 path 的组件库/from_components 解析路径
+    # (name→path 注册表查找)已随之删除。这个字段现在没有读取方,只随 ImageRequest.loras
+    # 一起作为 schema 保留(见 ImageRequest 类注释)。
     path: str | None = None
 
 

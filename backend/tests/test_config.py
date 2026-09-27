@@ -16,7 +16,11 @@ def test_settings_defaults():
 
 
 def test_paths_derive_from_roots():
-    """路径收口(spec 2026-06-19):子根从 MODELS_ROOT/REPOS_ROOT + model_roots.yaml 派生。"""
+    """路径收口(spec 2026-06-19):子根从 MODELS_ROOT/REPOS_ROOT + model_roots.yaml 派生。
+
+    2026-09-26:LORA_PATHS 断言随 config.LORA_PATHS 字段一起删除(自建图像引擎删除,
+    LoRA 库不再有读者),其余断言逐字保留。
+    """
     s = Settings(
         _env_file=None,
         REDIS_URL="r",
@@ -27,21 +31,19 @@ def test_paths_derive_from_roots():
     assert s.LOCAL_MODELS_PATH == "/data/models/nous"
     assert s.NAS_MODELS_PATH == "/data/models/nous"  # NAS 并进本地根
     assert s.NAS_OUTPUTS_PATH == "/data/models/nous/outputs"
-    assert s.LORA_PATHS == "/data/models/nous/media/loras"
     assert s.COSYVOICE_REPO_PATH == "/data/repos/CosyVoice"
     assert s.INDEXTTS_REPO_PATH == "/data/repos/index-tts"
 
 
-def test_explicit_path_override_wins():
-    """显式给的子根保留(可选覆盖),不被根派生覆盖。"""
+def test_local_models_path_derives_regardless_of_other_overrides():
+    """从 test_explicit_path_override_wins 挪来(2026-09-26,该测试整体删除因为它专测
+    LORA_PATHS 的显式覆盖):「其余仍派生」这条非 LORA_PATHS 断言逐字保留。"""
     s = Settings(
         _env_file=None,
         REDIS_URL="r",
         DATABASE_URL="d",
         MODELS_ROOT="/data/models",
-        LORA_PATHS="/custom/loras",
     )
-    assert s.LORA_PATHS == "/custom/loras"
     assert s.LOCAL_MODELS_PATH == "/data/models/nous"  # 其余仍派生
 
 
