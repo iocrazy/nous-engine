@@ -1,0 +1,196 @@
+{
+  "exposed_params": [
+    {
+      "key": "video",
+      "label": "输入视频(data URI)",
+      "type": "video",
+      "comfy_node_id": "18",
+      "comfy_input": "video",
+      "required": true
+    },
+    {
+      "key": "upscale",
+      "label": "放大倍数",
+      "type": "int",
+      "comfy_node_id": "8",
+      "comfy_input": "upscale",
+      "required": false,
+      "default": 4,
+      "min": 1,
+      "max": 8
+    },
+    {
+      "key": "seed",
+      "label": "随机种子",
+      "type": "int",
+      "comfy_node_id": "8",
+      "comfy_input": "seed",
+      "required": false,
+      "default": 42,
+      "min": 0,
+      "max": 9007199254740991
+    },
+    {
+      "key": "color_alignment",
+      "label": "颜色对齐",
+      "type": "string",
+      "comfy_node_id": "8",
+      "comfy_input": "color_alignment",
+      "required": false,
+      "default": "wavelet",
+      "options": [
+        "wavelet",
+        "adain",
+        "none"
+      ]
+    },
+    {
+      "key": "tile_size",
+      "label": "DiT 分块尺寸(0=不分块)",
+      "type": "int",
+      "comfy_node_id": "8",
+      "comfy_input": "tile_size",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 4096,
+      "step": 64
+    },
+    {
+      "key": "tile_overlap",
+      "label": "DiT 分块重叠",
+      "type": "int",
+      "comfy_node_id": "8",
+      "comfy_input": "tile_overlap",
+      "required": false,
+      "default": 32,
+      "min": 0,
+      "max": 512,
+      "step": 8
+    },
+    {
+      "key": "vae_tile_size",
+      "label": "VAE 分块尺寸(0=不分块)",
+      "type": "int",
+      "comfy_node_id": "8",
+      "comfy_input": "vae_tile_size",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 8192,
+      "step": 64
+    },
+    {
+      "key": "vae_tile_overlap",
+      "label": "VAE 分块重叠",
+      "type": "int",
+      "comfy_node_id": "8",
+      "comfy_input": "vae_tile_overlap",
+      "required": false,
+      "default": 32,
+      "min": 0,
+      "max": 512,
+      "step": 8
+    },
+    {
+      "key": "dtype",
+      "label": "计算精度",
+      "type": "string",
+      "comfy_node_id": "7",
+      "comfy_input": "dtype",
+      "required": false,
+      "default": "default",
+      "options": [
+        "default",
+        "fp16",
+        "bf16"
+      ]
+    },
+    {
+      "key": "upscale_method",
+      "label": "预缩放插值",
+      "type": "string",
+      "comfy_node_id": "22",
+      "comfy_input": "upscale_method",
+      "required": false,
+      "default": "bicubic",
+      "options": [
+        "area",
+        "lanczos",
+        "bilinear",
+        "nearest-exact",
+        "bicubic"
+      ]
+    },
+    {
+      "key": "largest_size",
+      "label": "预缩放最长边(px)",
+      "type": "int",
+      "comfy_node_id": "22",
+      "comfy_input": "largest_size",
+      "required": false,
+      "default": 640,
+      "min": 64,
+      "max": 4096
+    },
+    {
+      "key": "force_rate",
+      "label": "强制帧率(0=保留原帧率)",
+      "type": "float",
+      "comfy_node_id": "18",
+      "comfy_input": "force_rate",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 60,
+      "step": 1
+    },
+    {
+      "key": "frame_load_cap",
+      "label": "最多读取帧数(0=全部)",
+      "type": "int",
+      "comfy_node_id": "18",
+      "comfy_input": "frame_load_cap",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 100000
+    },
+    {
+      "key": "skip_first_frames",
+      "label": "跳过开头帧数",
+      "type": "int",
+      "comfy_node_id": "18",
+      "comfy_input": "skip_first_frames",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 100000
+    },
+    {
+      "key": "select_every_nth",
+      "label": "每 N 帧取 1 帧",
+      "type": "int",
+      "comfy_node_id": "18",
+      "comfy_input": "select_every_nth",
+      "required": false,
+      "default": 1,
+      "min": 1,
+      "max": 1000
+    },
+    {
+      "key": "output_format",
+      "label": "输出格式",
+      "type": "string",
+      "comfy_node_id": "19",
+      "comfy_input": "format",
+      "required": false,
+      "default": "video/h264-mp4",
+      "options": [
+        "video/h264-mp4",
+        "video/h265-mp4",
+        "video/webm"
+      ]
+    }
+  ]
+}

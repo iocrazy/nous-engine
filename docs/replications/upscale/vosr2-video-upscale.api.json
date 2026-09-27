@@ -1,0 +1,106 @@
+{
+  "7": {
+    "inputs": {
+      "model": "VOSR2",
+      "dtype": "default"
+    },
+    "class_type": "VOSR2ModelLoader",
+    "_meta": {
+      "title": "VOSR 2.0 Model Loader"
+    }
+  },
+  "8": {
+    "inputs": {
+      "upscale": 2,
+      "seed": 288397396925061,
+      "color_alignment": "wavelet",
+      "tile_size": 512,
+      "tile_overlap": 64,
+      "vae_tile_size": 512,
+      "vae_tile_overlap": 64,
+      "model": [
+        "7",
+        0
+      ],
+      "image": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "VOSR2Upscale",
+    "_meta": {
+      "title": "VOSR 2.0 Upscale"
+    }
+  },
+  "12": {
+    "inputs": {
+      "video_info": [
+        "18",
+        3
+      ]
+    },
+    "class_type": "VHS_VideoInfo",
+    "_meta": {
+      "title": "Video Info 🎥🅥🅗🅢"
+    }
+  },
+  "18": {
+    "inputs": {
+      "video": "vosr2_test_input.mp4",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 1,
+      "skip_first_frames": 0,
+      "select_every_nth": 1,
+      "format": "AnimateDiff"
+    },
+    "class_type": "VHS_LoadVideo",
+    "_meta": {
+      "title": "Load Video (Upload) 🎥🅥🅗🅢"
+    }
+  },
+  "19": {
+    "inputs": {
+      "frame_rate": [
+        "12",
+        5
+      ],
+      "loop_count": 0,
+      "filename_prefix": "nous-vosr2-video",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "8",
+        0
+      ],
+      "audio": [
+        "18",
+        2
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "22": {
+    "inputs": {
+      "upscale_method": "bicubic",
+      "largest_size": 640,
+      "image": [
+        "18",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToMaxDimension",
+    "_meta": {
+      "title": "Scale Image to Max Dimension"
+    }
+  }
+}

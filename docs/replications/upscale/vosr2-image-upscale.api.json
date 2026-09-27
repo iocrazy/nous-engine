@@ -1,0 +1,57 @@
+{
+  "1": {
+    "inputs": {
+      "upscale": 4,
+      "seed": 269412610933527,
+      "color_alignment": "wavelet",
+      "tile_size": 512,
+      "tile_overlap": 64,
+      "vae_tile_size": 1024,
+      "vae_tile_overlap": 128,
+      "model": [
+        "2",
+        0
+      ],
+      "image": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VOSR2Upscale",
+    "_meta": {
+      "title": "VOSR 2.0 Upscale"
+    }
+  },
+  "2": {
+    "inputs": {
+      "model": "VOSR2",
+      "dtype": "default"
+    },
+    "class_type": "VOSR2ModelLoader",
+    "_meta": {
+      "title": "VOSR 2.0 Model Loader"
+    }
+  },
+  "3": {
+    "inputs": {
+      "image": "vosr2_test_input.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "4": {
+    "inputs": {
+      "filename_prefix": "nous-vosr2-image",
+      "images": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}
