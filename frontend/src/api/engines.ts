@@ -63,10 +63,6 @@ export interface EngineInfo {
   loaded_gpu: number | null
   loaded_gpus: number[] | null
   status_detail: string | null
-  /** image engines only: how many LoRAs the adapter knows about (loaded
-   * value when the model is loaded, scanner total when unloaded). null
-   * for non-image engines. */
-  lora_count: number | null
 }
 
 /**

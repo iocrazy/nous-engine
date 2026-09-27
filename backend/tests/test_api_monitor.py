@@ -9,6 +9,59 @@ from unittest.mock import patch
 # different loop"(aiosqlite 不在意,所以以前看不出来)。
 
 
+async def test_monitor_stats_shape(db_client: AsyncClient):
+    mock_gpu_stats = [
+        {
+            "index": 0,
+            "name": "Mock GPU",
+            "utilization_gpu": 10,
+            "utilization_memory": 16.3,
+            "temperature": 40,
+            "fan_speed": 0,
+            "power_draw_w": 50.0,
+            "power_limit_w": 300.0,
+            "memory_used_mb": 4000,
+            "memory_total_mb": 24576,
+            "memory_free_mb": 20576,
+            "processes": [],
+        },
+    ]
+    with patch("src.api.routes.monitor._gpu_stats_nvidia_smi", return_value=mock_gpu_stats), \
+         patch("src.api.routes.monitor._gpu_processes", return_value={}), \
+         patch("src.api.routes.monitor._top_processes", return_value=[]), \
+         patch("src.services.gpu_monitor.DEFAULT_RESERVED_GB", 4.0):
+        resp = await db_client.get("/api/v1/monitor/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "gpus" in data
+    assert "system" in data
+    # spec ram-pinned-linkage PR-1b:host RAM 待命占用入 system 块。
+    assert "stash_ram_mb" in data["system"]
+
+
+async def test_monitor_aggregates_stash_ram(monkeypatch):
+    """spec ram-pinned-linkage PR-1b:/monitor/stats 聚合各 runner Pong 上报的
+    stash_ram_mb + 主进程本体。"""
+    from types import SimpleNamespace
+    from src.api.routes import monitor as m
+
+    monkeypatch.setattr(m, "_gpu_stats_nvidia_smi", lambda: [])
+    monkeypatch.setattr(m, "_gpu_processes", lambda pid_map=None: {})
+    # `**kw`:_top_processes 自 spec process-net-traffic §2.2 起带 net/max_total 参数,
+    # _compute_system_stats 用关键字调它 —— 零参 lambda 会 TypeError。
+    monkeypatch.setattr(m, "_top_processes", lambda **kw: [])
+
+    sups = [
+        SimpleNamespace(stash_ram_mb=22800, group_id="image", pid=None),
+        SimpleNamespace(stash_ram_mb=5000, group_id="tts", pid=None),
+    ]
+    app_state = SimpleNamespace(model_manager=None, runner_supervisors=sups)
+    request = SimpleNamespace(app=SimpleNamespace(state=app_state))
+
+    data = await m.get_system_stats(request)
+    assert data["system"]["stash_ram_mb"] == 27800
+
+
 def test_monitor_loaded_models_from_model_manager():
     """monitor 端点的 loaded_models 来自 app.state.model_manager，不依赖 model_scheduler。"""
     import src.api.routes.monitor as monitor_mod
