@@ -192,29 +192,6 @@ async def test_loaded_adapters_endpoint_lists_runner_combo_entities(client, app)
     assert by_id["tts:bar:2"]["display_name"] == "tts:bar:2"  # 无 source → 退回 model_id
 
 
-def test_explain_image_combo_key_unpacks_all_components():
-    """_explain_image_combo_key:cache miss 日志要把 5 个字段拆开人能读。
-    PR-D5 诊断字段稳定性用 — 直接读 backend log 比 sha256 hash 易诊断 100×。"""
-    from src.services.model_manager import ModelManager
-
-    # combo_key shape(逐组件 offload 后):(pipeline_class, offload, comp_offloads, t_key, c_key, v_key)
-    combo = (
-        "Flux2KleinPipeline",
-        "none",
-        ("none", "none", "none"),
-        ("/m/flux2.safetensors", "cuda:1", "bfloat16", frozenset()),
-        ("/m/qwen3.safetensors", "cuda:1", "bfloat16", frozenset()),
-        ("/m/vae.safetensors", "cuda:1", "bfloat16", frozenset({("turbo", 0.8)})),
-    )
-    out = ModelManager._explain_image_combo_key(combo)
-    assert out["pipeline_class"] == "Flux2KleinPipeline"
-    assert out["offload"] == "none"
-    assert out["comp_offloads"] == ("none", "none", "none")
-    assert out["transformer"]["file"] == "/m/flux2.safetensors"
-    assert out["transformer"]["dtype"] == "bfloat16"
-    assert out["vae"]["loras"] == ["turbo@0.8"]
-
-
 async def test_scan_endpoint_no_missing_when_all_local(client, monkeypatch):
     """全部本地有 → not_local=0,前端 toast 走老的简单文案分支。"""
     from src.api.routes import engines as engines_route

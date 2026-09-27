@@ -36,22 +36,18 @@ _model_manager: ModelManager | None = None
 _on_progress_ref = None
 
 # Lane K: dispatch 节点 → runner group_id 路由表。group_id 约定与
-# hardware.yaml 的 role 名一致(image/tts/llm)。新增 GPU 节点必须在此登记。
+# hardware.yaml 的 role 名一致(tts/llm)。新增 GPU 节点必须在此登记。
 # 与 src.services.node_routing.DISPATCH_NODE_TYPES 配对维护。
+# 2026-09-26:flux2_vae_decode / seedvr2_upscale → image 组随自建图像引擎删除。
 _NODE_TYPE_TO_GROUP_ID: dict[str, str] = {
-    "flux2_vae_decode": "image",  # 细粒度图 dispatch 终端(spec 2026-05-21 rev 2)
     "tts_engine": "tts",
-    "seedvr2_upscale": "image",  # 图→图超分,跑 image GPU 组(SeedVR2 PR-3b)
 }
 
 # fine workflow type → runner 请求 role(= RunNode.node_type,runner_process._build_request
-# 据此构 typed request)。**多数与 group_id 同名**,但 SeedVR2 例外:它跑在 image GPU 组
-# (group_id=image,复用 image runner)却需构 UpscaleRequest(role="upscale",非 ImageRequest)
-# —— 所以 role 与 group_id 在此解耦。未登记的 type 回退 group_id(与历史行为一致)。
+# 据此构 typed request)。role 与 group_id 可以不同名(历史上 SeedVR2 就是),所以单列一张表;
+# 未登记的 type 回退 group_id。
 _NODE_TYPE_TO_RUNNER_ROLE: dict[str, str] = {
-    "flux2_vae_decode": "image",
     "tts_engine": "tts",
-    "seedvr2_upscale": "upscale",
 }
 
 
@@ -147,13 +143,6 @@ class WorkflowExecutor:
         # supervisor.health_snapshot.current_task 才能正确显示「在跑哪个 task」。
         self._task_id = task_id
         self._workflow_name = workflow_name
-        # Bug 1(节点高亮错位):flux2_vae_decode 是 dispatch 终端,整条 Load→Encode→
-        # KSampler→VAE 链的 GPU 活(加载/denoise/vae)都在它内部跑 —— 若按 node_start
-        # 一律高亮 dispatch 节点,蓝边就永远糊在 VAE Decode 上(用户:"在 load 模型却聚焦
-        # 到 vae")。改成按 runner 回传的 stage 把高亮"走链"到对应画布节点。这两个字段
-        # 在一次 dispatch 期间记录 stage→节点映射 + 当前点亮的节点。
-        self._cur_stage_walk: dict | None = None
-        self._active_stage_node: str | None = None
 
     def _topological_sort(self) -> list[str]:
         if not self.nodes:
@@ -250,52 +239,21 @@ class WorkflowExecutor:
                     })
                 continue
 
-            # Bug 1:image dispatch 节点高亮"走链" —— node_start 落到加载节点(而非一律
-            # 落 VAE dispatch 终端);后续按 stage 在 _forward_progress 里迁移。
-            stage_walk = self._compute_image_stage_walk(node)
-            self._cur_stage_walk = stage_walk
-            self._active_stage_node = stage_walk["initial"] if stage_walk else None
-
             if self._on_progress:
-                start_node_id = stage_walk["initial"] if stage_walk else node_id
                 await self._on_progress({
                     "type": "node_start",
-                    "node_id": start_node_id,
-                    "node_type": self._node_map.get(start_node_id, {}).get("type", node["type"]),
+                    "node_id": node_id,
+                    "node_type": node["type"],
                     "step": i + 1,
                     "total": total,
                     "progress": round((i / total) * 100),
                 })
 
-            # 逐组件时长(VAE decode 真计时,spec 2026-06-04):image dispatch 把 dit_denoise /
-            # vae_decode 各自耗时塞 InferenceResult.metadata.stage_latency_ms,经 runner outputs["meta"]
-            # 流到这里。据此让 KSampler 显**纯 denoise**、VAE Decode(dispatch 终端节点)显**真
-            # decode 时长**(修「VAE Decode 恒 0s」—— 旧版 dec 无 duration_ms 兜底算 0)。
-            stage_lat: dict[str, Any] = {}
             try:
                 output = await self._run_node_routed(node, inputs)
                 self._outputs[node_id] = output
-                if isinstance(output, dict) and isinstance(output.get("meta"), dict):
-                    _sl = output["meta"].get("stage_latency_ms")
-                    if isinstance(_sl, dict):
-                        stage_lat = _sl
-                # stage-walk:dispatch 收尾时 active 可能停在非 VAE 节点(如末 stage 没发
-                # vae_decode)→ 补完成它;VAE dispatch 节点由下方通用 node_complete 收口。
-                if stage_walk and self._active_stage_node and self._active_stage_node != node_id and self._on_progress:
-                    evt: dict[str, Any] = {"type": "node_complete", "node_id": self._active_stage_node}
-                    dit_ms = stage_lat.get("dit_denoise")
-                    if isinstance(dit_ms, (int, float)):
-                        evt["duration_ms"] = int(dit_ms)  # KSampler 显纯 denoise
-                    await self._on_progress(evt)
-                self._cur_stage_walk = None
-                self._active_stage_node = None
             except Exception as e:
-                # round5:dispatch 失败时优先把错落到真正失败的 stage 节点(如 text_encode/
-                # KSampler),而非 dispatch 终端(VAE Decode)—— 与第四轮修的「高亮走链」一致,
-                # 否则蓝边高亮在 Encode、红错却落 VAE。在重置 _active_stage_node 前捕获它。
-                err_node_id = self._active_stage_node or node_id
-                self._cur_stage_walk = None
-                self._active_stage_node = None
+                err_node_id = node_id
                 if self._on_progress:
                     await self._on_progress({
                         "type": "node_error",
@@ -317,12 +275,7 @@ class WorkflowExecutor:
                 if isinstance(output, dict):
                     if "usage" in output:
                         complete_event["usage"] = output["usage"]
-                    # VAE decode 真计时:dispatch 终端(flux2_vae_decode)节点的时长 = decode-only
-                    # (stage_lat.vae_decode);无则回退老的 output["duration_ms"](tts 等)。
-                    dec_ms = stage_lat.get("vae_decode")
-                    if isinstance(dec_ms, (int, float)):
-                        complete_event["duration_ms"] = int(dec_ms)
-                    elif "duration_ms" in output:
+                    if "duration_ms" in output:
                         complete_event["duration_ms"] = output["duration_ms"]
                     if output.get("cached"):
                         complete_event["cached"] = True
@@ -337,53 +290,6 @@ class WorkflowExecutor:
                 await self._on_progress(complete_event)
 
         return {"outputs": self._outputs}
-
-    def _ancestors(self, node_id: str) -> set[str]:
-        """node_id 的全部上游祖先节点 id(沿 edges 反向 BFS)。用于把 stage 映射到
-        *这条链上* 的 encode/ksampler/load 节点,不误选别的链。"""
-        rev: dict[str, list[str]] = defaultdict(list)
-        for e in self.edges:
-            rev[e["target"]].append(e["source"])
-        seen: set[str] = set()
-        stack = list(rev.get(node_id, []))
-        while stack:
-            n = stack.pop()
-            if n in seen:
-                continue
-            seen.add(n)
-            stack.extend(rev.get(n, []))
-        return seen
-
-    def _compute_image_stage_walk(self, node: dict) -> dict | None:
-        """Bug 1:对 flux2_vae_decode dispatch 节点,算出 stage→画布节点 id 的高亮映射。
-
-        runner 回传的 NodeProgress.stage ∈ {text_encode, dit_denoise, vae_decode};把它们
-        分别映射回链上的 Encode Prompt / KSampler / VAE Decode 节点,加载阶段(无 stage 事件)
-        先点亮 Load Diffusion Model 节点。找不到某节点则回退到 dispatch 节点本身(行为同旧版,
-        高亮落 VAE,不崩)。非 flux2_vae_decode(tts/llm/inline)返 None —— 不改其行为。"""
-        if node.get("type") != "flux2_vae_decode":
-            return None
-        anc = self._ancestors(node["id"])
-
-        def _find(types: set[str]) -> str | None:
-            for nid in anc:
-                if self._node_map.get(nid, {}).get("type") in types:
-                    return nid
-            return None
-
-        vae = node["id"]
-        load_node = _find({"flux2_load_diffusion_model", "flux2_load_checkpoint"})
-        enc_node = _find({"flux2_encode_prompt"})
-        ks_node = _find({"flux2_ksampler"})
-        return {
-            "targets": {
-                "text_encode": enc_node or vae,
-                "dit_denoise": ks_node or vae,
-                "vae_decode": vae,
-            },
-            "initial": load_node or enc_node or vae,  # 加载阶段先点亮的节点
-            "vae": vae,
-        }
 
     async def _run_node_routed(self, node: dict, inputs: dict) -> dict[str, Any]:
         """按节点类型分流：inline 节点主进程内 await，dispatch 节点投 RunnerClient。
@@ -419,38 +325,25 @@ class WorkflowExecutor:
         # task_id: 没有 outer ExecutionTask 时(inline-only test 路径)用 node hash
         # 做唯一 int —— 避免协议层 task_id=None 崩;UI current_task 仍能正确分。
         task_id = self._task_id if self._task_id is not None else abs(hash(node["id"])) % (2**31)
-        # model_key:从 node.data 拿(LLM/TTS 有 engine/model_key 字段;image 节点 model
-        # 由 adapter 自决,这里 None 也合法)。
+        # model_key:从 node.data 拿(LLM/TTS 有 engine/model_key 字段;缺省 None 也合法)。
         data = node.get("data", {})
         model_key = data.get("model_key") or data.get("engine") or data.get("model")
-        # protocol §3.3:RunNode.node_type 是 role("image" / "tts"),不是
-        # workflow 画布的 type("flux2_vae_decode" / "tts_engine") —— runner_process
-        # ._build_request 按 role 分流构造 ImageRequest / AudioRequest。
+        # protocol §3.3:RunNode.node_type 是 role("tts"),不是 workflow 画布的
+        # type("tts_engine")—— runner_process._build_request 按 role 构造 typed request。
         # _NODE_TYPE_TO_GROUP_ID 顶部维护的映射本就把 workflow type → role,这里复用。
         group_id = _NODE_TYPE_TO_GROUP_ID.get(node["type"])
         if group_id is None:
             raise ExecutionError(
                 f"节点 {node['id']} 的 type {node['type']!r} 不在 dispatch 节点白名单"
             )
-        # merge node.data → inputs:节点本地配置(steps/width/height/loras/cfg_scale/seed)
-        # 和上游 edges 传过来的 inputs 合并。inputs 后写覆盖 data —— 上游 text_input
-        # 给 prompt 时盖掉 data.prompt 是 inline 路径的语义(see image.py:49)。
-        # 不带本步,runner 端 ImageRequest 拿不到 steps/width,会用 Field default
-        # 25/1024,但 loras / cfg_scale / seed 全丢。
+        # merge node.data → inputs:节点本地配置和上游 edges 传过来的 inputs 合并。
+        # inputs 后写覆盖 data —— 上游 text_input 给文本时盖掉 data 里的同名键是
+        # inline 路径的语义。不带本步,runner 端 request 会丢节点本地配置(如 seed)。
         merged_inputs = {**{k: v for k, v in data.items() if not k.startswith("_")}, **inputs}
-        # spec §3.3: seed 非空 ⇒ 确定性,runner / L2 cache 据此决定可缓存。
-        # round5:细粒度图终端 flux2_vae_decode 只有 vae+latent 口,**没有顶层 seed** ——
-        # seed 是 KSampler widget、被 exec_ksampler 塞进嵌套 latent["seed"]。只看顶层
-        # 会让带固定 seed 的出图恒非确定性 → L2 输出缓存对唯一图像路径永久失效。两处都认。
-        def _has_seed(d: dict[str, Any]) -> bool:
-            if d.get("seed") not in (None, ""):
-                return True
-            latent = d.get("latent")
-            return isinstance(latent, dict) and latent.get("seed") not in (None, "")
-        is_deterministic = _has_seed(merged_inputs)
+        # spec §3.3: seed 非空 ⇒ 确定性,runner 据此决定可缓存。
+        is_deterministic = merged_inputs.get("seed") not in (None, "")
 
-        # RunNode.node_type 是 runner 请求 role(image/tts/upscale),多数 = group_id,
-        # SeedVR2 例外(group_id=image 但 role=upscale)—— 见 _NODE_TYPE_TO_RUNNER_ROLE。
+        # RunNode.node_type 是 runner 请求 role,未登记时 = group_id —— 见 _NODE_TYPE_TO_RUNNER_ROLE。
         runner_role = _NODE_TYPE_TO_RUNNER_ROLE.get(node["type"], group_id)
         spec = P.RunNode(
             task_id=task_id,
@@ -460,8 +353,8 @@ class WorkflowExecutor:
             inputs=merged_inputs,
             is_deterministic=is_deterministic,
         )
-        # PR-3:转发 runner 的 NodeProgress → WS 节点级进度(KSampler/VAE Decode 的 callback_on_step_end
-        # 每步发一个 NodeProgress;前端 DeclarativeNode 按 node_id 渲染进度条)。
+        # PR-3:转发 runner 的 NodeProgress → WS 节点级进度(前端 DeclarativeNode 按 node_id
+        # 渲染进度条)。
         loop = asyncio.get_running_loop()
         on_progress_async = self._on_progress
         # _forward_progress(demux 同步回调)里 create_task 排发的进度/高亮事件全收进这里,
@@ -473,35 +366,16 @@ class WorkflowExecutor:
         def _forward_progress(pmsg: "P.NodeProgress") -> None:
             if on_progress_async is None:
                 return
-            # Bug 1:按 stage 把高亮 + 进度重定向到链上对应画布节点(text_encode→Encode
-            # Prompt / dit_denoise→KSampler / vae_decode→VAE Decode),而非一律糊在 dispatch
-            # 终端。stage 切换时 complete 上一个、start 当前,蓝边随真实执行阶段"走链"。
-            target_node_id = pmsg.node_id
-            sw = self._cur_stage_walk
-            stage = getattr(pmsg, "stage", None)
-            if sw is not None and stage in sw["targets"]:
-                target_node_id = sw["targets"][stage]
-                if target_node_id != self._active_stage_node:
-                    prev = self._active_stage_node
-                    if prev is not None and prev != target_node_id:
-                        progress_tasks.append(loop.create_task(on_progress_async(
-                            {"type": "node_complete", "node_id": prev})))
-                    progress_tasks.append(loop.create_task(on_progress_async({
-                        "type": "node_start", "node_id": target_node_id,
-                        "node_type": self._node_map.get(target_node_id, {}).get("type"),
-                    })))
-                    self._active_stage_node = target_node_id
             event: dict[str, Any] = {
                 "type": "node_progress",
-                "node_id": target_node_id,
+                "node_id": pmsg.node_id,
                 "progress": pmsg.progress,
                 "detail": pmsg.detail,
             }
-            # PR-F:latent 预览 thumbnail(data URI)透传到 WS,前端节点上叠图。
+            # PR-F:预览 thumbnail(data URI)透传到 WS,前端节点上叠图。
             if getattr(pmsg, "preview_url", None):
                 event["preview_url"] = pmsg.preview_url
-            # PR-1a / PR-1b:L3 stage 字段(image: text_encode / dit_denoise / vae_decode;
-            # tts: tts_synth)+ step + ETA 透传。前端 ActiveTaskRow / callout 据此渲染
+            # PR-1a / PR-1b:L3 stage 字段(tts: tts_synth)+ step + ETA 透传。前端 ActiveTaskRow / callout 据此渲染
             # 「⚡ dit step 27/50 · ETA 5.5s」/ 「🔊 合成 3/6秒 · ETA 3s」(spec §State model
             # TaskProgress)。任一字段为 None 不发,保前端解析时只看有的键。
             for field_name in ("stage", "step", "total_steps", "step_latency_ms", "eta_ms"):
@@ -516,19 +390,6 @@ class WorkflowExecutor:
                 from src.services.ws_hub import ws_manager  # noqa: PLC0415
                 progress_tasks.append(
                     loop.create_task(ws_manager.broadcast_task_progress(self._task_id, event)))
-
-        # Bug 2(RUNNING 无运行进度):模型加载阶段在 denoise 前,无 step 可报 —— 任务面板
-        # RUNNING 卡此期间一片空白(用户截图就是 Flux2 加载阶段)。dispatch 前先发一个
-        # stage=model_load 的不定态任务进度,让 ActiveTaskRow 立刻显示「加载模型中…」。
-        # 无 step/不造假百分比(见 #196 删假进度教训);真 step 进度一来即被 denoise 覆盖。
-        if self._task_id is not None and self._cur_stage_walk is not None:
-            from src.services.ws_hub import ws_manager  # noqa: PLC0415
-            await ws_manager.broadcast_task_progress(self._task_id, {
-                "type": "node_progress",
-                "node_id": self._cur_stage_walk["initial"],
-                "stage": "model_load",
-                "progress": 0.0,
-            })
 
         result = await client.run_node(
             spec, on_progress=_forward_progress, workflow_name=self._workflow_name)
@@ -551,8 +412,8 @@ class WorkflowExecutor:
     def _pick_runner_client(self, node: dict):
         """按 node_type → role → group_id 在 runner_clients dict 里挑 RunnerClient。
 
-        当前 dispatch 节点白名单很短(flux2_vae_decode / tts_engine)、role 与
-        group_id 一一对应；映射写在这里:flux2_vae_decode→"image" / tts_engine→"tts"。
+        当前 dispatch 节点白名单只有 tts_engine,映射在模块顶部 _NODE_TYPE_TO_GROUP_ID:
+        tts_engine→"tts"。
         新增 dispatch 节点要在此登记。runner_clients 命中失败 → fallback
         到单数 runner_client (向后兼容)。
         """

@@ -1,7 +1,8 @@
-"""带 seed 的 image dispatch 节点 is_deterministic=True (spec §3.3)。
+"""带 seed 的 dispatch 节点 is_deterministic=True (spec §3.3)。
 
-收敛后用细粒度图终端 flux2_vae_decode 当 dispatch 节点(image_generate 已删)。
 is_deterministic 在 _dispatch_node 据 merged_inputs.seed 计算,与节点类型无关。
+2026-09-26:原用例拿 flux2_vae_decode 当 dispatch 节点;该节点随自建图像引擎删除,
+改用 tts_engine 重建(断言逐字保留)。嵌套 latent["seed"] 的两条是 flux2 专属形态,删。
 """
 from __future__ import annotations
 
@@ -21,47 +22,29 @@ class _CapturingClient:
                             outputs={"image_url": "u"}, error=None, duration_ms=1)
 
 
-def _exec(node_data):
-    wf = {"nodes": [{"id": "g", "type": "flux2_vae_decode", "data": node_data}], "edges": []}
+def _exec_tts(node_data):
+    wf = {"nodes": [{"id": "g", "type": "tts_engine", "data": node_data}], "edges": []}
     client = _CapturingClient()
-    ex = WorkflowExecutor(wf, runner_clients={"image": client}, task_id=7)
+    ex = WorkflowExecutor(wf, runner_clients={"tts": client}, task_id=7)
     return ex, client
 
 
 @pytest.mark.asyncio
-async def test_seed_sets_deterministic():
-    ex, client = _exec({"seed": 42})
+async def test_tts_seed_sets_deterministic():
+    ex, client = _exec_tts({"seed": 42})
     await ex._dispatch_node(ex._node_map["g"], {"seed": 42})
     assert client.spec.is_deterministic is True
 
 
 @pytest.mark.asyncio
-async def test_no_seed_not_deterministic():
-    ex, client = _exec({})
+async def test_tts_no_seed_not_deterministic():
+    ex, client = _exec_tts({})
     await ex._dispatch_node(ex._node_map["g"], {})
     assert client.spec.is_deterministic is False
 
 
 @pytest.mark.asyncio
-async def test_empty_seed_not_deterministic():
-    ex, client = _exec({"seed": ""})
+async def test_tts_empty_seed_not_deterministic():
+    ex, client = _exec_tts({"seed": ""})
     await ex._dispatch_node(ex._node_map["g"], {"seed": ""})
-    assert client.spec.is_deterministic is False
-
-
-@pytest.mark.asyncio
-async def test_seed_nested_in_latent_sets_deterministic():
-    """round5:真实细粒度图形态 —— flux2_vae_decode 只有 vae+latent,seed 在
-    嵌套 latent["seed"](KSampler 塞的)。早先只看顶层 seed → L2 缓存永久失效。"""
-    ex, client = _exec({})
-    inputs = {"vae": "v", "latent": {"_type": "flux2_latent", "seed": 42, "steps": 25}}
-    await ex._dispatch_node(ex._node_map["g"], inputs)
-    assert client.spec.is_deterministic is True
-
-
-@pytest.mark.asyncio
-async def test_latent_without_seed_not_deterministic():
-    ex, client = _exec({})
-    inputs = {"vae": "v", "latent": {"_type": "flux2_latent", "steps": 25}}
-    await ex._dispatch_node(ex._node_map["g"], inputs)
     assert client.spec.is_deterministic is False

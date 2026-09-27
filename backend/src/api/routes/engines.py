@@ -199,11 +199,6 @@ async def list_all_engines(
         if not local_path or local_path not in local_dirs:
             continue
         result.append(_build_engine_info(key, cfg, metadata.get(key), local_dirs, request))
-    # 统一引擎库(spec 2026-06-02):补 by-key 超分(SeedVR2)+ 单文件组件(diffusion_models/clip/
-    # vae/loras)目录条目,带 VRAM 残留状态(loaded/gpu 从 aggregate_runner_loaded 多键匹配)。
-    # registry 不含它们(model_scanner skip 组件 / SeedVR2 by-key)→ 在此并入,让引擎库统一可见。
-    from src.services.engine_catalog import catalog_extra_engines
-    result.extend(catalog_extra_engines(request.app.state, type))
     return result
 
 
@@ -1020,22 +1015,14 @@ async def _delete_preflight(name: str, request: Request, session: AsyncSession) 
     target = md.resolve_target(name, configs)
     md.assert_safe_target(target)
 
-    # 硬 blocker:还在显存里。整模型问 ModelManager;catalog 条目(超分/组件/LoRA)
-    # 用引擎库自己的 loaded 索引(它们不归 ModelManager 管)。
+    # 硬 blocker:还在显存里(问 ModelManager)。超分/组件/LoRA 文件自 2026-09-26 起
+    # 不再有任何进程加载(自建图像引擎已删),没有「还在显存里」这一说。
     loaded: dict | None = None
     if target.kind == "model":
         if _is_engine_loaded(name, request):
             loaded = {"status": "loaded", "gpu": _get_loaded_gpu(name, request)}
         elif _loading_states.get(name, {}).get("status") == "loading":
             loaded = {"status": "loading", "gpu": None}
-    else:
-        from src.services.engine_catalog import catalog_extra_engines
-        entry = next(
-            (e for e in catalog_extra_engines(request.app.state, None) if e.name == name),
-            None,
-        )
-        if entry is not None and entry.status in ("loaded", "loading"):
-            loaded = {"status": entry.status, "gpu": entry.loaded_gpu}
 
     services = (
         await md.find_referencing_services(session, target.engine_key)

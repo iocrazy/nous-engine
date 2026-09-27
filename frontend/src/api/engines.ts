@@ -29,16 +29,9 @@ export interface EngineInfo {
   supports_gpu_group?: boolean
   vram_gb: number
   resident: boolean
-  /** 统一引擎库:目录条目种类。model=整模型/引擎(可独立加载) upscale=SeedVR2 等 by-key
-   *  超分(可独立加载,load 接入在 PR-3) component=单文件组件(随 pipeline 加载,不独立可加载)
-   *  lora=LoRA(随模型加载)。缺省 model(向后兼容)。 */
+  /** 目录条目种类。2026-09-26 自建图像引擎删除后后端只产出 model(整模型/引擎);
+   *  upscale/component/lora 是历史值,仅剩模型页图像子 tab 的分桶逻辑还在比较。缺省 model。 */
   kind?: 'model' | 'upscale' | 'component' | 'lora'
-  /** diffusion_models 单文件组件推断架构(z-image/flux2/anima)—— 预热时传给后端避免默认 flux2 错配。
-   *  统一模型管理收尾 PR-2。非组件 / 无法推断 → null/undefined。 */
-  arch?: string | null
-  /** 已加载单文件组件的 L1 身份串(file|device|dtype|loras,含真实 device)。常驻 toggle 按它
-   *  精确匹配,避 device='auto' 错配。未加载 / 非组件 → null。组件 L1 PR-3a。 */
-  state_key?: string | null
   local_path: string | null
   local_exists: boolean
   // Remote metadata

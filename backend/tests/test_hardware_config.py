@@ -2,12 +2,14 @@
 from src.config import load_hardware_config
 
 
-def test_load_default_hardware_yaml():
+def test_load_default_hardware_yaml_llm_and_tts_groups():
     """configs/hardware.yaml 解析出 groups 列表。
 
     实际部署(2026-09-20 起,两张 3090 已拔除):Pro 5000 72GB(llm/tts,gpu=0,
-    LLM/ASR/embedding/OCR 全在这张)+ Pro 6000 96GB(image,gpu=1,与 ComfyUI
-    sidecar 错峰共用);两卡异构,无 NVLink tp 组。
+    LLM/ASR/embedding/OCR 全在这张);两卡异构,无 NVLink tp 组。
+
+    2026-09-26 从 test_load_default_hardware_yaml 拆出:原用例还断言 image 组钉 Pro 6000,
+    该组随自建图像引擎删除(Pro 6000 归 ComfyUI 独占,不经 hardware.yaml);llm / tts 断言逐字保留。
     """
     cfg = load_hardware_config()
     assert "groups" in cfg
@@ -18,9 +20,6 @@ def test_load_default_hardware_yaml():
     assert llm["gpus"] == [0]
     assert llm["nvlink"] is False
     assert llm["vram_gb"] == 72
-    # image 独占 Pro 6000(与 ComfyUI 错峰共用),tts 与 llm 共用 Pro 5000
-    image = next(g for g in groups if g["role"] == "image")
-    assert image["gpus"] == [1]
     tts = next(g for g in groups if g["role"] == "tts")
     assert tts["gpus"] == [0]
 

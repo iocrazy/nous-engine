@@ -1,18 +1,16 @@
-"""adapter 级 RAM stash(spec 2026-06-12 PR-2):整模型路线 stash/restore + 守卫 + 记账。
+"""adapter 级 RAM stash(spec 2026-06-12 PR-2):整模型 stash + 守卫 + 记账 + LRU 驱逐优先 stash。
 
-bookkeeping/守卫单测(fake adapter/pipe);真权重搬运与时延由真机验
-(组件层 PR-1 真机:restore 2.3s/组件;fp8 .to 往返 bit 一致 spike 已验)。
+从 test_adapter_ram_stash.py 挪来(2026-09-26 自建图像引擎删除,Task 4):那个文件里的
+组件池 / ModularImageBackend 用例随图像引擎删掉,adapter 级 `stash_model` 是 LLM/TTS
+路径共用的,用例原样保留(断言逐字不变;夹具里的模型 id / 类型改成中性值)。
 """
 from __future__ import annotations
 
-import time
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import psutil
 import pytest
 
-import src.services.inference.image_modular as IM
 from src.services.gpu_allocator import GPUAllocator
 from src.services.inference.base import InferenceAdapter
 from src.services.inference.registry import ModelRegistry, ModelSpec
@@ -49,12 +47,12 @@ class _FakeAdapter(InferenceAdapter):
         self.restore_calls += 1
 
 
-def _spec(mid="image:ZImagePipeline:z:abc", vram=1000, resident=False):
-    return ModelSpec(id=mid, model_type="image", adapter_class="modular",
+def _spec(mid="tts:fake:abc", vram=1000, resident=False):
+    return ModelSpec(id=mid, model_type="tts", adapter_class="fake",
                      paths={"main": "/m/x"}, vram_mb=vram, resident=resident)
 
 
-def _entry(mm, adapter=None, mid="image:ZImagePipeline:z:abc", **kw):
+def _entry(mm, adapter=None, mid="tts:fake:abc", **kw):
     a = adapter or _FakeAdapter()
     e = LoadedModel(spec=_spec(mid, **kw), adapter=a, gpu_index=1)
     mm._models[mid] = e
@@ -100,48 +98,11 @@ async def test_stash_model_guards(mm):
 
 
 @pytest.mark.asyncio
-async def test_stash_model_refuses_l1_combo(mm):
-    """组件路线 combo(L1 池里有 refs)不在 adapter 层 stash(组件层 PR-1 已覆盖)。"""
-    e, a = _entry(mm, mid="combo1")
-    mm._components[("f", "cuda:1", "bf16", frozenset())] = {
-        "module": object(), "role": "vae", "key": ("f", "cuda:1", "bf16", frozenset()),
-        "refs": {"combo1"}, "resident": False, "last_used": time.monotonic(), "device": "cuda:1",
-    }
-    assert await mm.stash_model("combo1") is False
-    assert a.stash_calls == 0
-
-
-@pytest.mark.asyncio
 async def test_stash_model_low_ram_refuses(mm, monkeypatch):
     monkeypatch.setattr(psutil, "virtual_memory",
                         lambda: SimpleNamespace(available=1 * 10**9))
     e, a = _entry(mm)
     assert await mm.stash_model(e.spec.id) is False
-
-
-@pytest.mark.asyncio
-async def test_hit_restores_stashed_adapter(mm):
-    """get_or_load 命中 stashed entry → adapter.restore + stashed=False。"""
-    combo_key = ("Flux2KleinPipeline", ("a", "cuda:1", "bf16"), ("b", "cuda:1", "bf16"),
-                 ("c", "cuda:1", "bf16"), "none", ("none", "none", "none"))
-    mid = mm._derive_image_model_id(combo_key)
-    e, a = _entry(mm, mid=mid)
-    e.stashed = True
-
-    from src.services.inference.component_spec import ComponentSpec
-    resolved = {
-        "diffusion_models": ComponentSpec(kind="diffusion_models", file="/m/a", device="cuda:1", dtype="bfloat16"),
-        "clip": ComponentSpec(kind="clip", file="/m/b", device="cuda:1", dtype="bfloat16"),
-        "vae": ComponentSpec(kind="vae", file="/m/c", device="cuda:1", dtype="bfloat16"),
-    }
-    out = await mm._get_or_load_modular_adapter(resolved, combo_key, "Flux2KleinPipeline", "cuda:1",
-                                                _async_noop)
-    assert out is a
-    assert a.restore_calls == 1 and e.stashed is False
-
-
-async def _async_noop(*a, **k):
-    return None
 
 
 def test_evictable_excludes_stashed(mm):
@@ -156,29 +117,6 @@ def test_snapshot_reports_adapter_stashed(mm):
     e.stashed = True
     snap = mm.loaded_models_snapshot()
     assert snap and snap[0]["stashed"] is True
-
-
-def test_engine_stash_guards(monkeypatch):
-    """ModularImageBackend.stash:干净 pipe → to('cpu') True;offload/override/无 pipe → False。"""
-    be = IM.ModularImageBackend(repo="/m/z", device="cuda:1", pipeline_class="ZImagePipeline")
-    assert be.stash() is False, "无 pipe 不可 stash"
-
-    pipe = MagicMock(name="pipe")
-    be._pipe = pipe
-    assert be.stash() is True
-    pipe.to.assert_called_once_with("cpu")
-    be.restore()
-    pipe.to.assert_called_with("cuda:1")
-
-    be2 = IM.ModularImageBackend(repo="/m/z", device="cuda:1", pipeline_class="ZImagePipeline",
-                                 offload="cpu")
-    be2._pipe = MagicMock()
-    assert be2.stash() is False, "offload pipe(hook)不可整体 .to"
-
-    be3 = IM.ModularImageBackend(repo="/m/z", device="cuda:1", pipeline_class="ZImagePipeline")
-    be3._pipe = MagicMock()
-    be3._transformer_override = object()
-    assert be3.stash() is False, "override 装配走组件层 stash"
 
 
 @pytest.mark.asyncio
@@ -204,3 +142,23 @@ async def test_evict_lru_falls_back_to_destroy(mm):
     e, a = _entry(mm, adapter=_FakeAdapter(stash_ok=False), mid="mC")
     out = await mm.evict_lru(gpu_index=1)
     assert out == "mC" and "mC" not in mm._models
+
+
+# 从 test_component_ram_stash.py 挪来:组件池那一半随图像引擎删掉,adapter 级记账留着
+# (/monitor/stats 聚合用)。
+def test_stash_ram_bytes_sums_adapters():
+    """stash_ram_bytes = stashed adapter 的 vram_mb 字节之和(/monitor/stats 聚合用)。未 stash 的不计。"""
+    mm = ModelManager(registry=_Reg(), allocator=GPUAllocator())
+    # adapter:一个 stashed(spec.vram_mb=3000MB)、一个未 stash(不计)
+    mm._models = {
+        "m1": SimpleNamespace(stashed=True, spec=SimpleNamespace(vram_mb=3000)),
+        "m2": SimpleNamespace(stashed=False, spec=SimpleNamespace(vram_mb=8000)),
+    }
+    expected = 3000 * 1024 * 1024
+    assert mm.stash_ram_bytes() == expected
+
+
+def test_stash_ram_bytes_empty_is_zero():
+    """无 stash → 0(不抛)。"""
+    mm = ModelManager(registry=_Reg(), allocator=GPUAllocator())
+    assert mm.stash_ram_bytes() == 0

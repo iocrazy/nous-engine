@@ -1,8 +1,8 @@
 """主进程聚合「已加载 adapter」单一真相来源。
 
-image/tts adapter 真加载在各 runner 子进程自己的 `ModelManager._models`,主进程的
-`app.state.model_manager._models` 看不到它们 —— 于是引擎库「已加载」、系统状态
-「已加载模型(N)」、`/api/v1/engines/image-cache` 历史上全恒为 0/空。
+tts adapter 真加载在各 runner 子进程自己的 `ModelManager._models`,主进程的
+`app.state.model_manager._models` 看不到它们 —— 不聚合的话系统状态「已加载模型(N)」、
+`GET /api/v1/engines/loaded-adapters` 会恒为 0/空。
 
 runner 每个 Pong 带回 `loaded_models_snapshot()`(supervisor watchdog 每 ping 对账一次,
 存在 `RunnerSupervisor.loaded_models`)。本模块把所有 runner 的快照 + 主进程自身
@@ -20,7 +20,7 @@ def aggregate_runner_loaded(app_state: Any) -> list[dict]:
     """汇总所有 runner 子进程上报的已加载 adapter 快照 + 主进程自身 _models。
 
     每条 entry 形如 ModelManager.loaded_models_snapshot() 的 dict,额外带 `group_id`
-    (runner group 如 'image'/'tts',或主进程 'main')。
+    (runner group 如 'tts',或主进程 'main')。
     """
     out: list[dict] = []
     sups = getattr(app_state, "runner_supervisors", None)
@@ -34,36 +34,6 @@ def aggregate_runner_loaded(app_state: Any) -> list[dict]:
                         out.append({**entry, "group_id": gid})
     mgr = getattr(app_state, "model_manager", None)
     snap = getattr(mgr, "loaded_models_snapshot", None)
-    if callable(snap):
-        try:
-            entries = snap()
-        except Exception:  # noqa: BLE001 — mock / 异常 mgr 不该拖垮聚合
-            entries = None
-        if isinstance(entries, list):
-            for entry in entries:
-                if isinstance(entry, dict):
-                    out.append({**entry, "group_id": "main"})
-    return out
-
-
-def aggregate_runner_components(app_state: Any) -> list[dict]:
-    """汇总所有 runner + 主进程上报的已加载**单组件** L1 快照(组件 L1 PR-3a)。
-
-    每条 = ModelManager.loaded_components_snapshot() 的 dict + `group_id`。引擎库据此把单文件
-    组件标 loaded@卡 + resident(含预加载的孤组件,combo source_files 够不着)。
-    """
-    out: list[dict] = []
-    sups = getattr(app_state, "runner_supervisors", None)
-    if isinstance(sups, list):
-        for sup in sups:
-            gid = getattr(sup, "group_id", "?")
-            entries = getattr(sup, "loaded_components", None)
-            if isinstance(entries, list):
-                for entry in entries:
-                    if isinstance(entry, dict):
-                        out.append({**entry, "group_id": gid})
-    mgr = getattr(app_state, "model_manager", None)
-    snap = getattr(mgr, "loaded_components_snapshot", None)
     if callable(snap):
         try:
             entries = snap()
