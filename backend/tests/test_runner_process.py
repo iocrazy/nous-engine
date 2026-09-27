@@ -56,12 +56,13 @@ async def test_load_model_then_run_node():
     proc, ch = _spawn_runner()
     try:
         await _recv(ch)  # 吞掉 Ready
-        await ch.send_message(P.LoadModel(model_key="fake-img-a", config={}))
+        # steps 经 LoadModel.config 给 FakeAdapter(AudioRequest 不带 steps)。
+        await ch.send_message(P.LoadModel(model_key="fake-img-a", config={"steps": 3}))
         ev = await _recv(ch)
         assert isinstance(ev, P.ModelEvent) and ev.event == "loaded"
 
         await ch.send_message(P.RunNode(
-            task_id=7, node_id="sampler", node_type="image",
+            task_id=7, node_id="sampler", node_type="tts",
             model_key="fake-img-a", inputs={"steps": 3},
         ))
         progresses, result = await _collect_until_result(ch)
@@ -118,11 +119,11 @@ async def test_abort_during_node_cancels_it():
     proc, ch = _spawn_runner()
     try:
         await _recv(ch)  # Ready
-        await ch.send_message(P.LoadModel(model_key="fake-img-a", config={"infer_seconds": 0.1}))
+        await ch.send_message(P.LoadModel(model_key="fake-img-a", config={"infer_seconds": 0.1, "steps": 20}))
         assert isinstance(await _recv(ch), P.ModelEvent)
         # 跑一个 20 step 的长节点
         await ch.send_message(P.RunNode(
-            task_id=9, node_id="sampler", node_type="image",
+            task_id=9, node_id="sampler", node_type="tts",
             model_key="fake-img-a", inputs={"steps": 20},
         ))
         # 收到第一个 progress 后立刻 Abort
