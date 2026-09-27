@@ -10,7 +10,8 @@ name: Deploy
 #   - 真正的硬闸在 runner 本机:job-started hook(infra/runner/job-started-guard.sh,装在仓库
 #     之外)只放行「本文件 @ refs/heads/master」+ workflow_run/workflow_dispatch。fork PR 自带的
 #     workflow 即使被误批准,在 hook 这一步就失败,一行代码都不跑。
-#   - runner 用 --no-default-labels + 专属 label nous-engine-prod,`runs-on: self-hosted` 落不到它。
+#   - runner 用 --no-default-labels,只有专属 label nous-engine-prod —— `runs-on: self-hosted`
+#     落不到它;本文件也因此只能写 `runs-on: [nous-engine-prod]`。
 #
 # 闸门拒绝(自动上线开关关着 / ComfyUI 渲染进行中)→ job 标红并说明原因,代码已在 master,
 # 稍后 `gh workflow run deploy.yml` 或 Actions 页手动 Run workflow 重试。
@@ -38,7 +39,9 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'master' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: [self-hosted, nous-engine-prod]
+    # 只写专属 label:runner 以 --no-default-labels 注册,没有 self-hosted/Linux/X64 这些默认
+    # label —— 写 [self-hosted, nous-engine-prod] 会永远排队(2026-09-27 首跑踩到)。
+    runs-on: [nous-engine-prod]
     timeout-minutes: 45
     env:
       PROD: /media/heygo/program/projects-code/repos/nous-engine
