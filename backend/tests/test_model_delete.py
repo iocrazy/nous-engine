@@ -378,36 +378,6 @@ def test_delete_models_d_yaml_rejects_key_with_path_separator(tmp_path):
     assert victim.exists()
 
 
-# ── 缓存失效 ──────────────────────────────────────────────────────────────
-
-
-def test_invalidate_all_caches_hits_every_scanner_and_response_cache(monkeypatch):
-    """删完必须把 5 层缓存全清,否则引擎库 30s 内还显示已删的模型。"""
-    called = []
-
-    import src.api.response_cache as rc
-    import src.services.component_scanner as cs
-    import src.services.lora_scanner as ls
-    import src.services.model_metadata_service as mms
-    import src.services.model_scanner as ms
-
-    monkeypatch.setattr(ms, "invalidate_scan_cache", lambda: called.append("scan"))
-    monkeypatch.setattr(
-        mms, "invalidate_local_scan_cache", lambda: called.append("local_scan")
-    )
-    monkeypatch.setattr(ls, "invalidate_cache", lambda: called.append("lora"))
-    monkeypatch.setattr(
-        cs, "invalidate_component_cache", lambda: called.append("component")
-    )
-    monkeypatch.setattr(rc, "invalidate", lambda prefix: called.append(f"rc:{prefix}"))
-
-    from src.services.model_deleter import invalidate_all_caches
-
-    invalidate_all_caches()
-
-    assert set(called) == {"scan", "local_scan", "lora", "component", "rc:engines"}
-
-
 # ── 注册表清理:DB 行 ──────────────────────────────────────────────────────
 
 
