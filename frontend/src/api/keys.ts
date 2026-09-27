@@ -204,7 +204,7 @@ export interface EndpointInfo {
 
 /** 给某个 key + service 组合渲染调用 endpoint URL —— **按服务 category 给对端点**:
  *  llm→chat/completions(+ollama/anthropic) / embedding→embeddings / image→images
- *  generations / tts→audio/speech。null/未知 → 退回 chat(向后兼容)。 */
+ *  generations / tts→audio/speech / rerank→rerank。null/未知 → 退回 chat(向后兼容)。 */
 export function endpointsFor(
   serviceName: string,
   baseUrl: string,
@@ -213,6 +213,9 @@ export function endpointsFor(
   const hint = `model: ${serviceName}`
   if (category === 'embedding') {
     return { embeddings: { label: 'OpenAI 兼容 · Embeddings', url: `${baseUrl}/v1/embeddings`, hint } }
+  }
+  if (category === 'rerank') {
+    return { rerank: { label: 'Rerank (Cohere/Jina 兼容)', url: `${baseUrl}/v1/rerank`, hint } }
   }
   if (category === 'image') {
     return { images: { label: 'OpenAI 兼容 · Images', url: `${baseUrl}/v1/images/generations`, hint } }

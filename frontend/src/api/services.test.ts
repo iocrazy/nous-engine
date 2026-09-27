@@ -8,6 +8,7 @@ describe('endpointFor — 服务卡端点提示按 category', () => {
   it('每个 model 类目落对的 OpenAI 兼容端点(2026-06-21:此前非 llm 全误落 /v1/apps)', () => {
     expect(ep('llm')).toContain('/v1/chat/completions')
     expect(ep('embedding')).toContain('/v1/embeddings')
+    expect(ep('rerank')).toContain('/v1/rerank')
     expect(ep('tts')).toContain('/v1/audio/speech')
     expect(ep('asr')).toContain('/v1/audio/transcriptions')
     expect(ep('image')).toContain('/v1/images/generations')

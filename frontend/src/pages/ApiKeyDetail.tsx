@@ -40,6 +40,7 @@ import { buildClientConfigText } from '../components/services/serviceCapabilitie
 const MODALITY_LABEL: Record<string, string> = {
   llm: '对话 (chat)',
   embedding: '向量 (embedding)',
+  rerank: '重排 (rerank)',
   image: '图像 (image)',
   tts: '语音合成 (tts)',
   asr: '语音转写 (asr)',
@@ -955,6 +956,20 @@ function buildSnippets(
   -d '{
     "model": "${model}",
     "input": ["第一段文本", "second text"]
+  }'`,
+    }
+  }
+  if (category === 'rerank') {
+    // Cohere/Jina 兼容;document 也可写成 {"content":[{"type":"image_url",...}]} 做图文重排。
+    return {
+      rerank: `curl ${baseUrl}/v1/rerank \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -d '{
+    "model": "${model}",
+    "query": "橘猫在窗台晒太阳",
+    "documents": ["一只橘色的猫趴在窗边", "今天股市大跌"],
+    "top_n": 2
   }'`,
     }
   }

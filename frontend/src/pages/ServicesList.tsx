@@ -893,7 +893,7 @@ function effectiveCategory(svc: Pick<ServiceRow, 'category' | 'type'>): ServiceC
 }
 
 function buildCounts(rows: ServiceRow[]): Record<ServiceCategory, number> {
-  const out: Record<ServiceCategory, number> = { llm: 0, tts: 0, vl: 0, app: 0, image: 0, asr: 0, embedding: 0 }
+  const out: Record<ServiceCategory, number> = { llm: 0, tts: 0, vl: 0, app: 0, image: 0, asr: 0, embedding: 0, rerank: 0 }
   for (const r of rows) out[effectiveCategory(r)] += 1
   return out
 }

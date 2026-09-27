@@ -45,7 +45,7 @@ def test_ensure_vllm_base_url_is_gone():
 
 
 # spec 2026-09-26 skill-runs:preview 走共用的 chat_invoke,同样对放置只读。
-SKILL_RUNS_DATA_PLANE = ("src.api.chat_invoke", "src.api.routes.skill_runs")
+SKILL_RUNS_DATA_PLANE = ("src.api.chat_invoke", "src.api.routes.skill_runs", "src.api.routes.rerank")
 
 
 def test_skill_runs_path_has_no_load_capability():

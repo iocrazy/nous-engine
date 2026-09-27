@@ -467,7 +467,7 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
         ) : (
           <AppEditorTab svc={svc} />
         )
-      ) : svc.source_type === 'model' && (svc.category === 'llm' || svc.category === 'embedding') ? (
+      ) : svc.source_type === 'model' && (svc.category === 'llm' || svc.category === 'embedding' || svc.category === 'rerank') ? (
         // 模型类服务没有 exposed_inputs,通用表单只能发出 messages:[](见 ModelPlayground 头注释)
         <ModelPlayground name={svc.name} category={svc.category} />
       ) : (

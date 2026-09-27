@@ -37,7 +37,7 @@ COMPONENTS: list[tuple[str, str]] = [
     ("backend", "后端 API"),
     ("database", "数据库"),
     ("llm", "LLM 推理 (vLLM)"),
-    ("embedding", "向量 (vLLM)"),
+    ("embedding", "向量 / 重排 (vLLM)"),
     ("tts", "语音 Runner"),
     ("gpu", "GPU"),
     ("comfy", "ComfyUI 桥"),
@@ -117,14 +117,17 @@ async def compute_statuses(
     mgr = getattr(app_state, "model_manager", None)
     by_type = _vllm_targets_by_type(mgr) if mgr else {}
 
-    # llm / embedding:对应 type 的 vLLM 实例健康。
+    # llm / embedding:对应 type 的 vLLM 实例健康。rerank 同为 pooling 实例,并入 embedding 组件
+    # (同为「向量检索链路」的一环,状态页不单开一行)。
     try:
         out["llm"] = await _vllm_component_status(by_type.get("llm", []))
     except Exception as e:  # noqa: BLE001
         logger.warning("status: llm check failed: %s", e)
         out["llm"] = DOWN
     try:
-        out["embedding"] = await _vllm_component_status(by_type.get("embedding", []))
+        out["embedding"] = await _vllm_component_status(
+            by_type.get("embedding", []) + by_type.get("rerank", []),
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("status: embedding check failed: %s", e)
         out["embedding"] = DOWN

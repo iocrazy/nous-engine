@@ -17,6 +17,10 @@ describe('endpointsFor — 按服务 category 给对端点', () => {
     expect(endpointsFor('emb', base, 'embedding').embeddings.url).toBe(`${base}/v1/embeddings`)
   })
 
+  it('rerank → /v1/rerank', () => {
+    expect(endpointsFor('rr', base, 'rerank').rerank.url).toBe(`${base}/v1/rerank`)
+  })
+
   it('tts → /v1/audio/speech(与 asr 区分,别串)', () => {
     expect(endpointsFor('tts', base, 'tts').audio.url).toBe(`${base}/v1/audio/speech`)
   })

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { apiFetch } from '../../api/client'
 
 /**
- * 模型类服务(source_type=model)的 Playground:LLM 对话 / 向量。
+ * 模型类服务(source_type=model)的 Playground:LLM 对话 / 向量 / 重排。
  *
  * 为什么不走通用 PlaygroundTab:模型类服务没有 `exposed_inputs`(那是工作流/应用的
  * 暴露字段),通用表单只会显示「该服务没有暴露入参」,点运行发出 `messages: []`;
@@ -52,7 +52,9 @@ function errText(e: unknown): string {
 }
 
 export function ModelPlayground({ name, category }: { name: string; category: string }) {
-  return category === 'embedding' ? <EmbeddingPlayground name={name} /> : <ChatPlayground name={name} />
+  if (category === 'embedding') return <EmbeddingPlayground name={name} />
+  if (category === 'rerank') return <RerankPlayground name={name} />
+  return <ChatPlayground name={name} />
 }
 
 function ChatPlayground({ name }: { name: string }) {
@@ -253,6 +255,66 @@ function EmbeddingPlayground({ name }: { name: string }) {
           <div style={{ color: 'var(--muted)' }}>
             [{out.head.map((v) => v.toFixed(4)).join(', ')}{out.dim > 8 ? ', …' : ''}]
           </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function RerankPlayground({ name }: { name: string }) {
+  // 只做纯文本试调;图文重排(document 写成 {"content":[image_url…]})用 API 调。
+  const [query, setQuery] = useState('')
+  const [docs, setDocs] = useState('')
+  const [running, setRunning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [out, setOut] = useState<{ rows: { index: number; score: number }[]; tokens?: number; ms: number } | null>(null)
+  const docList = docs.split('\n').map((d) => d.trim()).filter(Boolean)
+  const disabled = running || !query.trim() || docList.length === 0
+
+  const run = async () => {
+    if (disabled) return
+    setRunning(true)
+    setError(null)
+    setOut(null)
+    const t0 = performance.now()
+    try {
+      const data = await apiFetch<{
+        results?: { index: number; relevance_score: number }[]
+        usage?: { prompt_tokens?: number; total_tokens?: number }
+      }>('/v1/rerank', {
+        method: 'POST',
+        body: JSON.stringify({ model: name, query, documents: docList }),
+      })
+      setOut({
+        rows: (data.results ?? []).map((r) => ({ index: r.index, score: r.relevance_score })),
+        tokens: data.usage?.total_tokens ?? data.usage?.prompt_tokens,
+        ms: Math.round(performance.now() - t0),
+      })
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <section style={box}>
+      <input aria-label="查询" placeholder="查询(query)" value={query}
+        onChange={(e) => setQuery(e.target.value)} style={textareaStyle} />
+      <textarea aria-label="候选文档(每行一条)" placeholder="候选文档,每行一条" rows={5} value={docs}
+        onChange={(e) => setDocs(e.target.value)} style={textareaStyle} />
+      <button type="button" onClick={() => void run()} disabled={disabled} style={btn(disabled)}>
+        {running ? '打分中…' : '▶ 重排'}
+      </button>
+      {error && (
+        <div role="alert" style={{ color: 'var(--danger, #ef4444)', fontSize: 13 }}>{error}</div>
+      )}
+      {out && (
+        <div style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--mono, monospace)', lineHeight: 1.7 }}>
+          <div style={{ color: 'var(--muted)' }}>{out.ms} ms{out.tokens != null ? ` · ${out.tokens} tokens` : ''}</div>
+          {out.rows.map((r) => (
+            <div key={r.index}>{r.score.toFixed(4)} · #{r.index} {docList[r.index]}</div>
+          ))}
         </div>
       )}
     </section>
