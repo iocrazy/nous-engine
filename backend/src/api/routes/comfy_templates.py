@@ -32,6 +32,7 @@ from src.models.database import get_async_session
 from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
+from src.services.comfy.upload_inputs import UPLOAD_TYPES
 from src.services.workflow_snapshot import NAME_RE, NAME_RULE_MSG
 
 router = APIRouter(prefix="/api/v1/comfy-templates", tags=["comfy-templates"])
@@ -165,14 +166,21 @@ class MappingBody(BaseModel):
                     "options_depends_on/options_source —— 它的值是上传的文件,不是从"
                     "选项清单里选一项,挂上动态清单会让上传被白名单拒掉")
             if p.omit_when_empty:
-                if str(p.type or "").lower() not in _FILE_IN_TYPES:
+                # 用桥自己的上传类型集合、原样大小写比对:存得进去 == 桥会剪(binary 不在内)。
+                if p.type not in UPLOAD_TYPES:
                     raise ValueError(
-                        f"exposed_param {p.key!r}: omit_when_empty 只用于文件类参数"
-                        f"(当前 type={p.type!r})")
+                        f"exposed_param {p.key!r}: omit_when_empty 只用于桥会上传的文件类参数"
+                        f"(type 须为 {sorted(UPLOAD_TYPES)} 之一,当前 {p.type!r})")
                 if p.required:
                     raise ValueError(
                         f"exposed_param {p.key!r}: omit_when_empty 与 required=true 矛盾"
                         "(必填参数永远不会「未传」)")
+                if p.default is not None:
+                    # 桥取值是 data.get(key, default):有 default 就永远不算「未传」,
+                    # 标了也不剪,占位文件名照样写进图 —— 静默失效,发布时就拒。
+                    raise ValueError(
+                        f"exposed_param {p.key!r}: omit_when_empty 不能同时设 default"
+                        f"(当前 {p.default!r});有 default 就永远不会「未传」,不会剪枝")
             if dep is None:
                 continue
             if dep == p.key:

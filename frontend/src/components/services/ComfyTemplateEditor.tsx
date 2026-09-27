@@ -55,8 +55,9 @@ interface FieldMeta {
 }
 
 const NUMERIC_TYPES = new Set(['integer', 'number'])
-// 与后端 comfy_templates._FILE_IN_TYPES 同一集合:这些类型的值是上传的文件。
-const FILE_TYPES = new Set(['image', 'file', 'audio', 'video', 'binary', 'media'])
+// 「未传时剪掉」开关只对桥**会上传**的类型出现:与后端 comfy/upload_inputs.UPLOAD_TYPES
+// 同一集合(大小写一致,没有 binary —— 桥不上传 binary,标了也不会剪,后端会 400)。
+const OMITTABLE_TYPES = new Set(['media', 'image', 'file', 'audio', 'video'])
 // C2/I1 fix: 'image' 让这个字段在 Playground 渲染成文件选择器(值以 data URI 形式提交,
 // 见 SchemaDrivenForm.tsx classifyField 认的 file|image|audio|video|binary 类型集合)。
 // 后端 comfy_bridge.py 的上传触发条件同步放宽到接受这个词汇(见 _UPLOAD_TYPES)——挑
@@ -593,7 +594,7 @@ function NodeConfigPopover({
             const type = cur?.type ?? meta.type
             const numeric = NUMERIC_TYPES.has(type)
             const seedLike = isSeedLike(r.inputName, type)
-            const fileLike = FILE_TYPES.has(type)
+            const fileLike = OMITTABLE_TYPES.has(type)
             return (
               <div
                 key={r.inputName}
@@ -678,9 +679,11 @@ function NodeConfigPopover({
                       aria-label={`未传时剪掉 ${r.inputName}`}
                       checked={!!cur?.omit_when_empty}
                       disabled={!active}
-                      // 可省略 ⇒ 非必填(后端拒 required + omit_when_empty 的组合)
+                      // 可省略 ⇒ 非必填 + 清掉 default(后端拒这两种组合):暴露时 default 是
+                      // 节点里烤死的占位文件名,留着的话桥 data.get(key, default) 永远不算「未传」,
+                      // 开关静默失效、占位图照喂。
                       onChange={(e) => onPatch(r.inputName, e.target.checked
-                        ? { omit_when_empty: true, required: false }
+                        ? { omit_when_empty: true, required: false, default: null }
                         : { omit_when_empty: false })}
                     />
                     未传时剪掉该支路(可选参考图:不传就不喂模板占位图)

@@ -5,18 +5,22 @@
 LoadImage 会把模板里烤死的占位图照样喂进模型(见 docs/comfy-bridge-notes.md)。
 
 级联规则(下游节点某输入连到了被删节点):
-- 该输入在 object_info 里是 **optional**,或是 autogrow 子键(键名带 `.`,如
+- 该输入在 object_info 里是 **optional**,或键名带 `.`(autogrow 子键,如
   `images.image_3` —— ComfyUI 按「实际连了哪些子键」展开 autogrow,缺的子键就是没接)
-  → 只删这个输入键,节点保留;
+  → 只删这个输入键,节点保留。**凡带 `.` 一律按 optional**,不查 object_info:对 min=0 的
+  autogrow 正确;dynamic combo 子输入、min>0 的 autogrow、整组删空的 required autogrow
+  会漏判,由 ComfyUI 提交校验兜底(报错落 failed,不静默);
 - **required** → 该节点也删,继续级联;
 - object_info 取不到这个节点类型,或 object_info 里压根没声明这个输入名(节点版本漂移)
   → **保守删节点**并继续级联(宁可少一条支路,也不喂占位图),记进 `unknown_classes`
   由调用方打 warning。
 
 级联删到**产出端**(object_info `output_node: true` 且不是预览/对比类;info 取不到时按
-已知产出类名兜底)→ 抛 `GraphPruneError`:这说明该「可选」参数实际是输出链路必需的,
-mapping 配错了,绝不静默提交一张没有产出端的图。上游只剩孤儿的节点不必清理 —— ComfyUI
-只从输出节点反向执行,够不着的节点既不校验也不跑。
+已知产出类名兜底)→ 抛 `GraphPruneError`:级联全凭确定的 required 走到这里 = 该「可选」
+参数实际是输出链路必需的,mapping 配错了;级联里掺了保守删除(object_info 取不到)→ 错误
+信息改说 object_info 不可用(多半是 sidecar 瞬时问题),不甩锅给 mapping。两种情况都
+绝不静默提交一张没有产出端的图。上游只剩孤儿的节点不必清理 —— ComfyUI 只从输出节点
+反向执行,够不着的节点既不校验也不跑。
 """
 from __future__ import annotations
 
@@ -83,7 +87,11 @@ def downstream_nodes(graph: Mapping[str, Any], roots: Iterable[str]) -> set[str]
 def _input_kind(info: Mapping[str, Any] | None, input_name: str) -> str:
     """→ "optional" | "required" | "unknown"。"""
     if "." in input_name:
-        # autogrow / dynamic 子键:没接的子键 ComfyUI 当「没传」,只删键即可。
+        # **凡带 `.` 的键一律当 optional**(只删键)。对 autogrow(min=0,如
+        # TextEncodeQwenImage21.images)这是对的:没接的子键 ComfyUI 当「没传」。
+        # 已知不精确的情形:dynamic combo 的子输入(可能 required)、min>0 的 autogrow
+        # (前 min 个子键 required)、以及 required 的 autogrow 被整组删空 —— 这些都会
+        # 在提交时由 ComfyUI 校验报错(落 failed),不会静默产出。
         return "optional"
     if not isinstance(info, Mapping):
         return "unknown"
@@ -145,6 +153,12 @@ def prune_graph(
     )
     if outputs_hit:
         hit = "、".join(f"{nid}({ct})" for nid, ct in outputs_hit)
+        if unknown:
+            # 级联里有保守删除:很可能是 sidecar 暂时取不到 object_info,不是 mapping 配错。
+            raise GraphPruneError(
+                f"剪掉未传的可选参数会连带删掉输出节点 {hit};但级联中 {sorted(unknown)} 的 "
+                "object_info 取不到(ComfyUI sidecar 暂时不可达或节点未安装),只能保守删除 —— "
+                "稍后重试;若持续出现,检查 sidecar 与这些节点是否可用")
         raise GraphPruneError(
             f"剪掉未传的可选参数会连带删掉输出节点 {hit} —— 该参数实际是输出链路必需的,"
             "mapping 不该给它标 omit_when_empty")

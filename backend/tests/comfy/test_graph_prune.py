@@ -113,16 +113,20 @@ def test_unknown_class_cascades_node_removal():
     g = _graph()
     g["6"]["inputs"]["samples"] = ["4", 0]  # 让可选支路直连 VAEDecode
     info = {k: v for k, v in OBJECT_INFO.items() if k != "VAEDecode"}
-    with pytest.raises(GraphPruneError, match="SaveImage"):
+    with pytest.raises(GraphPruneError, match="SaveImage") as ei:
         prune_graph(g, {"3"}, info)
+    # 级联里有 object_info 缺失的类型 → 报「取不到 object_info」,不甩锅给 mapping
+    assert "object_info" in str(ei.value) and "VAEDecode" in str(ei.value)
+    assert "mapping 不该" not in str(ei.value)
 
 
 def test_required_chain_reaching_output_node_raises():
     """剪主图(required 一路到 SaveImage)= mapping 配错:可选参数其实是输出链路必需的。"""
     g = _graph()
     g["5"]["inputs"]["prompt"] = ["1", 0]  # 让主图经 required 输入直达编码器
-    with pytest.raises(GraphPruneError, match="7"):
+    with pytest.raises(GraphPruneError, match="7") as ei:
         prune_graph(g, {"1"}, OBJECT_INFO)
+    assert "mapping" in str(ei.value)
 
 
 def test_preview_output_node_pruned_silently():

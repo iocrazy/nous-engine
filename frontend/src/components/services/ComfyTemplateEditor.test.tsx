@@ -192,6 +192,7 @@ describe('ComfyTemplateEditor', () => {
     fireEvent.click(await screen.findByText('LoadImage #1'))
     const row = (await screen.findByText('image')).closest('[data-input-row]') as HTMLElement
     fireEvent.click(within(row).getByRole('checkbox', { name: /暴露/ }))
+    expect(within(row).getByText(/photo\.png/)).toBeInTheDocument() // 原值即占位图
     // 非文件类型时不出这个开关
     expect(within(row).queryByRole('checkbox', { name: /未传时剪掉/ })).not.toBeInTheDocument()
     fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'image' } })
@@ -200,8 +201,21 @@ describe('ComfyTemplateEditor', () => {
     await waitFor(() => expect(api.putMapping).toHaveBeenCalled())
     const [, params] = vi.mocked(api.putMapping).mock.calls.at(-1)!
     expect(params).toEqual([
-      expect.objectContaining({ key: 'image', type: 'image', omit_when_empty: true, required: false }),
+      // default 原本是节点里烤死的占位文件名 'photo.png':不清掉的话桥永远不算「未传」,
+      // 开关静默失效(后端也会 400 拒这个组合)
+      expect.objectContaining({ key: 'image', type: 'image', omit_when_empty: true, required: false, default: null }),
     ])
+  })
+
+  it('omit_when_empty:binary 类型不出开关(桥不上传 binary,标了也不会剪)', async () => {
+    vi.mocked(api.getComfyTemplate).mockResolvedValue(baseDetail([
+      { key: 'blob', label: 'blob', type: 'binary', comfy_node_id: '1', comfy_input: 'image', required: false },
+    ]))
+    renderEditor({ templateId: '7' })
+    fireEvent.click(await screen.findByText('LoadImage #1'))
+    const row = (await screen.findByText('image')).closest('[data-input-row]') as HTMLElement
+    expect(within(row).getByRole('checkbox', { name: /暴露/ })).toBeChecked()
+    expect(within(row).queryByRole('checkbox', { name: /未传时剪掉/ })).not.toBeInTheDocument()
   })
 
   it('sidecar 离线 → 降级提示', async () => {

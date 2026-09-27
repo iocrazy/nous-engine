@@ -37,11 +37,19 @@
   mapping 条目标 `omit_when_empty: true`(**只许文件类 + `required: false`**,PUT mapping 否则
   400)后,调用方没传(None 或空串)且 mapping 无 `default` 时,桥在上传/打补丁之后、submit
   之前调 `comfy/graph_prune.prune_graph`:删 `comfy_node_id` 指向的节点,顺连线级联 ——
-  下游输入在 object_info 里 **optional 或是 autogrow 子键(键名带 `.`,如 `images.image_3`)
-  → 只删该键**;**required → 节点也删、继续级联**;object_info 取不到 / 没声明该输入 →
+  下游输入在 object_info 里 **optional 或键名带 `.`(autogrow 子键,如 `images.image_3`)
+  → 只删该键**(**凡带 `.` 一律当 optional**,不查 object_info:对 min=0 的 autogrow 正确;
+  dynamic combo 子输入、min>0 的 autogrow、整组删空的 required autogrow 会漏判,由 ComfyUI
+  提交校验兜底报错落 failed,不静默);**required → 节点也删、继续级联**;object_info 取不到 / 没声明该输入 →
   **保守删节点**(warning,宁可少一条支路也不喂占位图)。级联删到**产出端**(`output_node`
   且非预览/对比类;info 缺失时按 `FALLBACK_OUTPUT_CLASSES` 兜底)→ `GraphPruneError`
-  (ValueError)落 failed、不提交:那个「可选」参数其实是输出链路必需的,是 mapping 配错了。
+  (ValueError)落 failed、不提交:那个「可选」参数其实是输出链路必需的,是 mapping 配错了;
+  级联里掺了 object_info 取不到的保守删除时,错误改说 object_info 不可用(多半 sidecar 瞬时
+  问题),不甩锅给 mapping。**剪枝在任何上传之前做**(拓扑不依赖补丁值),报错不留孤儿上传。
+  PUT mapping 的校验:flag 只许 `comfy/upload_inputs.UPLOAD_TYPES`(桥上传用的同一集合,
+  大小写原样,**没有 binary**)、`required: false`、**`default` 必须为 null** —— 桥取值是
+  `data.get(key, default)`,有 default 就永远不算「未传」,标了也静默不剪(编辑器暴露字段时会把
+  节点里的占位文件名写进 default,所以开关勾上时同时清掉 default)。
   object_info 走 `comfy/object_info.get_node_infos`:只取被剪节点**下游**那几种类型的
   `/object_info/{class}`,进程内缓存(成功 10 分钟 / 失败 30 秒),**绝不抛**(取不到 = None
   → 保守分支)。全部参数都传了就一次也不查。未标 flag 的老 mapping 行为一字不变。

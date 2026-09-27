@@ -38,6 +38,8 @@ OBJECT_INFO = {
         "optional": {"vae": ["VAE", {}]}}, "output_node": False},
     "Image Comparer (rgthree)": {"input": {"required": {}, "optional": {
         "image_a": ["IMAGE"], "image_b": ["IMAGE"]}}, "output_node": True},
+    "VAEDecode": {"input": {"required": {"samples": ["LATENT", {}], "vae": ["VAE", {}]}},
+                  "output_node": False},
     "SaveImage": {"input": {"required": {"images": ["IMAGE", {}],
                                          "filename_prefix": ["STRING", {}]}},
                   "output_node": True},
@@ -239,9 +241,12 @@ async def test_omit_flag_on_output_critical_param_raises(monkeypatch, bridge):
         return wf, params
     monkeypatch.setattr(nb, "load_template", fake_load_template)
     node = get_node_class("comfyui_workflow")()
+    # 顺带传两张别的图:剪枝报错必须发生在任何上传之前,不留孤儿文件
     with pytest.raises(ValueError, match="omit_when_empty"):
-        await node.invoke({"template_id": 1, "prompt": "p"}, {})
+        await node.invoke({"template_id": 1, "prompt": "p",
+                           "image2": PNG_URI, "image3": PNG_URI}, {})
     assert bridge["fake"].submitted is None
+    assert bridge["fake"].uploaded == []
 
 
 # ---------- 控制面:mapping 持久化 + schema ----------
@@ -271,6 +276,11 @@ async def test_mapping_roundtrip_keeps_omit_flag_and_schema_optional(client):
 @pytest.mark.parametrize("bad", [
     {"type": "string", "required": False},   # 非文件类
     {"type": "image", "required": True},     # 必填又可省略,自相矛盾
+    # 桥的上传类型集合里没有 binary,大小写也按桥的原样比对 —— 存得进去就会静默不剪
+    {"type": "binary", "required": False},
+    {"type": "Image", "required": False},
+    # 有 default 就永远不算「未传」,标了也不会剪(编辑器曾把占位文件名写进 default)
+    {"type": "image", "required": False, "default": "5 (1).jpg"},
 ])
 async def test_mapping_rejects_invalid_omit_flag(client, bad):
     wf, _ = _artifact()
