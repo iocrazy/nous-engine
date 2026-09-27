@@ -33,12 +33,18 @@ comfy validate --workflow /tmp/out/<name>.api.json --input object_info.json
   `seed/sampler_name/scheduler/denoise → 66:54`、`color_correction_method → 66:59`。
 - VOSR2 视频**默认保留原帧率**:这由工作流自身表达 —— `VHS_VideoCombine.frame_rate` 连到
   `VHS_VideoInfo` 的 `loaded_fps`(槽 5),`force_rate` 默认 0(不重采样)。适配层无需特判。
-- `frame_load_cap` 默认 **0(读全部帧)**,不是工作流里的测试值 1。
+- `frame_load_cap` 默认 **150**、范围 **1–600**(0 在 VHS 里是「全部帧」,等于绕过上限,不开放);
+  `skip_first_frames` ≤ 10000。VHS 把帧以 float32 全放主机 RAM:2560×1440 输出约 44MB/帧,
+  900 帧就是 ~40GB,正是 2026-09-11 那类主机 RAM OOM。
 - `output_format` 只开 `video/h264-mp4`(默认)/`video/h265-mp4`/`video/webm`:三者的格式
   专属参数(pix_fmt=yuv420p、crf、save_metadata)与快照兼容,产物扩展名都归 video。
   gif/webp 会被桥归成 image,ProRes/nvenc 需要别的参数,故不开放。
 
 ## 部署
 
-`BASE=http://127.0.0.1:8000 ADMIN_TOKEN=… ./docs/replications/upscale/deploy.sh`
-(POST 模板 + PUT mapping;不碰 DB、不重启)。卸载:`DELETE /api/v1/comfy-templates/{id}`。
+**先上线后端代码**,再跑
+`BASE=http://127.0.0.1:8000 ADMIN_TOKEN=… ./docs/replications/upscale/deploy.sh`:
+POST 模板(校验返回的 `output_kind`)→ PUT mapping(失败就删掉刚建的模板)→ 调
+`fix-image-outputs.sh`,把修复前建的图片模板(`nous-krea2`、`nous-qwen21-text-to-image`、
+`nous-qwen21-image-edit`)的 exposed_outputs 从 `video_url` 改成 `image_url`(按名字查 id;
+已改过的跳过;形状不认识的拒改)。可重跑。不碰 DB、不重启。卸载:`DELETE /api/v1/comfy-templates/{id}`。

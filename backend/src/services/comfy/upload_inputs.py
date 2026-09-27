@@ -16,11 +16,13 @@ import re
 
 # 已知 mime → sidecar 上的扩展名。VHS_LoadVideo / LoadImage 按扩展名认文件,
 # `video/quicktime` 直接取子类型会得到 `.quicktime`,VHS 的上传清单就认不出来了。
+# 视频只列 VHS_LoadVideo 认的容器(webm/mp4/mkv/mov;gif 走 image/gif)。
+_VIDEO_MIMES = frozenset({"video/mp4", "video/webm", "video/quicktime", "video/x-matroska"})
 _EXT_BY_MIME = {
     "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp",
     "image/gif": "gif", "image/bmp": "bmp", "image/tiff": "tiff",
     "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
-    "video/x-matroska": "mkv", "video/x-msvideo": "avi", "video/mpeg": "mpeg",
+    "video/x-matroska": "mkv",
     "audio/wav": "wav", "audio/x-wav": "wav", "audio/mpeg": "mp3", "audio/flac": "flac",
     "audio/ogg": "ogg",
 }
@@ -55,6 +57,8 @@ def decode_data_uri(key: str, param_type: str, value: str) -> tuple[bytes, str, 
         raise UploadInputError(f"参数 {key}:data URI 的 base64 内容不合法") from e
     if not raw:
         raise UploadInputError(f"参数 {key}:文件内容为空")
+    if mime.startswith("video/") and mime not in _VIDEO_MIMES:
+        raise UploadInputError(f"参数 {key}:不支持的视频格式 {mime}(只收 mp4/webm/mov/mkv)")
     ext = _EXT_BY_MIME.get(mime)
     if ext is None:
         subtype = mime.rsplit("/", 1)[-1]
