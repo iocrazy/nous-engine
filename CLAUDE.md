@@ -137,8 +137,9 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   `tests/test_data_plane_readonly.py` 静态锁住这五个路由模块;常驻集合按落卡汇总必须
   放得进 `configs/hardware.yaml` 的容量减 `DEFAULT_RESERVED_GB`,由
   `tests/test_resident_capacity.py` 在 CI 兜住(常驻不自洽合 PR 前就红,不等上线)。
-  **例外(不在本不变式内)**:画布工作流的 `predictions` 经 `nodes/llm.py`,仍会在执行期
-  按需加载模型(待单开 spec)。
+  **例外(不在本不变式内)**:画布工作流的 `predictions` 经 `nodes/llm.py` / `nodes/audio.py`
+  (两者共用 `ModelManager.get_loaded_adapter` 的按需加载路径),仍会在执行期按需加载模型
+  (待单开 spec)。
 - **GPU 0(Pro 5000)常驻名单**(2026-09-20 迁移后实测,`vram_mb` 见各模型 yaml 注释):
   MOSS ASR 9000 + qwen3.8-27B-AWQ 25500 + WeMM-Embedding-4B 24800 = 59300 MiB ≈
   57.9 GiB,上限 72 − 4 = 68 GiB(见上条容量测)。**Unlimited-OCR 不设 resident**(四样全
