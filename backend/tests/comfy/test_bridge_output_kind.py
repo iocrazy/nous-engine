@@ -175,6 +175,8 @@ def test_decode_data_uri_ok_and_ext_map():
     ("image", "data:image/png;base64,", "为空"),
     ("image", "data:;base64,eA==", "mime"),
     ("media", "data:application/x-evil$(id);base64,eA==", "不支持"),
+    ("video", "data:video/x-msvideo;base64,eA==", "不支持的视频格式"),
+    ("video", "data:video/mpeg;base64,eA==", "不支持的视频格式"),
 ])
 def test_decode_data_uri_rejects(ptype, value, msg):
     with pytest.raises(UploadInputError, match=msg.replace("(", r"\(")):
@@ -192,3 +194,25 @@ def test_plain_filename_rejects_urls_and_paths(value):
 
 def test_plain_filename_allows_bare_names():
     assert check_plain_filename("k", "vosr2_test_input.mp4") == "vosr2_test_input.mp4"
+
+
+@pytest.mark.asyncio
+async def test_later_bad_file_param_uploads_nothing(monkeypatch):
+    """第二个文件参数不合法时,第一个也不能已经传到 sidecar(否则成孤儿文件)。"""
+    fc = _fake(monkeypatch, {"outputs": {"9": {"images": [IMG]}}})
+
+    async def _load(tid):
+        return {"1": {"class_type": "LoadImage", "inputs": {"image": ""}},
+                "2": {"class_type": "LoadImage", "inputs": {"image": ""}},
+                "9": {"class_type": "SaveImage", "inputs": {}}}, [
+            {"key": "a", "type": "image", "comfy_node_id": "1", "comfy_input": "image"},
+            {"key": "b", "type": "image", "comfy_node_id": "2", "comfy_input": "image"},
+        ]
+    monkeypatch.setattr(nb, "load_template", _load)
+    node = get_node_class("comfyui_workflow")()
+    for bad in ("http://example.com/x.png", "data:video/mp4;base64,eA=="):
+        with pytest.raises(UploadInputError):
+            await node.invoke({"template_id": 1, "a": PNG, "b": bad}, {})
+        assert fc.uploaded == []
+    out = await node.invoke({"template_id": 1, "a": PNG, "b": PNG}, {})
+    assert len(fc.uploaded) == 2 and out["image_url"] == "/files/x.png"

@@ -259,7 +259,8 @@ async def test_video_service_returns_video_schema(client, monkeypatch, no_thumbn
 
 @pytest.mark.asyncio
 async def test_vosr2_video_defaults_are_applied(client, monkeypatch, no_thumbnail):
-    """只传 video:其余参数落 mapping default(frame_load_cap=0 全部帧,force_rate=0 原帧率)。"""
+    """只传 video:其余参数落 mapping default(frame_load_cap=150 限帧防主机 RAM OOM,
+    force_rate=0 原帧率)。"""
     service = "nous-vosr2-video-upscale"
     fc = _use(monkeypatch, UpscaleFakeClient(_ok_history(service)))
     await _deploy(client, service)
@@ -273,7 +274,7 @@ async def test_vosr2_video_defaults_are_applied(client, monkeypatch, no_thumbnai
     assert g["22"]["inputs"]["upscale_method"] == "bicubic"
     assert g["22"]["inputs"]["largest_size"] == 640
     assert g["18"]["inputs"]["force_rate"] == 0
-    assert g["18"]["inputs"]["frame_load_cap"] == 0
+    assert g["18"]["inputs"]["frame_load_cap"] == 150
     assert g["18"]["inputs"]["select_every_nth"] == 1
     assert g["19"]["inputs"]["format"] == "video/h264-mp4"
     assert g["19"]["inputs"]["frame_rate"] == ["12", 5]  # 仍连着原视频帧率
@@ -326,6 +327,10 @@ async def test_model_inputs_cannot_be_overridden(client, monkeypatch, no_thumbna
     ("nous-vosr2-image-upscale", {"upscale": 0}),
     ("nous-vosr2-video-upscale", {"output_format": "image/gif"}),
     ("nous-vosr2-video-upscale", {"select_every_nth": 0}),
+    # 0 在 VHS 里是「全部帧」—— 等于绕过上限,必须拒
+    ("nous-vosr2-video-upscale", {"frame_load_cap": 0}),
+    ("nous-vosr2-video-upscale", {"frame_load_cap": 601}),
+    ("nous-vosr2-video-upscale", {"skip_first_frames": 10001}),
 ])
 async def test_invalid_inputs_rejected_before_render(client, monkeypatch, service, bad):
     fc = _use(monkeypatch, UpscaleFakeClient(_ok_history(service)))
@@ -352,6 +357,7 @@ async def test_missing_required_media_rejected(client, monkeypatch):
     ("nous-seedvr2-image-upscale", "../../secret.png", "URL"),        # 不给路径
     ("nous-seedvr2-image-upscale", "x.png [output]", "URL"),          # 不给注解
     ("nous-vosr2-image-upscale", "data:image/png;base64,@@@", "base64"),
+    ("nous-vosr2-video-upscale", "data:video/x-msvideo;base64,eA==", "不支持的视频格式"),
 ])
 async def test_bad_media_fails_without_rendering(client, monkeypatch, service, value, msg):
     fc = _use(monkeypatch, UpscaleFakeClient(_ok_history(service)))
@@ -462,3 +468,37 @@ async def test_comfy_prompt_rejection_propagates(client, monkeypatch):
     pred = (await _predict(client, service, {"image": PNG_URI})).json()
     assert pred["status"] == "failed", pred
     assert "sampler_name" in pred["error"]
+
+
+# ---------- 旧图片模板的输出契约修复(fix-image-outputs.sh 发的就是这个 PATCH) ----------
+
+
+FIX_BODY = {"exposed_outputs": [{"key": "image_url", "node_id": "out", "input_name": "image_url",
+                                 "type": "image", "label": "图片"}]}
+
+
+@pytest.mark.asyncio
+async def test_fix_image_outputs_patch_is_accepted_and_idempotent(client):
+    """修复前建的图片模板 = SaveImage 工作流 + video_url 契约(用 output_kind=video 复现)。"""
+    wf = {"9": {"class_type": "SaveImage", "inputs": {}}}
+    r = await client.post("/api/v1/comfy-templates",
+                          json={"name": "nous-legacy-image", "workflow": wf, "output_kind": "video"})
+    assert r.status_code == 201, r.text
+    svc_list = (await client.get("/api/v1/services")).json()
+    sid = next(s["id"] for s in svc_list if s["name"] == "nous-legacy-image")
+    before = (await client.get(f"/api/v1/services/{sid}")).json()
+    assert [o["key"] for o in before["exposed_outputs"]] == ["video_url"]
+
+    for _ in range(2):  # 幂等:第二次同样成功,结果不变
+        r = await client.patch(f"/api/v1/services/{sid}", json=FIX_BODY)
+        assert r.status_code == 200, r.text
+        after = (await client.get(f"/api/v1/services/{sid}")).json()
+        sig = [{"key": o["key"], "node_id": str(o["node_id"]), "input_name": o["input_name"]}
+               for o in after["exposed_outputs"]]
+        assert sig == [{"key": "image_url", "node_id": "out", "input_name": "image_url"}]
+        # 其余字段不动
+        assert after["exposed_inputs"] == before["exposed_inputs"]
+        assert after["workflow_snapshot"] == before["workflow_snapshot"]
+        assert after["name"] == before["name"] and after["status"] == before["status"]
+    schema = (await client.get("/v1/services/nous-legacy-image/schema")).json()
+    assert list(schema["output_schema"]["properties"]) == ["image_url"]

@@ -117,6 +117,25 @@ async def load_template(template_id) -> tuple[dict, list[dict]]:
 _UPLOAD_TYPES = frozenset({"media", "image", "file", "audio", "video"})
 
 
+def _prevalidate_files(exposed_params: list[dict], data: dict) -> dict[str, tuple[bytes, str, str]]:
+    """校验全部文件类入参(不上传)。返回 `{key: (字节, 扩展名, mime)}`,只含 data URI 项。
+
+    调用方给的非 data URI 值只放行 sidecar 上已有的裸文件名,URL / 路径 / `[output]`
+    注解一律拒(见 comfy/upload_inputs.py);mapping 的 default 是管理员写的,不在此列。
+    """
+    decoded: dict[str, tuple[bytes, str, str]] = {}
+    for m in exposed_params:
+        key = m["key"]
+        value = data.get(key, m.get("default"))
+        if m.get("type") not in _UPLOAD_TYPES or not isinstance(value, str):
+            continue
+        if value.startswith("data:"):
+            decoded[key] = decode_data_uri(key, m.get("type"), value)
+        elif key in data:
+            check_plain_filename(key, value)
+    return decoded
+
+
 @register("comfyui_workflow")
 class ComfyUIWorkflowNode:
     """Bridge node: patch exposed params into the ComfyUI graph, run it on
@@ -133,22 +152,20 @@ class ComfyUIWorkflowNode:
         client = get_client()
         seed = None
 
+        # 先把**所有**文件类入参校验/解码完,再开始上传 —— 否则第二个参数不合法时,
+        # 第一个已经传到 sidecar input 目录的文件就成了孤儿。
+        decoded = _prevalidate_files(exposed_params, data)
+
         for m in exposed_params:
             key = m["key"]
             value = data.get(key, m.get("default"))
             node_id = str(m.get("comfy_node_id"))
             input_name = m.get("comfy_input")
 
-            if m.get("type") in _UPLOAD_TYPES and isinstance(value, str):
-                if value.startswith("data:"):
-                    raw, ext, mime = decode_data_uri(key, m.get("type"), value)
-                    filename = f"{secrets.token_hex(8)}.{ext}"
-                    value = await client.upload_image(filename, raw, mime)
-                elif key in data:
-                    # 调用方给的非 data URI 值:只放行 sidecar 上已有的裸文件名,URL / 路径 /
-                    # `[output]` 注解一律拒(见 comfy/upload_inputs.py)。mapping 的 default 是
-                    # 管理员写的,不在此列。
-                    value = check_plain_filename(key, value)
+            if key in decoded:
+                raw, ext, mime = decoded[key]
+                filename = f"{secrets.token_hex(8)}.{ext}"
+                value = await client.upload_image(filename, raw, mime)
 
             if m.get("random") and (value is None or value == ""):
                 value = secrets.randbelow(2 ** 32)

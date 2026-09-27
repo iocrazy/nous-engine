@@ -20,14 +20,15 @@
   (`execution_task_serialize._detect_image_meta`)按这个键是否存在判 image 任务。
   发布契约 `exposed_outputs` 在建模板时按输出节点推断(`VHS_VideoCombine`/`SaveVideo`/
   `SaveWEBM` → video,`SaveImage` → image,都不认识 → video 老默认),也可在
-  `POST /api/v1/comfy-templates` 里显式给 `output_kind`。**只对新建的模板生效**:
-  之前建的图片模板(krea2、qwen21-*)的 exposed_outputs 仍是 `video_url`,要纠正得
-  `PATCH /api/v1/services/{id}` 改 exposed_outputs。终端节点 `video_output` 对图片信封
+  `POST /api/v1/comfy-templates` 里显式给 `output_kind`。推断只在**新建**时跑;
+  之前建的图片模板由 `docs/replications/upscale/fix-image-outputs.sh`(deploy.sh 会调)
+  经 `PATCH /api/v1/services/{id}` 把 exposed_outputs 改成 `image_url`。终端节点 `video_output` 对图片信封
   要摘掉执行器 spread 塞进来的 `outputs=<图片 URL 字符串>`(见其实现注释)。
 - **ComfyUI 执行错误必须落 failed**:`wait()` 只等 history 出现,不分成败;桥在收产物前查
   `status.status_str == "error"`(`comfy/outputs.history_error`),把 `execution_error` 的
   节点 + 异常原文带进 `task.error`。不查的话,出错前已写出的半截产物会被当成功返回。
-- **文件类入参只收 data URI 或裸文件名**(`comfy/upload_inputs.py`):data URI 必须 base64,
+- **文件类入参只收 data URI 或裸文件名**(`comfy/upload_inputs.py`),且**全部校验完才开始
+  上传**(`_prevalidate_files`,免得后一个参数不合法时前一个已传成孤儿):data URI 必须 base64,
   `image`/`video`/`audio` 型要 mime 大类对得上;调用方给的非 data URI 字符串若是 URL、路径
   或 `[output]` 注解一律拒(桥不替调用方抓远程资源;注解会让 LoadImage 读 output 目录)。
 - **长任务走 respond-async**:`POST /v1/services/{name}/predictions`(注意前缀是

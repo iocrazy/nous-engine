@@ -147,14 +147,14 @@
     },
     {
       "key": "frame_load_cap",
-      "label": "最多读取帧数(0=全部)",
+      "label": "最多读取帧数(1-600)",
       "type": "int",
       "comfy_node_id": "18",
       "comfy_input": "frame_load_cap",
       "required": false,
-      "default": 0,
-      "min": 0,
-      "max": 100000
+      "default": 150,
+      "min": 1,
+      "max": 600
     },
     {
       "key": "skip_first_frames",
@@ -165,7 +165,7 @@
       "required": false,
       "default": 0,
       "min": 0,
-      "max": 100000
+      "max": 10000
     },
     {
       "key": "select_every_nth",
