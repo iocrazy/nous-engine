@@ -1,7 +1,7 @@
 name: image-color-match
 version: "1.0"
 description: "图像色彩匹配(ColorMatch)— 把目标图色彩统计向参考图迁移(肤色/影调保持)。对齐 ComfyUI-KJNodes ColorMatch"
-author: "ComfyUI-KJNodes (color-matcher, BSD) / nous-center"
+author: "ComfyUI-KJNodes (color-matcher, BSD) / nous-engine"
 
 # image_color_match:image→image inline 节点(主进程 CPU,无 GPU)。两路 image 输入:
 #   image_target(要调整的图)+ image_ref(色彩来源参考)→ color-matcher transfer(mkl 等)→

@@ -14,7 +14,7 @@ export interface ExportUsageArgs {
  */
 export function exportUsageCsv({ days, summary, series, topKeys }: ExportUsageArgs) {
   const lines: string[] = []
-  lines.push(`# nous-center usage export · last ${days} days · ${new Date().toISOString()}`)
+  lines.push(`# nous-engine usage export · last ${days} days · ${new Date().toISOString()}`)
   lines.push('')
 
   if (summary) {

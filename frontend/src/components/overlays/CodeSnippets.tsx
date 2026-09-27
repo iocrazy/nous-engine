@@ -181,7 +181,7 @@ function buildSnippet(tab: TabId, model: string, key: string): string {
       ].join('\n')
     case 'ollama':
       return [
-        '# Set OLLAMA_HOST to point at nous-center',
+        '# Set OLLAMA_HOST to point at nous-engine',
         'export OLLAMA_HOST=http://localhost:8000',
         '',
         '# The Ollama CLI does not support auth headers natively.',

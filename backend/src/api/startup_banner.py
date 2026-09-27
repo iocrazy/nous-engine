@@ -189,7 +189,7 @@ async def log_startup_banner(app) -> None:
             ("Logs", "journalctl -u nous-backend -f"),
         ]
 
-        title = f" NOUS-CENTER v{version} "
+        title = f" NOUS-ENGINE v{version} "
         rule = "═" * 60
         lines = ["", _c("1;36", "═══" + title + rule[len(title) + 3 :])]
         for k, v in rows:

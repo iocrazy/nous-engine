@@ -1,7 +1,7 @@
 name: voxcpm2
 version: "1.0"
 description: "VoxCPM2 语音合成节点包 — 30语言 / 语音设计 / 语音克隆 / 48kHz"
-author: "OpenBMB / nous-center"
+author: "OpenBMB / nous-engine"
 
 nodes:
   voxcpm2_load_model:
