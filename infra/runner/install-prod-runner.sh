@@ -73,6 +73,9 @@ ok "hook 已装:$RUNNER_DIR/hooks/job-started-guard.sh(白名单 $ALLOWED_WORKFL
 # ---------- 4. sudoers ----------
 step "sudoers:仅放行 systemctl --no-block restart nous-engine-backend"
 rule='heygo ALL=(root) NOPASSWD: /usr/bin/systemctl --no-block restart nous-engine-backend'
+if sudo -n -l 2>/dev/null | grep -qF 'NOPASSWD: /usr/bin/systemctl --no-block restart nous-engine-backend'; then
+  ok "sudo 已放行该命令(现有规则),不改动 sudoers"
+else
 stage="$(mktemp)"
 printf '# nous-engine 自动上线(infra/runner/install-prod-runner.sh):deploy.sh 只需要这一条\n%s\n' "$rule" > "$stage"
 sudo visudo -cf "$stage" >/dev/null || { rm -f "$stage"; die "sudoers 片段校验失败,未写入。"; }
@@ -80,6 +83,7 @@ sudo install -m 0440 -o root -g root "$stage" "$SUDOERS_FILE"
 rm -f "$stage"
 sudo visudo -c >/dev/null || die "整体 sudoers 校验失败 —— 立刻检查 $SUDOERS_FILE!"
 ok "已写 $SUDOERS_FILE"
+fi
 
 # ---------- 服务 ----------
 step "systemd 服务"
