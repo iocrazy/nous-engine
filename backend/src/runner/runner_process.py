@@ -86,7 +86,8 @@ def _merge_config_into_spec(state: _RunnerState, model_key: str, config: dict) -
 
     ModelSpec frozen —— 用 model_copy(update=...) 不可变更新。真实部署 config
     一般空；这条路径主要服务测试通过 LoadModel 注入 fake 故障开关
-    （oom_on_load_count / fail_load / infer_seconds）。
+    （oom_on_load_count / fail_load / infer_seconds）与 fake 多步数 steps
+    （AudioRequest 不带 steps,见 FakeAdapter 的 steps 兜底）。
     """
     if not config:
         return

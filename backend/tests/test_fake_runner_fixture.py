@@ -22,7 +22,7 @@ async def test_fake_runner_handshakes_and_runs_node(fake_runner):
                 node_id="sampler",
                 node_type="tts",
                 model_key=runner.model_key,
-                inputs={"steps": 1},
+                inputs={},
             )
         )
         assert result.status == "completed"
@@ -51,7 +51,7 @@ async def test_fake_runner_crash_on_node_yields_failed_result(fake_runner):
                     node_id="n",
                     node_type="tts",
                     model_key=runner.model_key,
-                    inputs={"steps": 1},
+                    inputs={},
                 )
             ),
             timeout=10.0,

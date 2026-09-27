@@ -75,7 +75,7 @@ async def test_run_node_resolves_with_node_result():
         result = await client.run_node(
             P.RunNode(
                 task_id=11, node_id="sampler", node_type="tts",
-                model_key="fake-img-a", inputs={"steps": 4},
+                model_key="fake-img-a", inputs={},
             ),
             on_progress=lambda pr: progress_seen.append(pr.progress),
         )
@@ -100,14 +100,14 @@ async def test_progress_callback_exception_does_not_kill_demux():
 
         r1 = await client.run_node(
             P.RunNode(task_id=21, node_id="s", node_type="tts",
-                      model_key="fake-img-a", inputs={"steps": 4}),
+                      model_key="fake-img-a", inputs={}),
             on_progress=_boom,
         )
         assert r1.status == "completed"  # 回调炸了但 NodeResult 仍 resolve
         # demux 还活着:再跑一次能正常完成
         r2 = await client.run_node(
             P.RunNode(task_id=22, node_id="s", node_type="tts",
-                      model_key="fake-img-a", inputs={"steps": 2}),
+                      model_key="fake-img-a", inputs={}),
             on_progress=lambda pr: None,
         )
         assert r2.status == "completed"
@@ -135,7 +135,7 @@ async def test_recv_eof_marks_client_disconnected():
         # 跑一个长节点，执行中杀掉 runner
         run_task = asyncio.create_task(client.run_node(P.RunNode(
             task_id=12, node_id="sampler", node_type="tts",
-            model_key="fake-img-a", inputs={"steps": 50},
+            model_key="fake-img-a", inputs={},
         )))
         await asyncio.sleep(0.3)
         proc.terminate()  # 模拟 crash
