@@ -64,7 +64,6 @@ vi.mock('../../api/vllm', () => ({
 vi.mock('../../api/engines', () => ({
   useEngines: () => ({ data: [] }),
   useLoadedAdapters: () => ({ data: { count: 0, entries: [] } }),
-  useUnloadImageAdapters: () => ({ mutate: () => {}, isPending: false }),
   useGpuGroups: () => ({ data: { groups: box.groups } }),
 }))
 vi.mock('../../api/system', () => ({

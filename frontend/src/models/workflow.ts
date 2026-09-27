@@ -1,6 +1,6 @@
 // 收敛后(spec 2026-05-21):Family B 的小写 unet/clip/vae 端口已删;细粒度图
 // (flux2-components)用大写 MODEL/CLIP/VAE/CONDITIONING/LATENT(经 plugin defs 走字符串)。
-export type PortType = 'text' | 'audio' | 'image' | 'message' | 'data' | 'any' | 'seedvr2_dit' | 'seedvr2_vae' | 'seedvr2_compile'
+export type PortType = 'text' | 'audio' | 'image' | 'message' | 'data' | 'any'
 
 /** Node type identifier. Built-in types are listed below; plugin packages can add more at runtime. */
 export type NodeType = string

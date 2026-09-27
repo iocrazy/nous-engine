@@ -12,7 +12,6 @@ import {
   Monitor,
   ListTodo,
   LogOut,
-  Palette,
   Images,
   HeartPulse,
 } from 'lucide-react'
@@ -43,7 +42,6 @@ const OVERLAY_ROUTES: Record<OverlayId, string> = {
   'service-detail': '/services',
   'workflows-list': '/workflows',
   usage: '/usage',
-  studio: '/studio',
   history: '/history',
   status: '/status',
 }
@@ -55,7 +53,6 @@ const PANEL_ITEMS: { id: PanelId; icon: typeof GitBranch; label: string }[] = []
 
 const TOP_NAVS: { id: OverlayId; icon: typeof LayoutDashboard; label: string }[] = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { id: 'studio', icon: Palette, label: '创作台' },
   { id: 'services', icon: Activity, label: '服务' },
   { id: 'workflows-list', icon: GitBranch, label: 'Workflow' },
 ]

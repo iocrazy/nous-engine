@@ -4,10 +4,6 @@ import type { EngineInfo } from '../../api/engines'
 
 let engines: Partial<EngineInfo>[] = []
 vi.mock('../../api/engines', () => ({ useEngines: () => ({ data: engines }) }))
-vi.mock('../../api/components', () => ({
-  useAllComponentStates: () => ({ data: [] }),
-  loadedStateByFile: () => ({}),
-}))
 
 import ModelStatusBadge from './ModelStatusBadge'
 

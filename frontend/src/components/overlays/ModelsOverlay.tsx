@@ -3,8 +3,7 @@ import { Copy, Check, X, Search, Pin, PinOff } from 'lucide-react'
 import {
   useEngines, useLoadEngine, useUnloadEngine, useSyncMetadata,
   useScanModels, useSetResident, useRefreshMetadata, useGpus, useGpuGroups, useSetGpu,
-  useLoadedAdapters, usePreloadSeedvr2, useUnloadSeedvr2, useUnloadAdapter,
-  useSetSeedvr2Resident, usePreloadComponent, useSetComponentResident, useUnloadComponent,
+  useLoadedAdapters, useUnloadAdapter,
   useVramBudget, useSetVramBudget,
   type EngineInfo, type LoadedAdapter, type VramBudgetMode, type VramBudgetInfo,
 } from '../../api/engines'
@@ -70,12 +69,6 @@ export default function ModelsOverlay() {
   const { data: loadedAdaptersData } = useLoadedAdapters()
   const loadEngine = useLoadEngine()
   const unloadEngine = useUnloadEngine()
-  const preloadSeedvr2 = usePreloadSeedvr2()
-  const unloadSeedvr2 = useUnloadSeedvr2()
-  const setSeedvr2Resident = useSetSeedvr2Resident()
-  const preloadComponent = usePreloadComponent()
-  const unloadComponent = useUnloadComponent()
-  const setComponentResident = useSetComponentResident()
   const syncMeta = useSyncMetadata()
   const scanModels = useScanModels()
   const setResident = useSetResident()
@@ -114,29 +107,13 @@ export default function ModelsOverlay() {
   const handleToggle = useCallback(
     (engine: EngineInfo) => {
       if (engine.status === 'loading') return // ignore while loading
-      // 统一引擎库 PR-3:超分(SeedVR2)从引擎库直接预热/卸载(by-key,经 image runner)。
-      if (engine.kind === 'upscale') {
-        if (engine.status === 'loaded') unloadSeedvr2.mutate(engine.name)
-        else preloadSeedvr2.mutate(engine.name)
-        return
-      }
-      // 组件(diffusion_models/clip/vae)可从引擎库预加载进显存 / 卸载(组件 L1 PR-2a + 统一模型管理
-      // 收尾 PR-1)。已加载 → 出缓存释放显存(state_key 精确匹配;combo 在用则只清常驻待自然释放)。
-      // LoRA 仍随 pipeline,不独立预加载。
-      if (engine.kind === 'component') {
-        if (engine.status === 'loaded') {
-          if (engine.state_key) unloadComponent.mutate({ state_key: engine.state_key })
-          else unloadComponent.mutate({ name: engine.name })
-        } else {
-          preloadComponent.mutate({ name: engine.name, arch: engine.arch })
-        }
-        return
-      }
       if (engine.kind === 'lora') {
         useToastStore.getState().add(
           `${engine.display_name} 是 LoRA，随图像 pipeline 加载，不能独立预加载`, 'info')
         return
       }
+      // 超分/组件:自建图像引擎已删,引擎库不再能单独加载/卸载(不能落到下面的整模型端点)。
+      if (engine.kind && engine.kind !== 'model') return
       if (engine.status === 'loaded') {
         unloadEngine.mutate(engine.name)
         return
@@ -152,26 +129,16 @@ export default function ModelsOverlay() {
       }
       loadEngine.mutate(engine.name)
     },
-    [loadEngine, unloadEngine, preloadSeedvr2, unloadSeedvr2, preloadComponent, unloadComponent],
+    [loadEngine, unloadEngine],
   )
 
-  // 常驻 toggle 按 kind 分派:组件走组件 L1 端点(用 state_key 精确匹配)、SeedVR2 走 by-key
-  // 端点、其余(registry 整模型)走老 yaml /resident。组件 L1 PR-3b。
+  // 常驻 toggle 只对 registry 整模型(yaml /resident);超分/组件/LoRA 等 catalog 条目不适用。
   const handleToggleResident = useCallback(
     (engine: EngineInfo) => {
-      const next = !engine.resident
-      if (engine.kind === 'component') {
-        if (engine.state_key) setComponentResident.mutate({ state_key: engine.state_key, resident: next })
-        else setComponentResident.mutate({ name: engine.name, resident: next })  // 未加载:按 name(auto)
-        return
-      }
-      if (engine.kind === 'upscale') {
-        setSeedvr2Resident.mutate({ name: engine.name, resident: next })
-        return
-      }
-      setResident.mutate({ name: engine.name, resident: next })
+      if (engine.kind && engine.kind !== 'model') return
+      setResident.mutate({ name: engine.name, resident: !engine.resident })
     },
-    [setComponentResident, setSeedvr2Resident, setResident],
+    [setResident],
   )
 
   const hasAnyMissing = (engines ?? []).some((e) => !e.has_metadata)
@@ -179,23 +146,14 @@ export default function ModelsOverlay() {
   // 统一引擎库:catalog 扩展条目(超分/组件/LoRA)—— 非 registry 模型,resident/GPU/API/元数据
   // 等操作不适用,菜单里禁用(载/卸经 handleToggle 给提示)。
   const isExtra = !!(ctxMenu.model?.kind && ctxMenu.model.kind !== 'model')
-  const isComponent = ctxMenu.model?.kind === 'component'
-  const isUpscale = ctxMenu.model?.kind === 'upscale'
-  const cmLoaded = ctxMenu.model?.status === 'loaded'
-  // 组件常驻只对「已加载」有意义(未加载组件 toggle 用 name+auto 匹配不上 L1);registry 整模型的
-  // resident 是 yaml 自动加载,与是否加载无关;SeedVR2 by-key 需先加载才有 model_id 可 pin。
-  const residentDisabled =
-    ctxMenu.model?.kind === 'lora'
-    || (isComponent && !cmLoaded)
-    || (isUpscale && !cmLoaded)
+  // catalog 条目(超分/组件/LoRA)没有常驻语义。
+  const residentDisabled = isExtra
   // Build context menu items for the active model
   const menuItems: MenuItem[] = ctxMenu.model
     ? [
         {
-          label: isComponent
-            ? (cmLoaded ? '卸载（出缓存释放显存）' : '预加载到显存（自动选卡）')
-            : isUpscale ? (cmLoaded ? '卸载 SeedVR2' : '加载 SeedVR2')
-            : ctxMenu.model.kind === 'lora' ? 'LoRA · 随模型加载'
+          label: ctxMenu.model.kind === 'lora' ? 'LoRA · 随模型加载'
+            : isExtra ? '不可单独加载'
             : ctxMenu.model.status === 'loaded' ? '卸载模型'
             : ctxMenu.model.status === 'loading' ? '加载中...'
             : !ctxMenu.model.has_adapter ? '未注册（无 adapter）'
@@ -203,31 +161,9 @@ export default function ModelsOverlay() {
           onClick: () => handleToggle(ctxMenu.model!),
           disabled:
             ctxMenu.model.status === 'loading'
-            || ctxMenu.model.kind === 'lora'
-            || (!isExtra && ctxMenu.model.status !== 'loaded' && !ctxMenu.model.has_adapter),
+            || isExtra
+            || (ctxMenu.model.status !== 'loaded' && !ctxMenu.model.has_adapter),
         },
-        // 组件预加载:可选落哪张卡(自动选卡之外,直接指定 GPU)。bfloat16 默认精度。
-        ...(isComponent && !cmLoaded && (gpuData?.devices ?? []).length > 0
-          ? [{
-              label: '预加载到指定 GPU',
-              submenu: (gpuData?.devices ?? []).map((g) => ({
-                label: `GPU ${g.index}: ${g.name}`,
-                onClick: () => preloadComponent.mutate({
-                  name: ctxMenu.model!.name, device: `cuda:${g.index}`, arch: ctxMenu.model!.arch,
-                }),
-              })),
-            } as MenuItem]
-          : []),
-        // 「预加载 + 常驻」一步到位(自动选卡)。**不给选精度** —— 组件预加载固定用标准 bf16 计算
-        // 精度:文件存储格式名字里写死(bf16/fp8mixed…),而单组件 build_bridged 路径不做 fp8 torchao
-        // 量化(那只在整 pipeline _ensure_pipe 做),选 fp8 只会静默落 bf16 误导用户。省显存的 fp8
-        // 走「跑工作流时 loader 节点选 weight_dtype」,不在引擎库预加载这条路。
-        ...(isComponent && !cmLoaded
-          ? [{
-              label: '预加载到显存 + 常驻（自动选卡）',
-              onClick: () => preloadComponent.mutate({ name: ctxMenu.model!.name, resident: true, arch: ctxMenu.model!.arch }),
-            } as MenuItem]
-          : []),
         {
           label: ctxMenu.model.resident
             ? (isExtra ? '取消常驻' : '取消自动加载')

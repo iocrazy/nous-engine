@@ -16,7 +16,6 @@ export type OverlayId =
   | 'service-detail'   // v3 服务详情（id 从 URL 取）
   | 'workflows-list'   // v3 m08 列表（vs canvas at /workflows/:id）
   | 'usage'            // v3 新
-  | 'studio'           // 创作台:本地图像功能测试页(文生图/增强/编辑/角度,对齐 Infinite-Canvas)
   | 'history'          // 历史出图画廊(借鉴 Infinite-Canvas history;拉 image 类 task)
   | 'status'           // 系统状态页(组件健康 + 7 天 uptime,对齐 status.claude.ai)
 
@@ -33,7 +32,6 @@ const ROUTE_TO_OVERLAY: Record<string, OverlayId> = {
   '/logs': 'logs',
   '/node-packages': 'node-packages',
   '/usage': 'usage',
-  '/studio': 'studio',
   '/history': 'history',
   '/status': 'status',
 }
