@@ -4,10 +4,14 @@
 鉴权:backend/.env 的 ADMIN_TOKEN(bearer 旁路)。
 
     cd backend && uv run python tests/manual/verify_skill_runs.py \
-        [--base http://127.0.0.1:8000] [--model qwen3-8-27b-twolven] [--out ./skill_runs_out]
+        [--base http://127.0.0.1:8000] [--model nous-qwen3-8-27b-twolven] \
+        [--t2i-service nous-qwen21-text-to-image] [--edit-service nous-qwen21-image-edit] \
+        [--out ./skill_runs_out]
 
-流程:preview(t2i Skill)→ generate qwen21-text-to-image → 下载图;
-      preview(edit Skill + 上一步的图)→ generate qwen21-image-edit(input.image=同一张图)→ 下载图。
+服务名会随控制面改名(2026-09-26 统一加了 nous- 前缀),以 /v1/models?include_unready=1 为准。
+
+流程:preview(t2i Skill)→ generate <t2i-service> → 下载图;
+      preview(edit Skill + 上一步的图)→ generate <edit-service>(input.image=同一张图)→ 下载图。
 """
 from __future__ import annotations
 
@@ -30,11 +34,13 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 ASPECT_RATIO = "1:1 (Square)"
 
 
-def _admin_token() -> str:
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+def _admin_token(env_file: Path) -> str:
+    if not env_file.is_file():
+        sys.exit(f"[FAIL] 找不到 {env_file}(worktree 里没有 .env;用 --env-file 指向生产检出的 backend/.env)")
+    for line in env_file.read_text(encoding="utf-8").splitlines():
         if line.startswith("ADMIN_TOKEN="):
-            return line.split("=", 1)[1].strip().strip('"')
-    sys.exit(f"{ENV_FILE} 里没有 ADMIN_TOKEN")
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    sys.exit(f"[FAIL] {env_file} 里没有 ADMIN_TOKEN")
 
 
 def _check(r: httpx.Response, what: str) -> dict[str, Any]:
@@ -102,7 +108,10 @@ def _download_first_image(c: httpx.Client, base: str, pred: dict[str, Any], dest
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8000")
-    ap.add_argument("--model", default="qwen3-8-27b-twolven")
+    ap.add_argument("--model", default="nous-qwen3-8-27b-twolven")
+    ap.add_argument("--t2i-service", default="nous-qwen21-text-to-image")
+    ap.add_argument("--edit-service", default="nous-qwen21-image-edit")
+    ap.add_argument("--env-file", type=Path, default=ENV_FILE)
     ap.add_argument("--out", default="./skill_runs_out")
     args = ap.parse_args()
     out_dir = Path(args.out)
@@ -110,10 +119,10 @@ def main() -> None:
 
     # trust_env=False:本机 ALL_PROXY=socks5(mihomo)会让 httpx 走代理且缺 socksio。
     with httpx.Client(base_url=args.base, trust_env=False, timeout=600,
-                      headers={"Authorization": f"Bearer {_admin_token()}"}) as c:
+                      headers={"Authorization": f"Bearer {_admin_token(args.env_file)}"}) as c:
         t2i_text = _preview(c, args.model, "qwen-image-t2i.SKILL.md",
                             "一只橘猫趴在黄昏的木窗台上,窗外是老城区的屋顶")
-        t2i = _generate(c, "qwen21-text-to-image", t2i_text, {"aspect_ratio": ASPECT_RATIO})
+        t2i = _generate(c, args.t2i_service, t2i_text, {"aspect_ratio": ASPECT_RATIO})
         src_img = _download_first_image(c, args.base, t2i, out_dir / "t2i.png")
 
         data_url = "data:image/png;base64," + base64.b64encode(src_img.read_bytes()).decode()
@@ -121,7 +130,7 @@ def main() -> None:
             {"type": "text", "text": "把窗外换成下雪的夜晚,猫保持不变"},
             {"type": "image_url", "image_url": {"url": data_url}},
         ])
-        edit = _generate(c, "qwen21-image-edit", edit_text, {"image": data_url})
+        edit = _generate(c, args.edit_service, edit_text, {"image": data_url})
         _download_first_image(c, args.base, edit, out_dir / "edit.png")
     print("[OK] skill-runs 端到端通过 —— 请目检", out_dir.resolve())
 

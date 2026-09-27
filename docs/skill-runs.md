@@ -3,6 +3,9 @@
 把「用 Chat 模型执行一段 Skill → 得到一段文本 → 注入任意已发布工作流的文本字段 → 提交」标准化。
 设计见 `docs/superpowers/specs/2026-09-26-skill-runs-orchestration-design.md`。
 
+> 示例里的服务名(`nous-qwen3-8-27b-twolven`、`nous-qwen21-*`)是 2026-09-26 的生产现名,会随控制面改名;
+> 以 `GET /v1/models?include_unready=1` 返回的名字为准,别在调用方写死。
+
 ## 两步流程
 
 1. `POST /v1/skill-runs/preview` —— 拿到最终文本(可展示给用户修改)。
@@ -16,12 +19,12 @@
 
     curl -s http://<engine>:8000/v1/skill-runs/preview \
       -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{
-        "model": "qwen3-8-27b-twolven",
+        "model": "nous-qwen3-8-27b-twolven",
         "skill": {"content": "---\nname: my-skill\n---\n把想法扩写成画面描述,只输出描述。"},
         "input": "黄昏窗台上的猫",
         "options": {"max_tokens": 1024, "thinking": "disabled"}
       }'
-    → {"text": "...", "model": "qwen3-8-27b-twolven", "skill": {"name": "my-skill"},
+    → {"text": "...", "model": "nous-qwen3-8-27b-twolven", "skill": {"name": "my-skill"},
        "usage": {...}, "finish_reason": "stop"}
 
 - `skill.content`:完整 SKILL.md。frontmatter 可选(只读 `name`);正文作为 system 指令。
@@ -39,7 +42,7 @@
 
     curl -s http://<engine>:8000/v1/skill-runs/generate \
       -H "Authorization: Bearer $KEY" -H 'Prefer: respond-async' -H 'Content-Type: application/json' -d '{
-        "service": "qwen21-image-edit",
+        "service": "nous-qwen21-image-edit",
         "prompt_field": "prompt",
         "text": "<preview 返回的 text>",
         "input": {"image": "data:image/png;base64,..."}
