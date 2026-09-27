@@ -87,15 +87,11 @@ class RunnerSupervisor:
         self.client: RunnerClient | None = None
         self.restart_count = 0
         # runner 子进程上报的已加载 adapter 快照(每个 ping 对账一次)。主进程的
-        # /image-cache、系统状态「已加载模型」、引擎库 loaded 视图聚合这份 —— image/tts
-        # adapter 真加载在 runner 进程,主进程 _models 看不到,这是唯一可见窗口。
+        # 系统状态「已加载模型」、引擎库 loaded 视图聚合这份 —— tts adapter 真加载在
+        # runner 进程,主进程 _models 看不到,这是唯一可见窗口。
         self.loaded_models: list[dict] = []
-        # 同上,但单组件 L1 池快照(loaded_components_snapshot):引擎库标组件 loaded@卡 + resident
-        # (含预加载的孤组件)。组件 L1 PR-3a。
-        self.loaded_components: list[dict] = []
-        # 本 runner 进程的 host RAM 占用(MB,Pong 上报;spec ram-pinned-linkage PR-1b):
-        # pinned = pinned_stash 账本(含流式预 pin),stash = RAM stash 池。/monitor/stats 聚合。
-        self.pinned_ram_mb: int = 0
+        # 本 runner 进程的 host RAM stash 池占用(MB,Pong 上报;spec ram-pinned-linkage
+        # PR-1b)。/monitor/stats 聚合。
         self.stash_ram_mb: int = 0
         self._reconcile_inflight = False  # PR-2b:去重并发 node-done reconcile
         self._inflight: set[int] = set()
@@ -189,8 +185,6 @@ class RunnerSupervisor:
         try:
             pong = await asyncio.wait_for(self.client.ping(), timeout=self.ping_timeout)
             self.loaded_models = list(pong.loaded_models or [])
-            self.loaded_components = list(getattr(pong, "loaded_components", None) or [])
-            self.pinned_ram_mb = int(getattr(pong, "pinned_ram_mb", 0) or 0)
             self.stash_ram_mb = int(getattr(pong, "stash_ram_mb", 0) or 0)
         except Exception:  # noqa: BLE001 — 状态刷新失败不影响监管主流程
             pass
@@ -278,7 +272,6 @@ class RunnerSupervisor:
                 pong = await asyncio.wait_for(self.client.ping(), timeout=self.ping_timeout)
                 # 顺手对账已加载快照(ping 本就为存活检测,Pong 带回了状态,别丢)。
                 self.loaded_models = list(pong.loaded_models or [])
-                self.loaded_components = list(getattr(pong, "loaded_components", None) or [])
                 self._unresponsive_since = None  # 答上了 → 恢复
             except ConnectionError:
                 # pipe EOF —— 子进程真死了(crash/OOM kill/segfault),立刻重启。
@@ -327,9 +320,7 @@ class RunnerSupervisor:
         # 旧 runner 的已加载 adapter 随进程一起没了,清空快照(respawn 后 _spawn 末尾
         # 不会自动 reconcile —— 等下一个 watchdog ping 重新填,期间显示为空是正确的)。
         self.loaded_models = []
-        self.loaded_components = []
-        self.pinned_ram_mb = 0  # runner 进程没了,其 pinned/stash RAM 随之释放
-        self.stash_ram_mb = 0
+        self.stash_ram_mb = 0  # runner 进程没了,其 stash RAM 随之释放
         self._unresponsive_since = None
 
         # 2. inflight task 全标 failed (runner_crashed)，不重试

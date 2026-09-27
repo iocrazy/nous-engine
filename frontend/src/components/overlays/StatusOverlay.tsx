@@ -119,6 +119,9 @@ export default function StatusOverlay() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500 }}>{c.name}</div>
                     <div style={{ fontSize: 12, color: COLOR[c.status] }}>{LABEL[c.status]}</div>
+                    {c.detail && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{c.detail}</div>
+                    )}
                   </div>
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
                     <UptimeBar days={c.days} />

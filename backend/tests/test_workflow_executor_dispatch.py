@@ -35,7 +35,3 @@ def test_on_progress_ref_not_used_by_builtin_nodes():
         assert "_on_progress_ref" not in src, \
             f"{mod.__name__} should not reference global _on_progress_ref"
 
-
-def test_flux2_vae_decode_maps_to_image_group():
-    from src.services.workflow_executor import _NODE_TYPE_TO_GROUP_ID
-    assert _NODE_TYPE_TO_GROUP_ID.get("flux2_vae_decode") == "image"

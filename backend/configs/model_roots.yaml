@@ -2,12 +2,10 @@
 # 各模型/库子根的相对结构(ComfyUI base_path 模式)。绝对根来自 .env:
 #   MODELS_ROOT → models 段     REPOS_ROOT → repos 段
 # config.py 据此派生 LOCAL_MODELS_PATH / NAS_MODELS_PATH / NAS_OUTPUTS_PATH /
-# LORA_PATHS / COSYVOICE_REPO_PATH / INDEXTTS_REPO_PATH。
+# COSYVOICE_REPO_PATH / INDEXTTS_REPO_PATH。
 # 重格 / 搬盘只改 .env 的两个根,本文件不动。
-# (本文件管「根在哪」;model_paths.yaml 管「root 下 role→glob」,两层独立。)
 models:                          # 相对 MODELS_ROOT
   local:   nous                  # → LOCAL_MODELS_PATH / NAS_MODELS_PATH
-  loras:   nous/media/loras      # → LORA_PATHS
   outputs: nous/outputs          # → NAS_OUTPUTS_PATH
 repos:                           # 相对 REPOS_ROOT
   cosyvoice: CosyVoice           # → COSYVOICE_REPO_PATH

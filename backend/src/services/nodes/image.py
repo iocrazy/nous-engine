@@ -1,10 +1,8 @@
 """Image output node (render-only sink).
 
-收敛后(spec 2026-05-21):全家桶 `image_generate` 已删除 —— 图像生成走细粒度图
-(backend/nodes/flux2-components/:Load Diffusion/CLIP/VAE → Encode → KSampler →
-VAE Decode),末端 `flux2_vae_decode` dispatch 到 image runner 经
-`get_or_load_image_adapter` + `ImageSampler` 出图。`image_output` 作为终端展示节点
-保留 —— VAE Decode 的 image 输出连到它。
+2026-09-26 起自建图像引擎(flux2-components 细粒度图、image runner 派发)已物理删除,
+出图只走 ComfyUI 桥(`comfy_bridge.py`)。`image_output` 作为终端展示节点保留 ——
+上游产出 image_url 的节点(如 ComfyUI 工作流节点)连到它。
 """
 
 from __future__ import annotations

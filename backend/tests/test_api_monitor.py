@@ -8,7 +8,8 @@ from unittest.mock import patch
 # 别改用 anyio:混用会各建一个事件循环,asyncpg 的连接绑 loop 就抛 "attached to a
 # different loop"(aiosqlite 不在意,所以以前看不出来)。
 
-async def test_monitor_stats(db_client: AsyncClient):
+
+async def test_monitor_stats_shape(db_client: AsyncClient):
     mock_gpu_stats = [
         {
             "index": 0,
@@ -34,14 +35,13 @@ async def test_monitor_stats(db_client: AsyncClient):
     data = resp.json()
     assert "gpus" in data
     assert "system" in data
-    # spec ram-pinned-linkage PR-1b:host RAM 锁页/待命占用入 system 块。
-    assert "pinned_ram_mb" in data["system"]
+    # spec ram-pinned-linkage PR-1b:host RAM 待命占用入 system 块。
     assert "stash_ram_mb" in data["system"]
 
 
-async def test_monitor_aggregates_pinned_and_stash_ram(monkeypatch):
+async def test_monitor_aggregates_stash_ram(monkeypatch):
     """spec ram-pinned-linkage PR-1b:/monitor/stats 聚合各 runner Pong 上报的
-    pinned_ram_mb/stash_ram_mb + 主进程本体。"""
+    stash_ram_mb + 主进程本体。"""
     from types import SimpleNamespace
     from src.api.routes import monitor as m
 
@@ -50,19 +50,15 @@ async def test_monitor_aggregates_pinned_and_stash_ram(monkeypatch):
     # `**kw`:_top_processes 自 spec process-net-traffic §2.2 起带 net/max_total 参数,
     # _compute_system_stats 用关键字调它 —— 零参 lambda 会 TypeError。
     monkeypatch.setattr(m, "_top_processes", lambda **kw: [])
-    # 主进程账本归零(只验 runner 聚合)
-    import src.services.inference.pinned_stash as PS
-    monkeypatch.setattr(PS, "total_pinned_bytes", lambda: 0)
 
     sups = [
-        SimpleNamespace(pinned_ram_mb=35397, stash_ram_mb=22800, group_id="image", pid=None),
-        SimpleNamespace(pinned_ram_mb=0, stash_ram_mb=5000, group_id="tts", pid=None),
+        SimpleNamespace(stash_ram_mb=22800, group_id="image", pid=None),
+        SimpleNamespace(stash_ram_mb=5000, group_id="tts", pid=None),
     ]
     app_state = SimpleNamespace(model_manager=None, runner_supervisors=sups)
     request = SimpleNamespace(app=SimpleNamespace(state=app_state))
 
     data = await m.get_system_stats(request)
-    assert data["system"]["pinned_ram_mb"] == 35397
     assert data["system"]["stash_ram_mb"] == 27800
 
 

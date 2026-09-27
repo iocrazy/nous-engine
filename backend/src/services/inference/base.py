@@ -4,8 +4,7 @@ PR-0 establishes the v2 contract; existing 7 adapters (vLLM/SGLang/5 TTS)
 all migrate to this shape in the same commit. No v1 coexistence.
 
 Concrete subclasses pin `modality` to a specific MediaModality, accept
-`paths: dict[str, str]` for multi-component models (image: transformer +
-text_encoder + vae; LLM/TTS: just `paths['main']`), implement
+`paths: dict[str, str]` (LLM/TTS: just `paths['main']`), implement
 `infer(req)` with a typed Request subclass, and may override
 `infer_stream(req)` for SSE/streaming.
 """
@@ -14,10 +13,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
-
-if TYPE_CHECKING:
-    from src.services.inference.component_spec import ComponentSpec
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -78,14 +74,20 @@ class LoRASpec(BaseModel):
 
     name: str
     strength: float = Field(1.0, ge=-2, le=2)
-    # PR-4: component path carries the absolute LoRA file path so the runner
-    # can load it without a name→path registry lookup (from_components sets
-    # _lora_paths={}). Legacy yaml path leaves this None and resolves via
-    # _lora_paths[name] as before.
+    # 2026-09-26 自建图像引擎已删:曾经消费 path 的组件库/from_components 解析路径
+    # (name→path 注册表查找)已随之删除。这个字段现在没有读取方,只随 ImageRequest.loras
+    # 一起作为 schema 保留(见 ImageRequest 类注释)。
     path: str | None = None
 
 
 class ImageRequest(InferenceRequest):
+    """图像请求 schema。
+
+    2026-09-26 自建图像引擎(Modular Diffusers / Anima / SeedVR2 / LCS)已物理删除,出图只走
+    ComfyUI 桥;代码存档见 tag image-engine-native-final。本类仅作为 runner fake adapter 与
+    schema 测试的请求类型保留。下方字段注释描述的是已删引擎当年的消费方式,留作历史说明。
+    """
+
     modality: Literal[MediaModality.IMAGE] = MediaModality.IMAGE
     prompt: str
     negative_prompt: str = ""
@@ -116,8 +118,8 @@ class ImageRequest(InferenceRequest):
     loras: list[LoRASpec] = Field(default_factory=list)
     # 输入图(编辑/img2img):本地磁盘路径或 base64 data URI。None = 纯文生图(零回归)。
     # 编辑类架构(Flux2 多参考编辑 / Qwen-Image-Edit)消费;引擎按 pipeline 是否支持 image=
-    # 决定是否注入(见 model_arch_adapter.ImageArchSpec.needs_image_input)。runner 把节点传来的
-    # 签名 URL 经 _resolve_input_image_path 解析成本地路径再塞这里(避免 base64 大图过 msgpack pipe)。
+    # 决定是否注入(当年由已删的 model_arch_adapter 判定)。
+    # (2026-09-26:runner 侧把签名 URL 解析成本地路径的那段已随图像派发删除。)
     input_image: str | None = None
     # 输出模式(spec 2026-06-08 路 B,PR-B1):"image"=终端 VAE decode 出图(默认,字节零回归);
     # "latent"=终端不 decode,把真 latent 张量落盘,返 latent_ref 描述符(同空间真 latent 接力用,
@@ -143,33 +145,6 @@ class ImageRequest(InferenceRequest):
     # (denoised x0 语义点逐步改 latent)。**不落 tensor 进此字段**(标定数据落盘 safetensors,只带 path,
     # 同 init_latent_ref 铁律)。None/空 = 无干预(零回归)。
     interventions: list[dict] | None = None
-    # PR-4: component path. When set, the runner routes through
-    # ModelManager.get_or_load_image_adapter instead of model_key. None ⇒
-    # legacy model_key path (back-compat).
-    components: dict[str, "ComponentSpec"] | None = None
-    pipeline_class: str = "Flux2KleinPipeline"
-
-
-class UpscaleRequest(InferenceRequest):
-    """图→图超分(SeedVR2)。跟 ImageRequest(text2img) 不同:输入是**一张图** + 目标分辨率。
-
-    image:输入图。base64 data URI("data:image/png;base64,...") 或本地路径。
-    resolution:目标短边像素(SeedVR2 语义,非倍数)。
-    """
-    modality: Literal[MediaModality.IMAGE] = MediaModality.IMAGE
-    image: str  # base64 data URI 或本地路径
-    resolution: int = Field(1080, ge=64, le=4320)
-    seed: int | None = None
-    color_correction: Literal["lab", "wavelet", "wavelet_adaptive", "hsv", "adain", "none"] = "lab"
-    latent_noise_scale: float = Field(0.0, ge=0, le=1)
-    input_noise_scale: float = Field(0.0, ge=0, le=1)
-    # 三节点对齐 ComfyUI 增强节点的 per-inference 参数(2026-06-02)。dit/vae config 是 load-time
-    # (进 get_or_load_seedvr2_adapter),不在此 request;这里只放每次推理的参数。
-    max_resolution: int = Field(0, ge=0, le=8640)  # 长边上限,0=不限
-    batch_size: int = Field(1, ge=1, le=64)
-    temporal_overlap: int = Field(0, ge=0, le=32)  # 视频帧间重叠(单图=0)
-    prepend_frames: int = Field(0, ge=0, le=32)
-    uniform_batch_size: bool = False
 
 
 class AudioRequest(InferenceRequest):
@@ -324,10 +299,3 @@ class InferenceAdapter(ABC):
         if False:  # pragma: no cover  — satisfies AsyncIterator protocol
             yield  # type: ignore[unreachable]
 
-
-# Re-export for caller convenience — components are most commonly used by
-# DiffusersImageBackend (image_diffusers.py) and ModelManager.
-# NB: 这构成 base↔component_spec 顶层 import 环(A2),但 spec §5.1 明确要求 ComponentSpec
-# 可从 base 导入、且有测试(test_component_spec_re_exported_from_base)固化此契约;当前靠包
-# __init__ 强制先执行 base 得以工作。保留契约,不为 P3 破坏它。
-from src.services.inference.component_spec import ComponentSpec  # noqa: E402,F401

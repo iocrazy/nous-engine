@@ -29,16 +29,8 @@ export interface EngineInfo {
   supports_gpu_group?: boolean
   vram_gb: number
   resident: boolean
-  /** 统一引擎库:目录条目种类。model=整模型/引擎(可独立加载) upscale=SeedVR2 等 by-key
-   *  超分(可独立加载,load 接入在 PR-3) component=单文件组件(随 pipeline 加载,不独立可加载)
-   *  lora=LoRA(随模型加载)。缺省 model(向后兼容)。 */
-  kind?: 'model' | 'upscale' | 'component' | 'lora'
-  /** diffusion_models 单文件组件推断架构(z-image/flux2/anima)—— 预热时传给后端避免默认 flux2 错配。
-   *  统一模型管理收尾 PR-2。非组件 / 无法推断 → null/undefined。 */
-  arch?: string | null
-  /** 已加载单文件组件的 L1 身份串(file|device|dtype|loras,含真实 device)。常驻 toggle 按它
-   *  精确匹配,避 device='auto' 错配。未加载 / 非组件 → null。组件 L1 PR-3a。 */
-  state_key?: string | null
+  /** 目录条目种类。2026-09-26 自建图像引擎删除后后端只产出 model(整模型/引擎)。 */
+  kind?: 'model'
   local_path: string | null
   local_exists: boolean
   // Remote metadata
@@ -55,18 +47,14 @@ export interface EngineInfo {
   auto_detected: boolean
   /**
    * False = the model was discovered on disk but no adapter is wired up
-   * (image / video diffusers right now). UI must disable the load
-   * button — the backend will 422 with a config hint anyway, but it's
-   * cleaner to gate the button than to let users click a doomed action.
+   * for it. UI must disable the load button — the backend will 422 with
+   * a config hint anyway, but it's cleaner to gate the button than to
+   * let users click a doomed action.
    */
   has_adapter: boolean
   loaded_gpu: number | null
   loaded_gpus: number[] | null
   status_detail: string | null
-  /** image engines only: how many LoRAs the adapter knows about (loaded
-   * value when the model is loaded, scanner total when unloaded). null
-   * for non-image engines. */
-  lora_count: number | null
 }
 
 /**
@@ -143,128 +131,6 @@ export function useLoadEngine() {
     },
     onError: (error: Error) => {
       useToastStore.getState().add(`加载失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-/** 统一引擎库 PR-3:从引擎库预热 SeedVR2(by-key,默认配置)。name='seedvr2:<filename>'。
- *  loaded 状态经 runner Pong 反映(几秒后 engines 刷新出 loaded)。 */
-export function usePreloadSeedvr2() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (name: string) =>
-      apiFetch('/api/v1/engines/seedvr2/preload', {
-        method: 'POST', body: JSON.stringify({ name }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      useToastStore.getState().add('SeedVR2 开始加载...（几秒后引擎库刷新显示常驻）', 'info')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`SeedVR2 预热失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-export function useUnloadSeedvr2() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (name: string) =>
-      apiFetch('/api/v1/engines/seedvr2/unload', {
-        method: 'POST', body: JSON.stringify({ name }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      useToastStore.getState().add('SeedVR2 已卸载', 'success')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`卸载失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-/** SeedVR2 常驻 toggle(组件 L1 PR-2c:by-key 模型常驻 pin)。 */
-export function useSetSeedvr2Resident() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ name, resident }: { name: string; resident: boolean }) =>
-      apiFetch('/api/v1/engines/seedvr2/resident', {
-        method: 'POST', body: JSON.stringify({ name, resident }),
-      }),
-    onSuccess: (_d, v) => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      useToastStore.getState().add(v.resident ? 'SeedVR2 已设为常驻' : 'SeedVR2 已取消常驻', 'success')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`常驻切换失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-/** 单组件预加载到显存 + 可选常驻(组件 L1 PR-2a)。name='component:<kind>:<path>';dtype 选精度。 */
-export function usePreloadComponent() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ name, dtype, device, resident, arch }:
-      { name: string; dtype?: string; device?: string; resident?: boolean; arch?: string | null }) =>
-      apiFetch('/api/v1/engines/component/preload', {
-        method: 'POST',
-        body: JSON.stringify({
-          name, dtype: dtype ?? 'bfloat16',
-          ...(device ? { device } : {}),  // 省略 → 后端 auto 自动选卡
-          ...(arch ? { arch } : {}),      // diffusion_models 推断 arch(避免默认 flux2 错配 Z-Image)
-          resident: resident ?? false,
-        }),
-      }),
-    onSuccess: (_d, v) => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      useToastStore.getState().add(
-        `组件开始预加载${v.resident ? ' + 常驻' : ''}...（几秒后引擎库刷新显示已加载）`, 'info')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`组件预加载失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-/** 卸载已预加载组件(出 L1 + 释放显存,统一模型管理收尾 PR-1)。优先 state_key,否则 name+device/dtype。 */
-export function useUnloadComponent() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ state_key, name, device, dtype }:
-      { state_key?: string | null; name?: string; device?: string; dtype?: string }) =>
-      apiFetch('/api/v1/engines/component/unload', {
-        method: 'POST',
-        body: JSON.stringify(
-          state_key ? { state_key } : { name, device, dtype: dtype ?? 'bfloat16' }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      useToastStore.getState().add('组件开始卸载...（几秒后引擎库刷新）', 'info')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`组件卸载失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-/** 已加载组件常驻 toggle(组件 L1 PR-2b)。优先用 state_key 精确匹配,否则 name+device/dtype。 */
-export function useSetComponentResident() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ state_key, name, device, dtype, resident }:
-      { state_key?: string | null; name?: string; device?: string; dtype?: string; resident: boolean }) =>
-      apiFetch('/api/v1/engines/component/resident', {
-        method: 'POST',
-        body: JSON.stringify(
-          state_key ? { state_key, resident } : { name, device, dtype: dtype ?? 'bfloat16', resident }),
-      }),
-    onSuccess: (_d, v) => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      useToastStore.getState().add(v.resident ? '组件已设为常驻' : '组件已取消常驻', 'success')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`常驻切换失败: ${error.message}`, 'error')
     },
   })
 }
@@ -380,29 +246,6 @@ export function useScanModels() {
     },
     onError: (error: Error) => {
       useToastStore.getState().add(`扫描失败: ${error.message}`, 'error')
-    },
-  })
-}
-
-/** PR-D4:手动卸载所有 image adapter(走 `_models[derived_id]` 统一字典 + 释放显存)。
- * 调用后 dashboard / 引擎库自动看到 image adapter 消失。 */
-export function useUnloadImageAdapters() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () =>
-      apiFetch<{ unloaded: string[]; count: number }>(
-        '/api/v1/engines/unload-image-adapters', { method: 'POST' },
-      ),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['engines'] })
-      qc.invalidateQueries({ queryKey: ['monitor-stats'] })
-      const msg = data.count > 0
-        ? `已卸载 ${data.count} 个 image adapter`
-        : '当前无 image adapter,无需卸载'
-      useToastStore.getState().add(msg, 'success')
-    },
-    onError: (error: Error) => {
-      useToastStore.getState().add(`卸载失败: ${error.message}`, 'error')
     },
   })
 }

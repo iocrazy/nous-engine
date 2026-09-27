@@ -27,7 +27,7 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   仓库是 public,**不挂 self-hosted runner、不轮询**:扳机就是合并本身,Mac 经 Tailscale
   ssh 过去。不经 ship 的合并(网页/dependabot)不会自动上线,下次 ship 一并带上。
 - **Python 3.13.14**(`.python-version`,2026-09-09 起;CI/生产/开发机统一)。生产 `.venv` 只装
-  `--extra inference`,**没有 diffusers**(在 `image` extra,出图走 ComfyUI 桥),不是 bug。
+  `--extra inference`(出图走 ComfyUI 桥,仓库已无 diffusers 依赖)。
   **uv 的 venv 目录绝不能 `mv` 改名**:`bin/*` 入口脚本是绝对路径 shebang,改名后 `bin/uvicorn`
   ENOENT、unit 起不来(2026-09-09 生产停 4.5 分钟)。要换 venv 就在最终路径 `rm -rf .venv &&
   uv sync --extra inference`(轮子全在缓存,秒级);deploy.sh 重启前会跑 `uv run uvicorn
@@ -95,7 +95,8 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   (`GPU-d24ed424-5712-55e9-9b95-77d997ac80dc`)**ComfyUI 独占**,systemd 单元用 UUID 钉卡
   (索引随插拔漂移,UUID 不会;MOSS ASR 子进程同理用 UUID)。2026-09-20 原先两张 RTX 3090
   (旧索引 0/2,NVLink 互联)已物理拔除,`hardware.yaml` 的跨卡组 `llm-tp` 随之删除,现在
-  只有 `llm`/`image`/`tts` 三个**单卡组**,**没有任何多卡 group**;显示输出走主板
+  只有 `llm`/`tts` 两个**单卡组**(`image` 组已随图像引擎删除,见「图像引擎」节),**没有
+  任何多卡 group**;显示输出走主板
   ASPEED BMC,不占 N 卡(旧的「GPU 0 驱动显示器,腾空前别用于 TP」约束已作废)。
   **异构卡拼不成 TP 组**(Pro 5000 ≠ Pro 6000,见下方同型号校验),本机 tp 恒为 1 ——
   以下 TP 相关代码路径原样保留,只是现在走不到,除非将来买入同型号第二张卡。
@@ -137,8 +138,9 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   `tests/test_data_plane_readonly.py` 静态锁住这五个路由模块;常驻集合按落卡汇总必须
   放得进 `configs/hardware.yaml` 的容量减 `DEFAULT_RESERVED_GB`,由
   `tests/test_resident_capacity.py` 在 CI 兜住(常驻不自洽合 PR 前就红,不等上线)。
-  **例外(不在本不变式内)**:画布工作流的 `predictions` 经 `nodes/llm.py`、图像路径经
-  `get_or_load_image_adapter`,仍会在执行期按需加载模型(待单开 spec)。
+  **例外(不在本不变式内)**:画布工作流的 `predictions` 经 `nodes/llm.py` / `nodes/audio.py`
+  (两者共用 `ModelManager.get_loaded_adapter` 的按需加载路径),仍会在执行期按需加载模型
+  (待单开 spec)。
 - **GPU 0(Pro 5000)常驻名单**(2026-09-20 迁移后实测,`vram_mb` 见各模型 yaml 注释):
   MOSS ASR 9000 + qwen3.8-27B-AWQ 25500 + WeMM-Embedding-4B 24800 = 59300 MiB ≈
   57.9 GiB,上限 72 − 4 = 68 GiB(见上条容量测)。**Unlimited-OCR 不设 resident**(四样全
@@ -259,28 +261,14 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   `uv run python tests/manual/verify_wemm_embedding.py {4b|9b}`(真模型/GPU,非 CI)——
   CI 有 Popen 护栏起不了真 vLLM,配置能不能起、向量对不对只靠这个 standalone 脚本。
 
-## 图像引擎 (image engine)
+## 图像引擎 —— 已删除(2026-09-27)
 
-- 引擎只剩一套 = `ModularImageBackend`(`image_modular.py`,Modular Diffusers)。
-  迁移已完成,**legacy 自写 `ImageSampler`/`image_diffusers.py`/`image_sampler.py` 已删**
-  (#128-132);`NOUS_IMAGE_ENGINE` 环境变量已无 legacy 选项。Anima 自定义 DiT 走
-  `image_anima.py`。spec
-  `docs/superpowers/specs/2026-05-22-image-engine-modular-diffusers-design.md`。
-- **Modular Diffusers 是 experimental**;`diffusers` 在 `pyproject.toml` **钉死 commit**。
-  改 `image_modular.py` **或升 diffusers 前,必须跑**
-  `tests/manual/smoke_image_ab.py`(真模型/GPU,非 CI)并确认 SSIM ≥ 0.97 + 出图正确,
-  再 bump commit。CI 跑不了真模型(conftest mock torch + 无 GPU),引擎正确性只靠这个
-  standalone smoke。该 smoke 现在是 **golden 回归比对**(legacy 没了,不再是 legacy/modular
-  A/B):重生成 modular 出图 → SSIM 比保存的 golden 图。
-- **standalone smoke 必须在 import torch 前设 `CUDA_DEVICE_ORDER=PCI_BUS_ID`**(脚本顶部
-  `os.environ.setdefault` 或命令前缀)。否则 torch 默认 FASTEST_FIRST 按算力排序,两张卡
-  **对调**:`cuda:0` 成了 Pro 6000、`cuda:1` 成了 Pro 5000。于是 `SMOKE_DEVICE=cuda:1`
-  本意是 ComfyUI 那张空闲的 Pro 6000,实际落到跑着全部常驻模型的 Pro 5000 上 —— 常驻已占
-  ~58GiB,大模型直接 OOM,还会把推理服务一起拖下水。(2026-09-20 两卡改造前这里的形状是
-  `cuda:1` 变成 24G 的 3090 装 9B 直接 OOM;卡换了,坑还在,只是换了个样子。)生产经
-  `src/api/main.py` 已 setdefault,但 standalone 脚本不经它、且 `uv` 不 load `.env`。
-- `diffusers.modular*` 的 import **只允许在 `image_modular.py`**(`_import_modular()`
-  一处)——experimental API 变更时 blast radius 限一文件。
+自建原生图像引擎(Modular Diffusers / SeedVR2 超分 / Anima DiT / LCS 锐化)及其组件库、LoRA 库、
+RAM pinned stash、latent 接力、`image` runner 组、创作台页面已于 2026-09-27 **整体删除**
+(spec `docs/superpowers/specs/2026-09-21-image-engine-to-node-packages-design.md`)。出图**只走
+ComfyUI 桥**。代码存档在 tag **`image-engine-native-final`**(删除 PR 的 base commit):
+`git show image-engine-native-final:backend/src/services/inference/image_modular.py` 或
+`git checkout image-engine-native-final -- <路径>`。`models/nous/media/` 的权重没删(ComfyUI 共用)。
 
 ## skill-runs(Skill 驱动工作流编排)
 

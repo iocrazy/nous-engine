@@ -38,11 +38,12 @@ COMPONENTS: list[tuple[str, str]] = [
     ("database", "数据库"),
     ("llm", "LLM 推理 (vLLM)"),
     ("embedding", "向量 (vLLM)"),
-    ("image", "图像 Runner"),
     ("tts", "语音 Runner"),
     ("gpu", "GPU"),
+    ("comfy", "ComfyUI 桥"),
 ]
 COMPONENT_KEYS = [k for k, _ in COMPONENTS]
+_COMFY_STATE = {"ok": OPERATIONAL, "degraded": DEGRADED, "down": DOWN}
 
 DEFAULT_INTERVAL_S = 60.0
 RETENTION_DAYS = 8
@@ -84,8 +85,16 @@ async def _vllm_component_status(targets) -> str:
     return OPERATIONAL
 
 
-async def compute_statuses(app_state, session: AsyncSession | None = None) -> dict[str, str]:
-    """现算每个组件当前状态。每项独立 try —— 单项探测失败记 down,绝不让采样/端点崩。"""
+async def compute_statuses(
+    app_state,
+    session: AsyncSession | None = None,
+    details: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """现算每个组件当前状态。每项独立 try —— 单项探测失败记 down,绝不让采样/端点崩。
+
+    传了 `details` 就往里填「组件 → 一句话原因」(目前只有 comfy 的 problems),给状态页
+    在组件名下显示;采样落库不需要,不传。
+    """
     out: dict[str, str] = {}
 
     # backend:能跑到这就是活的。
@@ -120,7 +129,7 @@ async def compute_statuses(app_state, session: AsyncSession | None = None) -> di
         logger.warning("status: embedding check failed: %s", e)
         out["embedding"] = DOWN
 
-    # image / tts runner:三态 —— 进程死=down;进程活但没加载模型=**idle**(用户反馈:
+    # tts runner:三态 —— 进程死=down;进程活但没加载模型=**idle**(用户反馈:
     # 没装 TTS 不该显示"运行正常");进程活+有已加载 adapter=operational。runner 上报的
     # 已加载 adapter 在 supervisor.loaded_models(ping/pong 快照),主进程据此判 idle vs serving。
     runners: dict[str, dict] = {}
@@ -132,14 +141,13 @@ async def compute_statuses(app_state, session: AsyncSession | None = None) -> di
             }
         except Exception:  # noqa: BLE001
             pass
-    for key in ("image", "tts"):
-        r = runners.get(key)
-        if r is None or not r["running"]:
-            out[key] = DOWN  # runner 进程不在/死了
-        elif r["n_loaded"] > 0:
-            out[key] = OPERATIONAL
-        else:
-            out[key] = IDLE  # 进程在、随时可加载,但当前没装模型
+    r = runners.get("tts")
+    if r is None or not r["running"]:
+        out["tts"] = DOWN  # runner 进程不在/死了
+    elif r["n_loaded"] > 0:
+        out["tts"] = OPERATIONAL
+    else:
+        out["tts"] = IDLE  # 进程在、随时可加载,但当前没装模型
 
     # gpu:nvidia-smi 能列出卡。
     try:
@@ -152,6 +160,17 @@ async def compute_statuses(app_state, session: AsyncSession | None = None) -> di
     except Exception as e:  # noqa: BLE001
         logger.warning("status: gpu check failed: %s", e)
         out["gpu"] = DOWN
+
+    # comfy:sidecar 体检(在线 + systemd 身份 + 监听地址),见 comfy/sidecar_status.py。
+    try:
+        from src.services.comfy import sidecar_status as comfy_sidecar
+        comfy = await comfy_sidecar.sidecar_status()
+        out["comfy"] = _COMFY_STATE.get(comfy.get("state"), DOWN)
+        if details is not None and comfy.get("problems"):
+            details["comfy"] = ";".join(comfy["problems"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("status: comfy check failed: %s", e)
+        out["comfy"] = DOWN
 
     return out
 

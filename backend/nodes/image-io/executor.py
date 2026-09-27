@@ -1,12 +1,12 @@
 """image-io 节点 executor — 图像输入(上传图 → 落盘签 URL → image 端口)。
 
 image_input 是 **inline 节点**(主进程 event loop,CPU:base64 解码 + 写盘 + 量宽高):
-把前端上传的 base64 data URI 落盘到 image_output_storage(同 flux2_vae_decode 出图路径),
-产出 `{image_url, media_type, width, height}` —— 下游 image→image 节点(SeedVR2 超分)
-经 inputs 拿到 image_url(签名 URL),runner 端 _resolve_input_image_path 解析回本地磁盘读图。
+把前端上传的 base64 data URI 落盘到 image_output_storage,产出
+`{image_url, media_type, width, height}` —— 下游 image 类型节点(调色/合并/对比等)
+经 inputs 拿到 image_url(签名 URL),各自解析回本地磁盘读图。
 
-为何落盘签 URL 而非直接透传 base64:与 flux2_vae_decode 一致 —— base64 大图走 runner
-msgpack pipe 是反模式(可能几 MB)。落盘后只过一个签名 URL 字符串。
+为何落盘签 URL 而非直接透传 base64:大图走进程间 pipe 传 base64 是反模式(可能几 MB)。
+落盘后只过一个签名 URL 字符串。
 """
 from __future__ import annotations
 

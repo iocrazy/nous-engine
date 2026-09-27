@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
-import { Zap, Check, ArrowUp, ArrowDown, X, Plus, ImageIcon } from 'lucide-react'
+import { Zap, Check, ImageIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useLightboxStore } from '../../stores/lightbox'
@@ -9,32 +9,9 @@ import { DECLARATIVE_NODES, type WidgetDef } from '../../models/nodeRegistry'
 import { useAgents } from '../../api/agents'
 import { apiFetch } from '../../api/client'
 import { useEnginesLiveSync, type EngineInfo } from '../../api/engines'
-import { useLoras } from '../../api/loras'
-import { useComponents, useComponentState, useAllComponentStates, loadedStateByFile, useSeedvr2DitModels, componentStateKey, type ComponentRole, type ComponentLoadState } from '../../api/components'
 import BaseNode, { NodeWidgetRow, NodeInput, NodeNumberDrag, NodeTextarea } from './BaseNode'
 import NodeSelectPopover from './NodeSelectPopover'
 import { readImageDropUrl, isDisplayableImageValue } from './imageDragDrop'
-
-function LoraSelectWidget({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (v: string) => void
-}) {
-  // V1' Lane C LoadLoRA component node uses this to pick a single LoRA
-  // by display name (vs the lora_stack widget which manages an ordered
-  // list with strengths for the integrated image_generate node). Source
-  // is the same /api/v1/loras scanner endpoint that lora_stack reads —
-  // so newly-dropped LoRA files appear in both without an edit.
-  const { data: loras } = useLoras()
-  const opts = [
-    { value: '', label: '— 不应用 LoRA —' },
-    ...(loras ?? []).map((lora) => ({ value: lora.name, label: lora.name })),
-  ]
-  return <NodeSelectPopover value={value} onChange={onChange} options={opts} size="compact" />
-}
-
 
 function AgentSelectWidget({
   value,
@@ -53,125 +30,6 @@ function AgentSelectWidget({
       placeholder="选择 Agent..."
       size="compact"
     />
-  )
-}
-
-interface LoraEntry {
-  name: string
-  strength: number
-}
-
-function LoraStackWidget({
-  value,
-  onChange,
-}: {
-  value: LoraEntry[]
-  onChange: (v: LoraEntry[]) => void
-}) {
-  const { data: loras } = useLoras()
-  const items = Array.isArray(value) ? value : []
-
-  const update = (next: LoraEntry[]) => onChange(next)
-  const add = () => update([...items, { name: '', strength: 1.0 }])
-  const remove = (idx: number) => update(items.filter((_, i) => i !== idx))
-  const move = (idx: number, dir: -1 | 1) => {
-    const target = idx + dir
-    if (target < 0 || target >= items.length) return
-    const next = items.slice()
-    ;[next[idx], next[target]] = [next[target], next[idx]]
-    update(next)
-  }
-  const setName = (idx: number, name: string) => {
-    const next = items.slice()
-    next[idx] = { ...next[idx], name }
-    update(next)
-  }
-  const setStrength = (idx: number, strength: number) => {
-    const next = items.slice()
-    next[idx] = { ...next[idx], strength }
-    update(next)
-  }
-
-  const btnStyle: React.CSSProperties = {
-    background: 'var(--bg-hover)',
-    border: '1px solid var(--border)',
-    borderRadius: 3,
-    padding: '2px 4px',
-    cursor: 'pointer',
-    color: 'var(--muted)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-      {items.map((row, idx) => (
-        <div key={idx} style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <NodeSelectPopover
-              value={row.name}
-              onChange={(v) => setName(idx, v)}
-              options={(loras ?? []).map((l) => ({ value: l.name, label: l.name }))}
-              placeholder="选择 LoRA..."
-              size="compact"
-            />
-          </div>
-          <div style={{ width: 50 }}>
-            <NodeNumberDrag
-              value={row.strength}
-              onChange={(v) => setStrength(idx, Number(v))}
-              min={-2}
-              max={2}
-              step={0.1}
-              precision={2}
-            />
-          </div>
-          <button
-            className="nodrag"
-            type="button"
-            aria-label={`上移 LoRA ${row.name || idx + 1}`}
-            onClick={() => move(idx, -1)}
-            style={btnStyle}
-          >
-            <ArrowUp size={10} />
-          </button>
-          <button
-            className="nodrag"
-            type="button"
-            aria-label={`下移 LoRA ${row.name || idx + 1}`}
-            onClick={() => move(idx, 1)}
-            style={btnStyle}
-          >
-            <ArrowDown size={10} />
-          </button>
-          <button
-            className="nodrag"
-            type="button"
-            aria-label={`删除 LoRA ${row.name || idx + 1}`}
-            onClick={() => remove(idx)}
-            style={{ ...btnStyle, color: 'var(--error)' }}
-          >
-            <X size={10} />
-          </button>
-        </div>
-      ))}
-      <button
-        className="nodrag"
-        type="button"
-        onClick={add}
-        style={{
-          ...btnStyle,
-          padding: '4px 6px',
-          color: 'var(--muted)',
-          fontSize: 10,
-          gap: 4,
-        }}
-      >
-        <Plus size={10} />
-        添加 LoRA
-      </button>
-    </div>
   )
 }
 
@@ -224,174 +82,6 @@ function ModelSelectWidget({
   )
 }
 
-export function ComponentSelectWidget({
-  value,
-  onChange,
-  role,
-}: { value: string; onChange: (v: string) => void; role: ComponentRole }) {
-  const { data: components } = useComponents(role)
-  // 已加载状态(按 file 兜底,同 ComponentStatusHeader)→ 下拉标绿点 + 「只看已加载」筛选。
-  const { data: allStates } = useAllComponentStates()
-  const byFile = loadedStateByFile(allStates)
-  const opts = (components ?? []).map((c) => {
-    // 同名不同目录的文件(如各模型的 diffusion_pytorch_model.safetensors)在下拉里会看着
-    // 一样 —— 副标题附上量化类型 + 末两级目录(模型目录/子目录)区分。
-    const parts = (c.abs_path || '').split('/').filter(Boolean)
-    const ctx = parts.slice(-3, -1).join('/')
-    const quant = c.quant_type && c.quant_type !== 'bf16' ? c.quant_type : ''
-    const description = [quant, ctx].filter(Boolean).join(' — ')
-    return {
-      value: c.abs_path,
-      label: c.filename,
-      description: description || undefined,
-      loaded: byFile[c.abs_path] === 'loaded',
-    }
-  })
-  return (
-    <NodeSelectPopover
-      value={value}
-      onChange={onChange}
-      options={opts}
-      placeholder={`选择 ${role}...`}
-      size="compact"
-    />
-  )
-}
-
-const _STATE_VIS: Record<string, { label: string; color: string }> = {
-  loaded:  { label: '已加载', color: 'var(--ok)' },
-  loading: { label: '加载中', color: 'var(--warn)' },
-  failed:  { label: '失败',   color: 'var(--accent)' },
-  cold:    { label: '未加载', color: 'var(--muted)' },
-}
-
-export function ComponentStatusHeader({ data }: { data: Record<string, unknown> }) {
-  const device = (data.device as string) || 'auto'
-  const file = data.file as string | undefined
-  const dtype = (data.dtype as string) || 'bfloat16'
-  // 显式选卡(cuda:N)用精确 state-key。device=auto 时前端不知道后端把 auto 解析到哪张卡
-  // (PR-A 逐组件放置:auto 跟随 transformer 卡,经 get_best_gpu),state-key 里的 'auto'
-  // 永远对不上后端注册的 `…|cuda:N|…` → 节点恒显「未加载」(PR-C 修的就是这个)。按 file
-  // 兜底匹配(同 #343 service UI loadedStateByFile,robust 于 device/dtype/lora)。
-  const exact = useComponentState(componentStateKey({ file, device, dtype }))
-  const { data: allStates } = useAllComponentStates()
-  const state: ComponentLoadState =
-    device === 'auto'
-      ? (file ? (loadedStateByFile(allStates)[file] ?? 'cold') : 'cold')
-      : exact.state
-  const vis = _STATE_VIS[state] ?? _STATE_VIS.cold
-  return (
-    <div className="flex items-center gap-1.5" style={{ fontSize: 9, color: 'var(--muted)', padding: '2px 10px 4px' }}>
-      <span style={{ width: 6, height: 6, borderRadius: 3, background: vis.color, flexShrink: 0 }} />
-      <span style={{ color: vis.color }}>{vis.label}</span>
-    </div>
-  )
-}
-
-/** CLIP 节点级聚合四态:多 encoder → 取最差有意义态(任一 failed→failed;任一 loading→
- * loading;全部非空 loaded→loaded;否则 cold)。device 跟随 transformer(auto),按 file 兜底。 */
-export function ClipAggregateStatusHeader({ data }: { data: Record<string, unknown> }) {
-  const clips = (Array.isArray(data.clips) ? data.clips : []) as { file?: string }[]
-  const { data: allStates } = useAllComponentStates()
-  const byFile = loadedStateByFile(allStates)
-  const files = clips.map((c) => c.file).filter((f): f is string => !!f)
-  const states = files.map((f) => byFile[f] ?? 'cold')
-  const state: ComponentLoadState =
-    files.length === 0 ? 'cold'
-      : states.includes('failed') ? 'failed'
-        : states.includes('loading') ? 'loading'
-          : states.every((s) => s === 'loaded') ? 'loaded'
-            : 'cold'
-  const vis = _STATE_VIS[state] ?? _STATE_VIS.cold
-  return (
-    <div className="flex items-center gap-1.5" style={{ fontSize: 9, color: 'var(--muted)', padding: '2px 10px 4px' }}>
-      <span style={{ width: 6, height: 6, borderRadius: 3, background: vis.color, flexShrink: 0 }} />
-      <span style={{ color: vis.color }}>{vis.label}</span>
-    </div>
-  )
-}
-
-type ClipEntry = { file: string; weight_dtype: string }
-const _CLIP_DTYPES = ['default', 'bfloat16', 'fp8_e4m3']
-
-function ClipStateDot({ file }: { file: string }) {
-  // device 跟随 transformer(节点级 auto),前端无从得知解析后的卡 → 按 file 兜底匹配
-  // 组件状态(同 ComponentStatusHeader 的 auto 分支),否则 per-row 点恒「未加载」。
-  const { data: allStates } = useAllComponentStates()
-  const state = file ? (loadedStateByFile(allStates)[file] ?? 'cold') : 'cold'
-  const vis = _STATE_VIS[state] ?? _STATE_VIS.cold
-  return <span title={vis.label} style={{ width: 6, height: 6, borderRadius: 3, background: vis.color, flexShrink: 0 }} />
-}
-
-/** PR-3 动态多 CLIP:可增删的 CLIP 编码器列表(每条 file + 精度 + 状态点)。
- * 多编码器执行 gated(runner 拦),但增删 UI + bundle 现在就有。 */
-export function ClipStackWidget({
-  value,
-  onChange,
-}: {
-  value: ClipEntry[]
-  onChange: (v: ClipEntry[]) => void
-}) {
-  const items = Array.isArray(value) ? value : []
-  const add = () => onChange([...items, { file: '', weight_dtype: 'bfloat16' }])
-  const remove = (idx: number) => onChange(items.filter((_, i) => i !== idx))
-  const setFile = (idx: number, file: string) => {
-    const next = items.slice(); next[idx] = { ...next[idx], file }; onChange(next)
-  }
-  const setDtype = (idx: number, weight_dtype: string) => {
-    const next = items.slice(); next[idx] = { ...next[idx], weight_dtype }; onChange(next)
-  }
-  const btnStyle: React.CSSProperties = {
-    background: 'var(--bg-hover)', border: '1px solid var(--border)', borderRadius: 3,
-    padding: '2px 4px', cursor: 'pointer', color: 'var(--muted)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-      {items.map((row, idx) => (
-        <div key={idx} style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-          <ClipStateDot file={row.file} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <ComponentSelectWidget value={row.file} onChange={(v) => setFile(idx, v)} role="clip" />
-          </div>
-          <div style={{ width: 78 }}>
-            <NodeSelectPopover
-              value={row.weight_dtype || 'bfloat16'}
-              onChange={(v) => setDtype(idx, v)}
-              options={_CLIP_DTYPES.map((d) => ({ value: d, label: d }))}
-              size="compact"
-            />
-          </div>
-          <button
-            className="nodrag" type="button"
-            aria-label={`删除 CLIP ${idx + 1}`}
-            onClick={() => remove(idx)}
-            style={{ ...btnStyle, color: 'var(--error)' }}
-          >
-            <X size={10} />
-          </button>
-        </div>
-      ))}
-      <button
-        className="nodrag" type="button" onClick={add}
-        style={{ ...btnStyle, padding: '4px 6px', fontSize: 10, gap: 4 }}
-      >
-        <Plus size={10} />
-        添加 CLIP
-      </button>
-    </div>
-  )
-}
-
-/** clip_stack 取值 + 旧格式兜底:PR-1/PR-2 期存的单 `file` → 包成一条。 */
-function clipStackValue(resolved: unknown, nodeData?: Record<string, unknown>): ClipEntry[] {
-  if (Array.isArray(resolved) && resolved.length > 0) return resolved as ClipEntry[]
-  if (nodeData?.file) {
-    return [{ file: String(nodeData.file), weight_dtype: String(nodeData.weight_dtype ?? 'bfloat16') }]
-  }
-  return Array.isArray(resolved) ? (resolved as ClipEntry[]) : []
-}
-
 function resolveValue(value: unknown, widget: WidgetDef): unknown {
   if (value !== undefined && value !== null) return value
   return widget.default
@@ -401,12 +91,10 @@ function WidgetRenderer({
   widget,
   value,
   onChange,
-  nodeData,
 }: {
   widget: WidgetDef
   value: unknown
   onChange: (v: unknown) => void
-  nodeData?: Record<string, unknown>
 }) {
   const resolved = resolveValue(value, widget)
 
@@ -486,45 +174,9 @@ function WidgetRenderer({
           filter={widget.filter}
         />
       )
-    case 'lora_stack':
-      return (
-        <LoraStackWidget
-          value={Array.isArray(resolved) ? (resolved as LoraEntry[]) : []}
-          onChange={(v) => onChange(v)}
-        />
-      )
-    case 'lora_select':
-      return (
-        <LoraSelectWidget
-          value={String(resolved ?? '')}
-          onChange={(v) => onChange(v)}
-        />
-      )
-    case 'component_select':
-      return (
-        <ComponentSelectWidget
-          value={String(resolved ?? '')}
-          onChange={(v) => onChange(v)}
-          role={(widget.role ?? 'diffusion_models') as ComponentRole}
-        />
-      )
-    case 'clip_stack':
-      return (
-        <ClipStackWidget
-          value={clipStackValue(resolved, nodeData)}
-          onChange={(v) => onChange(v)}
-        />
-      )
     case 'image_upload':
       return (
         <ImageUploadWidget
-          value={String(resolved ?? '')}
-          onChange={(v) => onChange(v)}
-        />
-      )
-    case 'seedvr2_model_select':
-      return (
-        <Seedvr2ModelSelectWidget
           value={String(resolved ?? '')}
           onChange={(v) => onChange(v)}
         />
@@ -534,37 +186,8 @@ function WidgetRenderer({
   }
 }
 
-/** SeedVR2 DiT 模型下拉(混合):白名单全列 —— 盘上有的标「已就绪」(绿点)+ 大小,
- *  其余标「可下载」(灰点,选了 NumZ 从 HF 自动下)。value = filename。 */
-function Seedvr2ModelSelectWidget({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (v: string) => void
-}) {
-  const { data: models } = useSeedvr2DitModels()
-  const opts = (models ?? []).map((m) => {
-    const gb = m.size_mb != null ? ` · ${(m.size_mb / 1024).toFixed(1)}GB` : ''
-    return {
-      value: m.filename,
-      label: m.label,
-      description: m.present ? `已就绪${gb} — ${m.desc}` : `可下载(HF)— ${m.desc}`,
-      color: m.present ? 'var(--ok)' : 'var(--muted)',
-    }
-  })
-  return (
-    <NodeSelectPopover
-      value={String(value ?? '')}
-      onChange={(v) => onChange(v)}
-      options={opts}
-      size="compact"
-    />
-  )
-}
-
-/** 图像上传 widget:选/拖/粘贴图 → base64 data URI 存进 node.data。喂 image→image 节点
- *  (SeedVR2 超分等)。有图显示缩略图 + 重传;无图显示上传框。 */
+/** 图像上传 widget:选/拖/粘贴图 → base64 data URI 存进 node.data。喂下游 image 类型节点
+ *  (调色/合并/对比等)。有图显示缩略图 + 重传;无图显示上传框。 */
 function ImageUploadWidget({
   value,
   onChange,
@@ -815,18 +438,12 @@ export default function DeclarativeNode({ id, type, data, selected }: NodeProps)
       inputs={portDef.inputs}
       outputs={portDef.outputs}
     >
-      {declDef.componentRole === 'clip'
-        ? <ClipAggregateStatusHeader data={data as Record<string, unknown>} />
-        : declDef.componentRole
-          ? <ComponentStatusHeader data={data as Record<string, unknown>} />
-          : null}
       {declDef.widgets.map((w) => (
         <NodeWidgetRow key={w.name} label={w.label} stretch={w.widget === 'textarea'}>
           <WidgetRenderer
             widget={w}
             value={data[w.name] as unknown}
             onChange={(v) => updateNode(id, { [w.name]: v })}
-            nodeData={data as Record<string, unknown>}
           />
         </NodeWidgetRow>
       ))}

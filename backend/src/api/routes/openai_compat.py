@@ -1266,12 +1266,12 @@ async def audio_transcriptions(
 
 
 class ImageGenerationRequest(BaseModel):
-    # extra="allow":火山式额外参数(如 SeedVR2 的 resolution)随 body 透传,
+    # extra="allow":火山式额外参数(如超分类服务的 resolution)随 body 透传,
     # 按服务 exposed_inputs 的 key 通用合并注入(见 handler)。
     model_config = ConfigDict(extra="allow")
 
     model: str = Field(..., description="已发布的 image 服务名(= ServiceInstance.name)")
-    # prompt 可选:图生图/编辑有 prompt,但纯超分(SeedVR2 细节增强)无 prompt。
+    # prompt 可选:图生图/编辑有 prompt,但纯超分类服务无 prompt。
     prompt: str | None = None
     # 输入图(图生图/编辑/超分):base64 data URI('data:image/...;base64,...')。
     # 对齐火山 Seedream:image 字段接 URL 或 base64;本轮先吃 base64(URL 下载留 follow-up)。
@@ -1327,8 +1327,8 @@ def _extract_image_urls(
 ) -> list[str]:
     """从 executor result 捞产图终端的 image_url。
 
-    1) 优先按 exposed_outputs 声明的 node_id 取(发布契约把输出指向产图终端
-       dec=flux2_vae_decode / up=seedvr2_upscale)——精确、不依赖遍历顺序。
+    1) 优先按 exposed_outputs 声明的 node_id 取(发布契约把输出指向产图终端节点,
+       如 image-color-match 的 image_color_match)——精确、不依赖遍历顺序。
     2) 兜底扫全部节点 output,但跳过 image_input 类型节点的 echo(否则把上传图
        当输出返回,#372 外部路径版)。snapshot 缺省时退化为「扫全部」,与老服务兼容。
     """
@@ -1417,8 +1417,8 @@ async def images_generations(
         )
 
     # 通用参数合并(火山式):body 里任意字段命中服务 exposed_inputs 的 key → 注入对应
-    # 节点。prompt / image / resolution / negative_prompt 走同一套,SeedVR2 无 prompt 也
-    # 不报错。这取代了原「只塞单个文本 prompt」的逻辑(那条让带图/无 prompt 的服务发不出去)。
+    # 节点。prompt / image / resolution / negative_prompt 走同一套,无 prompt 的纯超分类
+    # 服务也不报错。这取代了原「只塞单个文本 prompt」的逻辑(那条让带图/无 prompt 的服务发不出去)。
     exposed = svc.exposed_inputs or []
     exposed_keys = {(p.get("key") or p.get("api_name")) for p in exposed}
     exposed_keys.discard(None)

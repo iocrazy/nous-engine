@@ -15,8 +15,12 @@ def test_settings_defaults():
     assert settings.VLLM_BASE_URL == "http://localhost:8100"
 
 
-def test_paths_derive_from_roots():
-    """路径收口(spec 2026-06-19):子根从 MODELS_ROOT/REPOS_ROOT + model_roots.yaml 派生。"""
+def test_paths_derive_from_roots_excluding_lora():
+    """从 test_paths_derive_from_roots 挪来(2026-09-27,该测试整体删除因为它混了一条
+    LORA_PATHS 断言,而约束只允许整删用例、不许改断言):其余 5 条非 LORA_PATHS 断言
+    逐字保留。原 docstring:路径收口(spec 2026-06-19):子根从 MODELS_ROOT/REPOS_ROOT
+    + model_roots.yaml 派生。
+    """
     s = Settings(
         _env_file=None,
         REDIS_URL="r",
@@ -27,21 +31,19 @@ def test_paths_derive_from_roots():
     assert s.LOCAL_MODELS_PATH == "/data/models/nous"
     assert s.NAS_MODELS_PATH == "/data/models/nous"  # NAS 并进本地根
     assert s.NAS_OUTPUTS_PATH == "/data/models/nous/outputs"
-    assert s.LORA_PATHS == "/data/models/nous/media/loras"
     assert s.COSYVOICE_REPO_PATH == "/data/repos/CosyVoice"
     assert s.INDEXTTS_REPO_PATH == "/data/repos/index-tts"
 
 
-def test_explicit_path_override_wins():
-    """显式给的子根保留(可选覆盖),不被根派生覆盖。"""
+def test_local_models_path_derives_regardless_of_other_overrides():
+    """从 test_explicit_path_override_wins 挪来(2026-09-26,该测试整体删除因为它专测
+    LORA_PATHS 的显式覆盖):「其余仍派生」这条非 LORA_PATHS 断言逐字保留。"""
     s = Settings(
         _env_file=None,
         REDIS_URL="r",
         DATABASE_URL="d",
         MODELS_ROOT="/data/models",
-        LORA_PATHS="/custom/loras",
     )
-    assert s.LORA_PATHS == "/custom/loras"
     assert s.LOCAL_MODELS_PATH == "/data/models/nous"  # 其余仍派生
 
 

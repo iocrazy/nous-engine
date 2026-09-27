@@ -5,7 +5,7 @@ import os
 # torch 默认 CUDA_DEVICE_ORDER=FASTEST_FIRST,把最快的卡(Pro 6000)排到 cuda:0,
 # 跟 nvidia-smi(PCI 顺序)+ hardware.yaml(按 nvidia-smi 写)错位 ——
 # ModelManager.get_best_gpu() 用 nvidia-smi poll 取 PCI index,喂给 torch
-# 当 cuda:N 就装错卡(实测 flux2 想去 Pro 6000 → 装到 3090)。
+# 当 cuda:N 就装错卡(过去实测过大模型想去某张卡、结果装到另一张)。
 # setdefault 在 import torch 之前固定 PCI_BUS_ID,让三个索引系统一致;
 # 用户 .env 同名变量优先(setdefault 不覆盖)。
 os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
@@ -19,31 +19,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import understand, generate, tts, engines, audio, voices, openai_compat, ollama_compat, api_gateway as api_gateway_routes, settings, workflows, agents, skills, monitor, node_packages, execution_tasks, apps, logs, context_cache as context_cache_routes, files as files_routes, services as services_routes, workflow_publish as workflow_publish_routes, usage as usage_routes, dashboard as dashboard_routes, api_keys as api_keys_routes, anthropic_compat, observability, loras as loras_routes, image_files as image_files_routes, models as models_routes, predictions as predictions_routes, comfy_templates as comfy_templates_routes, skill_runs as skill_runs_routes
+from src.api.routes import understand, generate, tts, engines, audio, voices, openai_compat, ollama_compat, api_gateway as api_gateway_routes, settings, workflows, agents, skills, monitor, node_packages, execution_tasks, apps, logs, context_cache as context_cache_routes, files as files_routes, services as services_routes, workflow_publish as workflow_publish_routes, usage as usage_routes, dashboard as dashboard_routes, api_keys as api_keys_routes, anthropic_compat, observability, image_files as image_files_routes, models as models_routes, predictions as predictions_routes, comfy_templates as comfy_templates_routes, skill_runs as skill_runs_routes
 from src.api.ws_tts import handle_tts_websocket
 from src.services.gpu_monitor import memory_guard_loop
 # WS 广播基础设施已下沉到 services/ws_hub(打破 services→api 反向依赖)。
 from src.services.ws_hub import _ws_connections, ws_manager  # noqa: F401
 
 logger = logging.getLogger(__name__)
-
-
-def _make_component_event_handler(registry, ws):
-    """Build the sync callback RunnerClient.on_component_event uses: update the
-    backend mirror + fan out a WS push. WS broadcast is async → scheduled."""
-    def _handler(evt) -> None:
-        # round6:registry.update 早先在 try 外,抛异常会逃进 RunnerClient demux loop 杀掉它
-        # (后续 run_node 全挂 5min)。client 侧已加回调守卫,这里再各自 try 兜底纵深。
-        try:
-            registry.update(evt.component_key, evt.state, evt.error)
-        except Exception:  # noqa: BLE001
-            logger.exception("component registry.update failed (%s)", evt.component_key)
-        try:
-            asyncio.get_running_loop().create_task(
-                ws.broadcast_component_state(evt.component_key, evt.state, evt.error))
-        except RuntimeError:
-            pass  # no running loop — registry still updated
-    return _handler
 
 
 # 开发期微迁移(无 alembic):create_all 不给**已存在**的表加列/索引,这些幂等 DDL 补上
@@ -552,20 +534,6 @@ async def lifespan(app: FastAPI):
     model_mgr = ModelManager(registry=registry, allocator=allocator)
     app.state.model_manager = model_mgr
 
-    # 启动扫描 + 自检:暖组件下拉索引(loader 节点用)+ 每角色计数 + 整模型完整性。
-    # Fail-soft — 扫描/自检出错不阻塞启动,降级到空索引。
-    try:
-        from src.services.component_scanner import get_component_index, selfcheck_report
-        report = selfcheck_report(force_refresh=True)  # 扫一遍 + 填缓存
-        app.state.component_index = get_component_index()
-        _roles = ", ".join(f"{r}={n}" for r, n in report["counts"].items())
-        logger.info("模型扫描自检:%s", _roles)
-        for _w in report["warnings"]:
-            logger.warning("模型扫描自检:%s", _w)
-    except Exception:  # noqa: BLE001 — index is non-critical at boot
-        logger.exception("模型扫描自检失败;serving empty index")
-        app.state.component_index = {role: [] for role in ("diffusion_models", "clip", "vae", "loras", "checkpoint")}
-
     # Wire ModelManager into workflow executor
     from src.services.workflow_executor import set_model_manager
     set_model_manager(model_mgr)
@@ -636,7 +604,7 @@ async def lifespan(app: FastAPI):
                     group.id, group.gpus, rep_model_key, rep_adapter is not None,
                 )
             else:
-                # image / tts group → fork runner 子进程 + 建 client。
+                # 非 llm 的 group(目前只有 tts)→ fork runner 子进程 + 建 client。
                 sup = RunnerSupervisor(
                     group_id=group.id,
                     gpus=list(group.gpus),
@@ -666,14 +634,6 @@ async def lifespan(app: FastAPI):
     app.state.runner_supervisors = runner_supervisors
     app.state.runner_clients = runner_clients
     app.state.llm_runner = llm_runner
-
-    # PR-5a: component-state mirror fed by the image runner's ComponentEvents.
-    from src.services.component_state import ComponentStateRegistry
-    app.state.component_state_registry = ComponentStateRegistry()
-    _img_client = runner_clients.get("image")
-    if _img_client is not None:
-        _img_client.on_component_event = _make_component_event_handler(
-            app.state.component_state_registry, ws_manager)
 
     # Auto-detect running vLLM instances BEFORE resident auto-load
     # (so we reconnect to orphans instead of spawning duplicates)
@@ -988,6 +948,16 @@ def create_app() -> FastAPI:
         if any(not r.get("healthy", r.get("running", False)) for r in runners):
             checks["status"] = "degraded"
 
+        # ComfyUI sidecar 体检(2026-09-26):在线 + 身份是 systemd 那个 + 监听地址齐全。
+        # 2026-09-25 它被换成手工实例停了一天多,顶栏/状态页/巡检全无反应。/health 无鉴权,
+        # 只挑这几个字段(不放 unit_active/checked_at;problems 里的外来 pid 是给人排障用的)。
+        from src.services.comfy import sidecar_status as _comfy_sidecar
+        comfy = await _comfy_sidecar.sidecar_status()
+        checks["comfy"] = {k: comfy[k] for k in (
+            "state", "online", "identity", "listens", "missing_listens", "problems")}
+        if comfy["state"] != "ok":
+            checks["status"] = "degraded"
+
         return checks
     app.include_router(understand.router)
     app.include_router(generate.router)
@@ -995,10 +965,7 @@ def create_app() -> FastAPI:
     app.include_router(engines.router)
     app.include_router(engines.gpu_router)
     app.include_router(models_routes.router)
-    app.include_router(loras_routes.router)
     app.include_router(image_files_routes.router)
-    from src.api.routes import components as components_routes
-    app.include_router(components_routes.router)
     app.include_router(audio.router)
     app.include_router(voices.router)
     app.include_router(openai_compat.router)

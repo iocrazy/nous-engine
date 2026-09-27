@@ -18,14 +18,16 @@ from src.runner.runner_process import runner_main
 
 _SPAWN = mp.get_context("spawn")
 _FIXTURE = str(Path(__file__).parent / "fixtures" / "runner_models.yaml")
+# fake-img-a 带 params.steps=3:lazy-load 用例不发 LoadModel,只能经 yaml 给 FakeAdapter 多步。
+_FIXTURE_MULTISTEP = str(Path(__file__).parent / "fixtures" / "runner_models_multistep.yaml")
 
 
-def _spawn_runner(group_id="image", gpus=(2,)):
+def _spawn_runner(group_id="image", gpus=(2,), models_yaml_path=_FIXTURE):
     parent_conn, child_conn = _SPAWN.Pipe()
     proc = _SPAWN.Process(
         target=runner_main,
         args=(group_id, list(gpus), child_conn),
-        kwargs={"models_yaml_path": _FIXTURE, "fake_adapter": True},
+        kwargs={"models_yaml_path": models_yaml_path, "fake_adapter": True},
         daemon=True,
     )
     proc.start()
@@ -77,12 +79,12 @@ async def test_runner_run_node_through_get_or_load():
 
     不预先 LoadModel —— get_or_load 应 lazy load。
     """
-    proc, ch = _spawn_runner()
+    proc, ch = _spawn_runner(models_yaml_path=_FIXTURE_MULTISTEP)
     try:
         assert isinstance(await _recv(ch), P.Ready)
         await ch.send_message(P.RunNode(
-            task_id=20, node_id="sampler", node_type="image",
-            model_key="fake-img-a", inputs={"steps": 3},
+            task_id=20, node_id="sampler", node_type="tts",
+            model_key="fake-img-a", inputs={},
         ))
         progresses, result = await _collect_until_result(ch, 20)
         assert result.status == "completed"
@@ -99,8 +101,8 @@ async def test_runner_unknown_model_fails_node_not_runner():
     try:
         assert isinstance(await _recv(ch), P.Ready)
         await ch.send_message(P.RunNode(
-            task_id=21, node_id="sampler", node_type="image",
-            model_key="no-such-model", inputs={"steps": 1},
+            task_id=21, node_id="sampler", node_type="tts",
+            model_key="no-such-model", inputs={},
         ))
         _, result = await _collect_until_result(ch, 21)
         assert result.status == "failed"
@@ -116,19 +118,19 @@ async def test_runner_unknown_model_fails_node_not_runner():
 async def test_concurrent_same_model_runs_are_serialized():
     """核心验证（spec §1.3 / §4.5）：并发的同模型 RunNode 被 per-model 锁串行化.
 
-    一次性投 3 个同模型 RunNode（每个 steps 较多 → infer 有可观测耗时）。runner
+    一次性投 3 个同模型 RunNode（多步 fixture 每个 3 step → infer 有可观测耗时）。runner
     内 node-executor 是单 task 串行从队列取 —— 加上 ModelManager.load_model 的
     per-model asyncio.Lock，3 个节点的执行**不重叠**：每个节点的全部 NodeProgress
     应连续出现，不与另一节点的 progress 交错。
     """
-    proc, ch = _spawn_runner()
+    proc, ch = _spawn_runner(models_yaml_path=_FIXTURE_MULTISTEP)
     try:
         assert isinstance(await _recv(ch), P.Ready)
         task_ids = [30, 31, 32]
         for tid in task_ids:
             await ch.send_message(P.RunNode(
-                task_id=tid, node_id="sampler", node_type="image",
-                model_key="fake-img-a", inputs={"steps": 6},
+                task_id=tid, node_id="sampler", node_type="tts",
+                model_key="fake-img-a", inputs={},
             ))
         order: list[int] = []
         results: dict[int, P.NodeResult] = {}

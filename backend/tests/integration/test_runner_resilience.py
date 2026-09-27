@@ -76,9 +76,9 @@ async def test_runner_restart_can_load_and_run_again():
             P.RunNode(
                 task_id=1,
                 node_id="n",
-                node_type="image",
+                node_type="tts",
                 model_key="fake-img-a",
-                inputs={"steps": 1},
+                inputs={},
             )
         )
         assert result.status == "completed"
@@ -135,15 +135,16 @@ async def test_abort_during_node_execution_main_process_view(fake_runner):
     runner = fake_runner(group_id="image", gpus=[2], slow_seconds=0.15)
     await runner.start()
     try:
-        assert await runner.client.load_model(runner.model_key, config={}) is True
+        # steps 经 LoadModel.config 给 FakeAdapter(AudioRequest 不带 steps)。
+        assert await runner.client.load_model(runner.model_key, config={"steps": 30}) is True
         coro = asyncio.create_task(
             runner.client.run_node(
                 P.RunNode(
                     task_id=9,
                     node_id="n",
-                    node_type="image",
+                    node_type="tts",
                     model_key=runner.model_key,
-                    inputs={"steps": 30},  # 30 * 0.15s = 4.5s budget for cancel
+                    inputs={},  # config steps=30 × slow 0.15s = 4.5s budget for cancel
                 )
             )
         )

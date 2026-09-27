@@ -57,6 +57,7 @@ class FakeAdapter(InferenceAdapter):
         crash_on_infer: bool = False,
         infer_seconds: float = 0.01,
         oom_on_load_count: int = 0,
+        steps: int | None = None,
         **params: Any,
     ) -> None:
         super().__init__(paths, device, **params)
@@ -64,6 +65,11 @@ class FakeAdapter(InferenceAdapter):
         self._crash_on_infer = crash_on_infer
         self._infer_seconds = infer_seconds
         self._oom_on_load_count = oom_on_load_count
+        # steps 兜底(仅 fake):ImageRequest 自带 steps,AudioRequest 没有。图像派发删除后
+        # runner 只收 tts,框架测试(多步进度 / 节点中途 Abort / 执行中 crash)仍需要多步
+        # 节点 —— 经 LoadModel.config 或 fixture yaml 的 params 传 steps。默认 None =
+        # 原行为(请求没 steps 就 1 步),不设它的测试无任何差别。
+        self._steps = steps
         self._load_attempts = 0
 
     async def load(self, device: str) -> None:
@@ -90,7 +96,7 @@ class FakeAdapter(InferenceAdapter):
         if self._crash_on_infer:
             raise RuntimeError("fake adapter crash during infer")
 
-        steps = int(getattr(req, "steps", 1) or 1)
+        steps = int(getattr(req, "steps", None) or self._steps or 1)
         started = time.monotonic()
         for done in range(1, steps + 1):
             # 每 step 边界检查 cancel —— 对齐真 adapter 的 callback_on_step_end

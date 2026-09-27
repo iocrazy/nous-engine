@@ -64,12 +64,12 @@ def _validate_name(name: str) -> str:
 
 
 class ServiceModelRef(BaseModel):
-    """Static ref to a model/component a service depends on. Live load-state
+    """Static ref to a registry engine a service depends on. Live load-state
     is overlaid client-side (see src/services/service_models.py)."""
-    kind: str  # 'component' | 'engine'
-    role: str | None = None  # diffusion_models|clip|vae|checkpoint|llm|tts
+    kind: str  # 'engine'(2026-09-26 起不再产出 'component',随自建图像引擎删除)
+    role: str | None = None  # llm|tts|diffusion_models(旧 image_generate 快照)
     label: str
-    file: str | None = None  # component abs path (matched by file)
+    file: str | None = None  # 恒为 None;保留字段以不改 API 形状
     engine_key: str | None = None  # registry engine key (matched by name)
 
 
@@ -526,8 +526,9 @@ async def autostart_preview(
 ):
     """开机启动确认框的数据源:开了之后开机会加载哪些模型。
 
-    只列 registry engine —— 图像类服务引用的是组件文件(dtype/device/lora 才定 combo),
-    开机不预加载它们,所以也不在这里承诺。清单可能为空(那就是「开了也不会加载什么」)。
+    只列 registry engine —— 工作流动态组装出的 combo adapter(靠请求期参数才定出 hash id,
+    不对应固定 model_id)开机不预加载,所以也不在这里承诺(此前的例子是图像类服务,自建
+    图像引擎删除后暂无这类服务,排除逻辑原样保留)。清单可能为空(那就是「开了也不会加载什么」)。
     """
     svc = await _load_svc_with_snapshot(session, service_id)
     return AutostartPreviewOut(

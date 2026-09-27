@@ -514,8 +514,8 @@ def test_placement_explicit_group_on_unsupported_adapter_degrades_to_single(capl
     """审查 #15/#21:适配器不支持组 → 按单卡处理 + warning,不做组预留(幻影预留)。"""
     stats = _stats({0: 20000, 1: 90000, 2: 20000})
     mgr = _mgr(stats)
-    spec = _spec(adapter_class="src.services.inference.image_modular.ModularImageBackend",
-                 model_type="image", gpus=[0, 2], vram_mb=8000)
+    spec = _spec(adapter_class="src.workers.tts_engines.moss_tts.MOSSTTSEngine",
+                 model_type="tts", gpus=[0, 2], vram_mb=8000)
     with caplog.at_level("WARNING"):
         pl = mgr._resolve_placement("m", spec)
     assert pl.gpu_indices == [0]
@@ -595,15 +595,6 @@ def test_loaded_model_cards_falls_back_to_primary():
     assert _entry(1, []).cards() == [1]
     assert _entry(0, [0, 2]).cards() == [0, 2]
     assert _entry(-1, []).cards() == []
-
-
-def test_evictable_mb_counts_group_model_on_every_card():
-    mgr = _mgr()
-    mgr._references, mgr._in_use = {}, {}
-    mgr._models = {"m": _entry(0, [0, 2], vram_mb=20000)}
-    # 20G 的 TP 模型:每张卡各算一半,两张卡都算得上"可腾"
-    assert mgr._evictable_mb_on_card(0) == 10000
-    assert mgr._evictable_mb_on_card(2) == 10000
 
 
 # ---------------------------------------------------------------------------

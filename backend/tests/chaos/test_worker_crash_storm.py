@@ -72,9 +72,9 @@ async def test_runner_repeated_crashes():
             P.RunNode(
                 task_id=999,
                 node_id="n",
-                node_type="image",
+                node_type="tts",
                 model_key="fake-img-a",
-                inputs={"steps": 1},
+                inputs={},
             )
         )
         assert result.status == "completed"

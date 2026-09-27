@@ -1,7 +1,7 @@
 """ProgressTracker — 统一进度发射器(PR-4,任务面板重置)。
 
 抽出 PR-1a/b/c 三处冗余实现的公共逻辑:
-- image_modular 的 `_make_emit` + `_step_cb` 每步 latency + ETA
+- (已删的)image_modular 的 `_make_emit` + `_step_cb` 每步 latency + ETA(2026-09-26 随自建图像引擎删除)
 - tts_engines/base 的 `_make_tts_emit` + `_tts_progress_ticker` 估值
 - workflow_executor 的 `_LlmProgressEmitter` token 滑窗 + throttle
 

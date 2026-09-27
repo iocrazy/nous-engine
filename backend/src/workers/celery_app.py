@@ -18,7 +18,6 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_routes={
-        "src.workers.image_worker.*": {"queue": "image"},
         "src.workers.tts_worker.*": {"queue": "tts"},
         "src.workers.video_worker.*": {"queue": "video"},
     },

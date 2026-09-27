@@ -1,14 +1,13 @@
 import { useMemo } from 'react'
 import { useEngines, type EngineInfo } from './engines'
-import { useAllComponentStates, loadedStateByFile, type ComponentLoadState } from './components'
 import type { ServiceModelRef } from './services'
 
-export type ModelLoadState = ComponentLoadState // 'cold' | 'loading' | 'loaded' | 'failed'
+export type ModelLoadState = 'cold' | 'loading' | 'loaded' | 'failed'
 
 export interface ResolvedModelRef extends ServiceModelRef {
   state: ModelLoadState
   detail: string | null
-  /** 已加载时实际落的卡(引擎类);组件 / 未加载 → null */
+  /** 已加载时实际落的卡;未加载 → null */
   gpu: number | null
 }
 
@@ -29,22 +28,17 @@ function engineToState(e: EngineInfo | undefined): ModelLoadState {
 }
 
 /** Overlay live load-state onto a service's static model refs.
- *  - component refs → matched by file against the component-state registry
- *  - engine refs    → matched by engine_key against /api/v1/engines name
- *  Shares the global ['engines'] + ['component-states-all'] queries (both
- *  ws-driven), so many cards mounting this stay cheap + live. */
+ *  - engine refs → matched by engine_key against /api/v1/engines name
+ *  The backend no longer emits component refs (native image engine deleted 2026-09-26),
+ *  so every ref is an engine ref.
+ *  Shares the global ws-driven ['engines'] query, so many cards mounting this
+ *  stay cheap + live. */
 export function useServiceModelStatus(models: ServiceModelRef[] | undefined): ServiceModelStatus {
   const { data: engines } = useEngines()
-  const { data: compStates } = useAllComponentStates()
 
   return useMemo(() => {
-    const byFile = loadedStateByFile(compStates)
     const engineByName = new Map((engines ?? []).map((e) => [e.name, e]))
     const refs: ResolvedModelRef[] = (models ?? []).map((m) => {
-      if (m.kind === 'component') {
-        const state = (m.file && byFile[m.file]) || 'cold'
-        return { ...m, state, detail: null, gpu: null }
-      }
       const e = m.engine_key ? engineByName.get(m.engine_key) : undefined
       return { ...m, state: engineToState(e), detail: e?.status_detail ?? null, gpu: e?.loaded_gpu ?? null }
     })
@@ -55,7 +49,7 @@ export function useServiceModelStatus(models: ServiceModelRef[] | undefined): Se
       loading: refs.filter((r) => r.state === 'loading').length,
       failed: refs.filter((r) => r.state === 'failed').length,
     }
-  }, [models, engines, compStates])
+  }, [models, engines])
 }
 
 export const MODEL_STATE_VIS: Record<ModelLoadState, { label: string; color: string }> = {
@@ -67,9 +61,6 @@ export const MODEL_STATE_VIS: Record<ModelLoadState, { label: string; color: str
 
 export const MODEL_ROLE_LABEL: Record<string, string> = {
   diffusion_models: '扩散模型',
-  clip: 'CLIP',
-  vae: 'VAE',
-  checkpoint: 'Checkpoint',
   llm: 'LLM',
   tts: 'TTS',
 }

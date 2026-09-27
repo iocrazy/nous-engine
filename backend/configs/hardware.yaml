@@ -10,7 +10,7 @@
 # 先在组内选，组内都装不下就 spill 到全局并打 warning（gpu_allocator.py:180）。
 # 所以下面每个 group 的卡是"倾向"，不是"限定"。
 #
-# 另外：只有走 image / tts runner 子进程的节点受本文件约束。LLM（直连 vLLM）、
+# 另外：只有走 tts runner 子进程的节点受本文件约束。LLM（直连 vLLM）、
 # ASR（MOSS/SGLang 独立 systemd 微服务，自带 CUDA_VISIBLE_DEVICES）、向量嵌入
 # 都不经过这里，它们的卡各自决定。
 #
@@ -31,7 +31,7 @@
 #   gpus    该 group auto 选卡时**优先**考虑的 GPU index 列表（cuda:N 的 N）；
 #           组内装不下会 spill 到全局，不是硬限制
 #   nvlink  组内 GPU 是否 NVLink 互联；vLLM tp 模型强约束 nvlink:true
-#   role    image / llm / tts —— 节点按 role 找 group
+#   role    llm / tts —— 节点按 role 找 group
 #   vram_gb 整个 group 的合计 VRAM
 #
 # V1.5 manual-only：不解析 nvidia-smi topo -m，无 detection 字段。
@@ -41,12 +41,6 @@ groups:
     nvlink: false
     role: llm
     vram_gb: 72
-
-  - id: image
-    gpus: [1]              # Pro 6000 96GB —— 与 ComfyUI 共用(两者都非常驻,按需错峰)
-    nvlink: false
-    role: image
-    vram_gb: 96
 
   - id: tts
     gpus: [0]              # Pro 5000;TTS 模型最大 7.8GiB,与推理服务共卡

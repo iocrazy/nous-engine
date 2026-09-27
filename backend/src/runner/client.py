@@ -1,6 +1,6 @@
 """RunnerClient —— 主进程侧、PipeChannel 之上的节点级 RPC（spec §3.5）.
 
-主进程对每个 image/TTS runner 持一个 RunnerClient。它：
+主进程对每个 TTS runner 持一个 RunnerClient。它：
   * start()  —— 起后台 demux 协程，等 runner 的 Ready 握手。
   * run_node(spec, on_progress) —— 发 RunNode，await 到对应的 NodeResult；
     期间的 NodeProgress 路由给 on_progress 回调。
@@ -55,13 +55,9 @@ class RunnerClient:
         self._pong_future: asyncio.Future | None = None
         self._ping_lock = asyncio.Lock()
 
-        # PR-5a §5: ComponentEvent 回调 —— 主进程订阅组件加载状态迁移
-        self.on_component_event: Callable[[P.ComponentEvent], None] | None = None
-
-        # Bug 3 PR-2b:每个 NodeResult(节点跑完)后触发 —— supervisor 用它在 image/tts
+        # Bug 3 PR-2b:每个 NodeResult(节点跑完)后触发 —— supervisor 用它在 tts
         # 节点完成后立刻 reconcile 已加载快照(此时新 adapter 已写进 runner _models,
-        # 比等满 30s watchdog ping 快)。注意:不能在 ComponentEvent(loaded) 时刷 ——
-        # 那发生在 adapter 注册进 _models 之前(model_manager.py:1088 早于 1091)会漏。
+        # 比等满 30s watchdog ping 快)。
         self.on_node_done: Callable[[], None] | None = None
 
         self._demux_task: asyncio.Task | None = None
@@ -184,13 +180,6 @@ class RunnerClient:
                         self.on_node_done()
                     except Exception:  # noqa: BLE001 — 回调异常不杀 demux(见上)
                         logger.exception("on_node_done callback failed")
-            elif isinstance(msg, P.ComponentEvent):
-                cb = self.on_component_event
-                if cb is not None:
-                    try:
-                        cb(msg)
-                    except Exception:  # noqa: BLE001 — 回调异常不杀 demux(见上)
-                        logger.exception("on_component_event callback failed (%s)", msg.component_key)
             elif isinstance(msg, P.ModelEvent):
                 fut = self._model_futures.pop(msg.model_key, None)
                 if fut is not None and not fut.done():
@@ -254,55 +243,9 @@ class RunnerClient:
         await self._ch.send_message(P.LoadModel(model_key=model_key, config=config or {}))
         return await fut
 
-    async def preload_components(
-        self,
-        task_id: int,
-        components: dict,
-        pipeline_class: str = "Flux2KleinPipeline",
-    ) -> None:
-        """发 PreloadComponents —— fire-and-forget；状态走 ComponentEvent → on_component_event。"""
-        if not self._connected:
-            raise ConnectionError("runner disconnected")
-        await self._ch.send_message(
-            P.PreloadComponents(
-                task_id=task_id,
-                components=components,
-                pipeline_class=pipeline_class,
-            )
-        )
-
-    async def preload_seedvr2(self, model_dir: str, dit_model: str, vae_model: str) -> None:
-        """发 PreloadSeedVR2 —— fire-and-forget;loaded 状态走下个 Pong 快照。统一引擎库 PR-3。"""
-        if not self._connected:
-            raise ConnectionError("runner disconnected")
-        await self._ch.send_message(
-            P.PreloadSeedVR2(model_dir=model_dir, dit_model=dit_model, vae_model=vae_model)
-        )
-
-    async def preload_component(self, spec: dict, resident: bool = False, arch: str = "flux2") -> None:
-        """发 PreloadComponent —— 单组件进 L1 + 可选常驻,fire-and-forget;状态走下个 Pong 快照。
-        组件 L1 PR-2:引擎库组件卡「预加载/常驻」。arch 供单组件 build 反推 repo。"""
-        if not self._connected:
-            raise ConnectionError("runner disconnected")
-        await self._ch.send_message(P.PreloadComponent(spec=spec, resident=resident, arch=arch))
-
-    async def set_component_resident(self, state_key: str, resident: bool) -> None:
-        """发 SetComponentResident —— 切已加载组件常驻位,fire-and-forget;状态走下个 Pong 快照。
-        组件 L1 PR-2b:引擎库组件卡常驻 toggle。"""
-        if not self._connected:
-            raise ConnectionError("runner disconnected")
-        await self._ch.send_message(P.SetComponentResident(state_key=state_key, resident=resident))
-
-    async def unload_component(self, state_key: str) -> None:
-        """发 UnloadComponent —— 卸载已预加载组件(出 L1 + 释放显存),fire-and-forget;走下个 Pong 快照。
-        统一模型管理收尾 PR-1:引擎库组件卡「出缓存」。"""
-        if not self._connected:
-            raise ConnectionError("runner disconnected")
-        await self._ch.send_message(P.UnloadComponent(state_key=state_key))
-
     async def set_model_resident(self, model_id: str, resident: bool) -> None:
-        """发 SetModelResident —— 切 by-key 模型(如 SeedVR2)常驻位,fire-and-forget;走下个 Pong。
-        组件 L1 PR-2c:引擎库 SeedVR2 卡常驻 toggle。"""
+        """发 SetModelResident —— 切 by-key 模型常驻位,fire-and-forget;走下个 Pong。
+        组件 L1 PR-2c。"""
         if not self._connected:
             raise ConnectionError("runner disconnected")
         await self._ch.send_message(P.SetModelResident(model_id=model_id, resident=resident))

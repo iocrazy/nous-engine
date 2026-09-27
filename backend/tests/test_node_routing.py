@@ -27,24 +27,8 @@ def test_unknown_node_defaults_inline():
     assert node_exec_class("some_plugin_node") == "inline"
 
 
-def test_dispatch_set_is_explicit():
-    """DISPATCH_NODE_TYPES 是显式白名单，新增 GPU 节点必须在此登记。"""
-    assert DISPATCH_NODE_TYPES == {"tts_engine", "flux2_vae_decode", "seedvr2_upscale"}
+def test_dispatch_set_is_explicit_tts_only():
+    """DISPATCH_NODE_TYPES 是显式白名单，新增 GPU 节点必须在此登记。
 
-
-def test_seedvr2_upscale_is_dispatch():
-    """SeedVR2 超分吃 GPU,走 dispatch(image runner 组,SeedVR2 PR-3b)。"""
-    assert node_exec_class("seedvr2_upscale") == "dispatch"
-
-
-def test_flux2_vae_decode_is_dispatch():
-    """收敛后 flux2_vae_decode 走 dispatch(整模型在 runner 子进程执行)。"""
-    from src.services.node_routing import node_exec_class
-    assert node_exec_class("flux2_vae_decode") == "dispatch"
-
-
-def test_flux2_inline_nodes():
-    from src.services.node_routing import node_exec_class
-    for t in ("flux2_load_diffusion_model", "flux2_load_clip", "flux2_load_vae",
-              "flux2_load_lora", "flux2_encode_prompt", "flux2_ksampler"):
-        assert node_exec_class(t) == "inline"
+    2026-09-26:flux2_vae_decode / seedvr2_upscale 随自建图像引擎删除,白名单只剩 tts_engine。"""
+    assert DISPATCH_NODE_TYPES == {"tts_engine"}

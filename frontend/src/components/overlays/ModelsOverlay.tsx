@@ -3,8 +3,7 @@ import { Copy, Check, X, Search, Pin, PinOff } from 'lucide-react'
 import {
   useEngines, useLoadEngine, useUnloadEngine, useSyncMetadata,
   useScanModels, useSetResident, useRefreshMetadata, useGpus, useGpuGroups, useSetGpu,
-  useLoadedAdapters, usePreloadSeedvr2, useUnloadSeedvr2, useUnloadAdapter,
-  useSetSeedvr2Resident, usePreloadComponent, useSetComponentResident, useUnloadComponent,
+  useLoadedAdapters, useUnloadAdapter,
   useVramBudget, useSetVramBudget,
   type EngineInfo, type LoadedAdapter, type VramBudgetMode, type VramBudgetInfo,
 } from '../../api/engines'
@@ -70,12 +69,6 @@ export default function ModelsOverlay() {
   const { data: loadedAdaptersData } = useLoadedAdapters()
   const loadEngine = useLoadEngine()
   const unloadEngine = useUnloadEngine()
-  const preloadSeedvr2 = usePreloadSeedvr2()
-  const unloadSeedvr2 = useUnloadSeedvr2()
-  const setSeedvr2Resident = useSetSeedvr2Resident()
-  const preloadComponent = usePreloadComponent()
-  const unloadComponent = useUnloadComponent()
-  const setComponentResident = useSetComponentResident()
   const syncMeta = useSyncMetadata()
   const scanModels = useScanModels()
   const setResident = useSetResident()
@@ -97,7 +90,7 @@ export default function ModelsOverlay() {
   const [paramsTarget, setParamsTarget] = useState<EngineInfo | null>(null)
   // 物理删除确认框目标,null = 关闭。
   const [deleteTarget, setDeleteTarget] = useState<EngineInfo | null>(null)
-  // 图像 tab 下的二级子 tab —— 按**文件夹/角色**分:整模型 / 超分 / diffusion_models / clip / vae / loras。
+  // 图像 tab 下的二级子 tab(2026-09-26 自建图像引擎删除后只剩「整模型」一桶)。
   const [imageBucket, setImageBucket] = useState<string>('all')
   // 跨 tab/桶的名称搜索 —— 在当前可见列表里再按 display_name/name/路径 子串过滤。统一模型管理收尾 PR-3。
   const [search, setSearch] = useState('')
@@ -114,132 +107,51 @@ export default function ModelsOverlay() {
   const handleToggle = useCallback(
     (engine: EngineInfo) => {
       if (engine.status === 'loading') return // ignore while loading
-      // 统一引擎库 PR-3:超分(SeedVR2)从引擎库直接预热/卸载(by-key,经 image runner)。
-      if (engine.kind === 'upscale') {
-        if (engine.status === 'loaded') unloadSeedvr2.mutate(engine.name)
-        else preloadSeedvr2.mutate(engine.name)
-        return
-      }
-      // 组件(diffusion_models/clip/vae)可从引擎库预加载进显存 / 卸载(组件 L1 PR-2a + 统一模型管理
-      // 收尾 PR-1)。已加载 → 出缓存释放显存(state_key 精确匹配;combo 在用则只清常驻待自然释放)。
-      // LoRA 仍随 pipeline,不独立预加载。
-      if (engine.kind === 'component') {
-        if (engine.status === 'loaded') {
-          if (engine.state_key) unloadComponent.mutate({ state_key: engine.state_key })
-          else unloadComponent.mutate({ name: engine.name })
-        } else {
-          preloadComponent.mutate({ name: engine.name, arch: engine.arch })
-        }
-        return
-      }
-      if (engine.kind === 'lora') {
-        useToastStore.getState().add(
-          `${engine.display_name} 是 LoRA，随图像 pipeline 加载，不能独立预加载`, 'info')
-        return
-      }
       if (engine.status === 'loaded') {
         unloadEngine.mutate(engine.name)
         return
       }
       if (!engine.has_adapter) {
-        // Auto-detected diffusers without an adapter — backend would 422
+        // Auto-detected without an adapter — backend would 422
         // anyway. Surface the same hint without making the request.
         useToastStore.getState().add(
-          `${engine.name} 未注册：图像/视频 adapter 未实现，需要先在 backend/configs/models.yaml 添加 adapter`,
+          `${engine.name} 未注册：adapter 未实现，需要先在 backend/configs/models.yaml 添加 adapter`,
           'error',
         )
         return
       }
       loadEngine.mutate(engine.name)
     },
-    [loadEngine, unloadEngine, preloadSeedvr2, unloadSeedvr2, preloadComponent, unloadComponent],
+    [loadEngine, unloadEngine],
   )
 
-  // 常驻 toggle 按 kind 分派:组件走组件 L1 端点(用 state_key 精确匹配)、SeedVR2 走 by-key
-  // 端点、其余(registry 整模型)走老 yaml /resident。组件 L1 PR-3b。
   const handleToggleResident = useCallback(
     (engine: EngineInfo) => {
-      const next = !engine.resident
-      if (engine.kind === 'component') {
-        if (engine.state_key) setComponentResident.mutate({ state_key: engine.state_key, resident: next })
-        else setComponentResident.mutate({ name: engine.name, resident: next })  // 未加载:按 name(auto)
-        return
-      }
-      if (engine.kind === 'upscale') {
-        setSeedvr2Resident.mutate({ name: engine.name, resident: next })
-        return
-      }
-      setResident.mutate({ name: engine.name, resident: next })
+      setResident.mutate({ name: engine.name, resident: !engine.resident })
     },
-    [setComponentResident, setSeedvr2Resident, setResident],
+    [setResident],
   )
 
   const hasAnyMissing = (engines ?? []).some((e) => !e.has_metadata)
 
-  // 统一引擎库:catalog 扩展条目(超分/组件/LoRA)—— 非 registry 模型,resident/GPU/API/元数据
-  // 等操作不适用,菜单里禁用(载/卸经 handleToggle 给提示)。
-  const isExtra = !!(ctxMenu.model?.kind && ctxMenu.model.kind !== 'model')
-  const isComponent = ctxMenu.model?.kind === 'component'
-  const isUpscale = ctxMenu.model?.kind === 'upscale'
-  const cmLoaded = ctxMenu.model?.status === 'loaded'
-  // 组件常驻只对「已加载」有意义(未加载组件 toggle 用 name+auto 匹配不上 L1);registry 整模型的
-  // resident 是 yaml 自动加载,与是否加载无关;SeedVR2 by-key 需先加载才有 model_id 可 pin。
-  const residentDisabled =
-    ctxMenu.model?.kind === 'lora'
-    || (isComponent && !cmLoaded)
-    || (isUpscale && !cmLoaded)
   // Build context menu items for the active model
   const menuItems: MenuItem[] = ctxMenu.model
     ? [
         {
-          label: isComponent
-            ? (cmLoaded ? '卸载（出缓存释放显存）' : '预加载到显存（自动选卡）')
-            : isUpscale ? (cmLoaded ? '卸载 SeedVR2' : '加载 SeedVR2')
-            : ctxMenu.model.kind === 'lora' ? 'LoRA · 随模型加载'
-            : ctxMenu.model.status === 'loaded' ? '卸载模型'
+          label: ctxMenu.model.status === 'loaded' ? '卸载模型'
             : ctxMenu.model.status === 'loading' ? '加载中...'
             : !ctxMenu.model.has_adapter ? '未注册（无 adapter）'
             : '加载模型',
           onClick: () => handleToggle(ctxMenu.model!),
           disabled:
             ctxMenu.model.status === 'loading'
-            || ctxMenu.model.kind === 'lora'
-            || (!isExtra && ctxMenu.model.status !== 'loaded' && !ctxMenu.model.has_adapter),
+            || (ctxMenu.model.status !== 'loaded' && !ctxMenu.model.has_adapter),
         },
-        // 组件预加载:可选落哪张卡(自动选卡之外,直接指定 GPU)。bfloat16 默认精度。
-        ...(isComponent && !cmLoaded && (gpuData?.devices ?? []).length > 0
-          ? [{
-              label: '预加载到指定 GPU',
-              submenu: (gpuData?.devices ?? []).map((g) => ({
-                label: `GPU ${g.index}: ${g.name}`,
-                onClick: () => preloadComponent.mutate({
-                  name: ctxMenu.model!.name, device: `cuda:${g.index}`, arch: ctxMenu.model!.arch,
-                }),
-              })),
-            } as MenuItem]
-          : []),
-        // 「预加载 + 常驻」一步到位(自动选卡)。**不给选精度** —— 组件预加载固定用标准 bf16 计算
-        // 精度:文件存储格式名字里写死(bf16/fp8mixed…),而单组件 build_bridged 路径不做 fp8 torchao
-        // 量化(那只在整 pipeline _ensure_pipe 做),选 fp8 只会静默落 bf16 误导用户。省显存的 fp8
-        // 走「跑工作流时 loader 节点选 weight_dtype」,不在引擎库预加载这条路。
-        ...(isComponent && !cmLoaded
-          ? [{
-              label: '预加载到显存 + 常驻（自动选卡）',
-              onClick: () => preloadComponent.mutate({ name: ctxMenu.model!.name, resident: true, arch: ctxMenu.model!.arch }),
-            } as MenuItem]
-          : []),
         {
-          label: ctxMenu.model.resident
-            ? (isExtra ? '取消常驻' : '取消自动加载')
-            : (isExtra ? '设为常驻' : '设为自动加载'),
+          label: ctxMenu.model.resident ? '取消自动加载' : '设为自动加载',
           onClick: () => handleToggleResident(ctxMenu.model!),
-          disabled: residentDisabled,
+          disabled: false,
         },
-        // GPU 分配 / 创建 API / 刷新元数据 只对**已注册整模型**适用(改 yaml / 起 instance / 拉元数据)——
-        // 组件/LoRA/超分这些 catalog 条目用不上,以前显示但全灰会让人困惑(用户:为啥 GPU 分配点不了)。
-        // 整段对 isExtra 隐藏;组件选卡走上面的「预加载到指定 GPU」。组件 L1 PR。
-        ...(!isExtra
-          ? [
         { label: '', divider: true },
         {
           label: 'GPU 分配',
@@ -298,7 +210,7 @@ export default function ModelsOverlay() {
               useToastStore.getState().add(`创建失败: ${e.message}`, 'error')
             }
           },
-          disabled: isExtra || ctxMenu.model.status !== 'loaded',
+          disabled: ctxMenu.model.status !== 'loaded',
         },
         { label: '', divider: true },
         {
@@ -322,8 +234,6 @@ export default function ModelsOverlay() {
               } as MenuItem,
             ]
           : []),
-          ] as MenuItem[]
-          : []),
         { label: '', divider: true },
         {
           // 物理删除(spec 2026-07-28):rm -rf 磁盘 + 清注册表。5 类条目都可删,
@@ -343,13 +253,9 @@ export default function ModelsOverlay() {
   const typeCounts: Record<string, number> = {}
   for (const e of allEngines) typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1
 
-  // 图像条目归到哪个「桶」(文件夹/角色):整模型/超分用 kind;组件/LoRA 用文件夹(从 name
-  // "component:<role>:<path>" 取 role:diffusion_models/clip/vae/loras)。
-  const imageBucketOf = (e: EngineInfo): string => {
-    if (e.kind === 'model' || e.kind === 'upscale') return e.kind
-    if (e.name.startsWith('component:')) return e.name.split(':')[1] || 'component'
-    return e.kind ?? 'component'
-  }
+  // 2026-09-26 自建图像引擎删除后 kind 只剩 'model';component:/lora 的文件夹分桶
+  // (diffusion_models/clip/vae/loras)、超分桶随组件库一起没了意义,只留「整模型」这一桶。
+  const imageBucketOf = (e: EngineInfo): string => e.kind ?? 'model'
   const imageEngines = allEngines.filter((e) => e.type === 'image')
   const bucketCounts: Record<string, number> = { all: imageEngines.length }
   for (const e of imageEngines) {
@@ -359,14 +265,9 @@ export default function ModelsOverlay() {
   // 「已加载」快速筛(用户 2026-06-11):紧跟「全部」,在**当前 tab 内**按 status 过滤,
   // 不用切去顶层「已加载」tab(那个跨全类型)。所有类型 tab 通用;图像 tab 额外有桶。
   bucketCounts.loaded = imageEngines.filter((e) => e.status === 'loaded').length
-  // 子 tab 顺序:整模型 → 超分 → 各文件夹。label 友好化。
-  // clip 角色对齐 ComfyUI「Load CLIP」节点,但文件实际在 media/text_encoders/ —— 标签用「文本编码器」
-  // 对齐文件夹,免「为啥叫 CLIP 不是 text_encoders」的困惑(底层角色 key 仍是 clip,扫描/端点不变)。
-  const BUCKET_LABEL: Record<string, string> = {
-    model: '整模型', upscale: '超分', diffusion_models: 'diffusion_models',
-    clip: '文本编码器', vae: 'VAE', loras: 'LoRA',
-  }
-  const BUCKET_ORDER = ['model', 'upscale', 'diffusion_models', 'clip', 'vae', 'loras']
+  // 子 tab 顺序:2026-09-26 自建图像引擎删除后只剩「整模型」一桶(超分/组件/LoRA 随组件库一起删除)。
+  const BUCKET_LABEL: Record<string, string> = { model: '整模型' }
+  const BUCKET_ORDER = ['model']
   const imageSubTabs = [
     { id: 'all', label: '全部' },
     { id: 'loaded', label: '已加载' },
@@ -396,7 +297,7 @@ export default function ModelsOverlay() {
     } else {
       list = allEngines.filter((e) => e.type === activeTab)
       if (imageBucket !== 'all') {
-        // 「已加载」对所有类型 tab 通用;桶(整模型/VAE/LoRA…)仅图像 tab 有意义。
+        // 「已加载」对所有类型 tab 通用;整模型桶仅图像 tab 有意义。
         if (imageBucket === 'loaded') list = list.filter((e) => e.status === 'loaded')
         else if (activeTab === 'image') list = list.filter((e) => imageBucketOf(e) === imageBucket)
       }
@@ -565,7 +466,7 @@ export default function ModelsOverlay() {
           })}
         </div>
 
-        {/* 二级子筛:图像 = 全部/已加载 + 文件夹桶;其余 tab(含「全部」)= 全部/已加载。 */}
+        {/* 二级子筛:图像 = 全部/已加载 + 整模型桶;其余 tab(含「全部」)= 全部/已加载。 */}
         {(
           <div style={{ display: 'flex', gap: 6, marginTop: -8, marginBottom: 16, flexWrap: 'wrap' }}>
             {(activeTab === 'image'
@@ -602,7 +503,7 @@ export default function ModelsOverlay() {
           </div>
         )}
 
-        {/* m11 single flat grid — 卡片;图像 tab 下按文件夹(diffusion_models/clip/vae/loras)子 tab 过滤。 */}
+        {/* m11 single flat grid — 卡片;图像 tab 下按「整模型」子 tab 过滤。 */}
         <div
           style={{
             display: 'grid',
@@ -978,25 +879,8 @@ function ModelCard({
             自动检测
           </span>
         )}
-        {/* 统一引擎库 kind 徽标:超分(SeedVR2,可加载)/ 组件 / LoRA(随 pipeline 加载,不独立加载)。 */}
-        {model.kind && model.kind !== 'model' && (
-          <span
-            title={
-              model.kind === 'upscale'
-                ? 'SeedVR2 超分(by-key 可独立加载)'
-                : '单文件组件，随图像 pipeline 加载，不能独立加载'
-            }
-            style={{
-              fontSize: 8, padding: '1px 5px', borderRadius: 3, flexShrink: 0,
-              background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
-              color: 'var(--accent)',
-            }}
-          >
-            {model.kind === 'upscale' ? '超分' : model.kind === 'lora' ? 'LoRA' : '组件'}
-          </span>
-        )}
-        {/* 红色「未注册」只给真·无 adapter 的整模型(如 ERNIE-Image);组件/LoRA/超分有自己的徽标。 */}
-        {!model.has_adapter && (!model.kind || model.kind === 'model') && (
+        {/* 红色「未注册」只给真·无 adapter 的模型。 */}
+        {!model.has_adapter && (
           <span
             title="adapter 未实现，无法加载。需先在 backend/configs/models.yaml 添加 adapter 字段。"
             style={{
@@ -1030,11 +914,6 @@ function ModelCard({
           {TYPE_LABELS[model.type]?.split(' ')[0] ?? model.type}
         </Tag>
         {model.model_size && <Tag icon="📦">{model.model_size}</Tag>}
-        {/* image engines: surface LoRA count so operator can verify the
-         scanner is finding their files without leaving the page. */}
-        {model.type === 'image' && model.lora_count !== null && (
-          <Tag color="var(--info)">{model.lora_count} LoRA</Tag>
-        )}
         {model.frameworks?.map((f) => (
           <Tag key={f} icon="⚙">{f}</Tag>
         ))}

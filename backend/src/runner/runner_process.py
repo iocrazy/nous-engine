@@ -1,4 +1,4 @@
-"""image/TTS runner 子进程入口 + 内部双 asyncio task.
+"""TTS runner 子进程入口 + 内部双 asyncio task.
 
 spec §4.4 / D9：runner 子进程内跑两个 task：
   * pipe-reader —— 持续读 pipe：RunNode 入内部 asyncio.Queue；Abort 置对应
@@ -8,11 +8,9 @@ spec §4.4 / D9：runner 子进程内跑两个 task：
     调 adapter.infer (可选传 progress_callback + cancel_flag，按签名探测)、
     发 NodeProgress / NodeResult。
 
-cancel 信号用 threading.Event：真 adapter 的扩散循环在 to_thread 里跑，跨线程
-信号必须用 threading 原语（spec §4.4 关键性质 D14）。本文件 Lane D 阶段：fake
-adapter 支持 progress_callback + cancel_flag；真 image adapter 的
-`infer(req)` 还不接这俩 kwarg（Lane G/D14 才接）。node-executor 用 signature
-探测决定是否传。
+cancel 信号用 threading.Event：adapter 的推理可能在 to_thread 里跑，跨线程
+信号必须用 threading 原语（spec §4.4 关键性质 D14）。adapter 的 `infer` 是否接
+progress_callback / cancel_flag 由 node-executor 按 signature 探测决定。
 
 Lane D：每个 runner 子进程持有独立 ModelManager（spec §4.5）。LoadModel /
 UnloadModel / RunNode 全走 ModelManager。
@@ -81,8 +79,6 @@ class _RunnerState:
         # pipe-reader 队列里就收到 Abort」两种节点边界 cancel 时序（spec §4.4）。
         self.pending_aborts: set[int] = set()
         self.shutdown = asyncio.Event()
-        from src.services.inference.image_l2_cache import ImageOutputCache
-        self.image_l2 = ImageOutputCache()
 
 
 def _merge_config_into_spec(state: _RunnerState, model_key: str, config: dict) -> None:
@@ -90,7 +86,8 @@ def _merge_config_into_spec(state: _RunnerState, model_key: str, config: dict) -
 
     ModelSpec frozen —— 用 model_copy(update=...) 不可变更新。真实部署 config
     一般空；这条路径主要服务测试通过 LoadModel 注入 fake 故障开关
-    （oom_on_load_count / fail_load / infer_seconds）。
+    （oom_on_load_count / fail_load / infer_seconds）与 fake 多步数 steps
+    （AudioRequest 不带 steps,见 FakeAdapter 的 steps 兜底）。
     """
     if not config:
         return
@@ -103,87 +100,14 @@ def _merge_config_into_spec(state: _RunnerState, model_key: str, config: dict) -
     )
 
 
-def _make_component_event_sender(ch: PipeChannel):
-    """返回 async on_event(component_key, state, error)，把 ComponentEvent 写入
-    pipe —— 传给 ModelManager.get_or_load_image_adapter，让组件状态变迁到达
-    backend（spec §6.1）。"""
-    async def _on_event(component_key: str, state: str, error: str | None = None) -> None:
-        await ch.send_message(P.ComponentEvent(component_key=component_key, state=state, error=error))
-    return _on_event
-
-
-async def _handle_preload_components(state: _RunnerState, ch: PipeChannel, msg: P.PreloadComponents) -> None:
-    """PreloadComponents → get_or_load_image_adapter（发 ComponentEvent）。不抛 ——
-    失败已通过 ComponentEvent(state=failed) 报告，runner 不能崩。"""
-    from src.services.inference.component_spec import ComponentSpec
-    try:
-        components = {k: ComponentSpec(**v) for k, v in msg.components.items()}
-    except Exception as e:  # noqa: BLE001 — bad descriptor
-        await ch.send_message(P.ComponentEvent(component_key="?", state="failed", error=f"bad spec: {e}"))
-        return
-    on_event = _make_component_event_sender(ch)
-    try:
-        await state.mm.get_or_load_image_adapter(components, msg.pipeline_class, on_event=on_event)
-    except Exception:  # noqa: BLE001 — 已通过 on_event 逐组件上报，不再二次抛
-        pass
-
-
-async def _handle_preload_component(state: _RunnerState, ch: PipeChannel, msg: P.PreloadComponent) -> None:
-    """PreloadComponent → mm.preload_image_component(单组件进 L1 + 可选常驻)。不抛 ——
-    失败只记日志,runner 不能崩;loaded/resident 状态经下个 Pong 快照反映。组件 L1 PR-2。"""
-    from src.services.inference.component_spec import ComponentSpec  # noqa: PLC0415
-    try:
-        spec = ComponentSpec(**msg.spec)
-    except Exception as e:  # noqa: BLE001 — bad descriptor
-        print(f"[runner_process] preload_component bad spec: {e}", file=sys.stderr, flush=True)
-        return
-    try:
-        await state.mm.preload_image_component(spec, resident=msg.resident, arch=msg.arch)
-    except Exception as e:  # noqa: BLE001 — 预热失败不崩 runner
-        print(f"[runner_process] preload_component failed: {type(e).__name__}: {e}",
-              file=sys.stderr, flush=True)
-
-
-def _handle_set_component_resident(state: _RunnerState, msg: P.SetComponentResident) -> None:
-    """SetComponentResident → mm.set_component_resident(切常驻位)。同步、不抛 ——
-    没加载该组件则 no-op;状态经下个 Pong 快照反映。组件 L1 PR-2b。"""
-    try:
-        state.mm.set_component_resident(msg.state_key, msg.resident)
-    except Exception as e:  # noqa: BLE001
-        print(f"[runner_process] set_component_resident failed: {type(e).__name__}: {e}",
-              file=sys.stderr, flush=True)
-
-
-def _handle_unload_component(state: _RunnerState, msg: P.UnloadComponent) -> None:
-    """UnloadComponent → mm.unload_image_component(出 L1 + 释放显存)。同步、不抛 ——
-    没加载该组件则 no-op;状态经下个 Pong 快照反映。统一模型管理收尾 PR-1。"""
-    try:
-        state.mm.unload_image_component(msg.state_key)
-    except Exception as e:  # noqa: BLE001
-        print(f"[runner_process] unload_component failed: {type(e).__name__}: {e}",
-              file=sys.stderr, flush=True)
-
-
 def _handle_set_model_resident(state: _RunnerState, msg: P.SetModelResident) -> None:
-    """SetModelResident → mm.set_model_resident(切 by-key 模型常驻,如 SeedVR2)。同步、不抛 ——
+    """SetModelResident → mm.set_model_resident(切 by-key 模型常驻)。同步、不抛 ——
     没加载则 no-op;状态经下个 Pong 快照反映。组件 L1 PR-2c。"""
     try:
         state.mm.set_model_resident(msg.model_id, msg.resident)
     except Exception as e:  # noqa: BLE001
         print(f"[runner_process] set_model_resident failed: {type(e).__name__}: {e}",
               file=sys.stderr, flush=True)
-
-
-async def _handle_preload_seedvr2(state: _RunnerState, ch: PipeChannel, msg: P.PreloadSeedVR2) -> None:
-    """PreloadSeedVR2 → get_or_load_seedvr2_adapter(默认配置)。不抛 —— 失败只记日志,runner 不能崩;
-    loaded 状态经下个 Pong 快照反映。统一引擎库 PR-3:从引擎库预热 SeedVR2。"""
-    try:
-        await state.mm.get_or_load_seedvr2_adapter(
-            model_dir=msg.model_dir, dit_model=msg.dit_model, vae_model=msg.vae_model, device="auto",
-        )
-    except Exception as e:  # noqa: BLE001 — 预热失败不崩 runner
-        import sys  # noqa: PLC0415
-        print(f"[runner_process] preload_seedvr2 failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
 async def _handle_load_model(state: _RunnerState, ch: PipeChannel, msg: P.LoadModel) -> None:
@@ -254,16 +178,6 @@ async def _pipe_reader(state: _RunnerState, ch: PipeChannel) -> None:
             else:
                 # Abort 先到 / RunNode 还没到 —— 记下，RunNode 到了再合并
                 state.pending_aborts.add(msg.task_id)
-        elif isinstance(msg, P.PreloadComponents):
-            await _handle_preload_components(state, ch, msg)
-        elif isinstance(msg, P.PreloadSeedVR2):
-            await _handle_preload_seedvr2(state, ch, msg)
-        elif isinstance(msg, P.PreloadComponent):
-            await _handle_preload_component(state, ch, msg)
-        elif isinstance(msg, P.SetComponentResident):
-            _handle_set_component_resident(state, msg)
-        elif isinstance(msg, P.UnloadComponent):
-            _handle_unload_component(state, msg)
         elif isinstance(msg, P.SetModelResident):
             _handle_set_model_resident(state, msg)
         elif isinstance(msg, P.LoadModel):
@@ -273,14 +187,8 @@ async def _pipe_reader(state: _RunnerState, ch: PipeChannel) -> None:
         elif isinstance(msg, P.Ping):
             # 结构化快照(不只 id):带 source_files/gpu/vram,让主进程把 runner 里的
             # adapter 映射回引擎卡 + 还原系统状态「已加载模型」。
-            # host RAM 占用快照(spec ram-pinned-linkage PR-1b):pinned 是本进程 pinned_stash
-            # 全局账本(含流式预 pin 外部入账);stash 是本进程 RAM stash 池字节。两者 best-effort,
-            # 失败不挡 Pong(import 失败/无 cuda 时 0)。
-            try:
-                from src.services.inference.pinned_stash import total_pinned_bytes  # noqa: PLC0415
-                _pinned_mb = total_pinned_bytes() // (1024 * 1024)
-            except Exception:  # noqa: BLE001
-                _pinned_mb = 0
+            # host RAM 占用快照(spec ram-pinned-linkage PR-1b):stash 是本进程 RAM stash 池
+            # 字节。best-effort,失败不挡 Pong(无 cuda 时 0)。
             try:
                 _stash_mb = state.mm.stash_ram_bytes() // (1024 * 1024)
             except Exception:  # noqa: BLE001
@@ -288,199 +196,20 @@ async def _pipe_reader(state: _RunnerState, ch: PipeChannel) -> None:
             await ch.send_message(P.Pong(
                 runner_id=state.runner_id,
                 loaded_models=state.mm.loaded_models_snapshot(),
-                loaded_components=state.mm.loaded_components_snapshot(),
-                pinned_ram_mb=_pinned_mb,
                 stash_ram_mb=_stash_mb,
             ))
         # 其余消息类型（runner→主进程方向的）不应收到，忽略
 
 
-def _resolve_input_image_path(image_url: str) -> str:
-    """上游 image_url(签名 URL /files/images/<date>/<uuid>.<ext>?token=...)→ 本地磁盘路径。
-
-    runner 与 backend 同机、共享 NAS_OUTPUTS_PATH —— 直接按 date/uuid/ext 解析磁盘文件
-    给 SeedVR2 读,免 HTTP 回环 + token 验证(图本就是本工作流上游刚生成的)。
-    非 /files/ 形态(本地路径 / data URI)原样返回,交给 adapter._decode_image。
-    """
-    s = str(image_url)
-    if not (s.startswith("/files/") or "/files/images/" in s):
-        return s  # 本地路径 / data URI
-    from urllib.parse import urlparse  # noqa: PLC0415
-
-    from src.services.image_output_storage import resolve_path  # noqa: PLC0415
-    path = urlparse(s).path  # /files/images/2026-06-02/<uuid>.png
-    parts = path.strip("/").split("/")  # [files, images, <date>, <uuid>.<ext>]
-    date = parts[-2]
-    uuid_str, _, ext = parts[-1].rpartition(".")
-    return str(resolve_path(date, uuid_str, ext or "png"))
-
-
 def _build_request(node: P.RunNode):
     """按 node_type 构造 typed InferenceRequest。
 
-    spec §3.3：RunNode.node_type 是 runner role —— "image"(ImageRequest,within-node
-    cancel + per-step progress)/ "tts"(AudioRequest,boundary-cancel only)/ "upscale"
-    (UpscaleRequest,SeedVR2 图→图超分,one-step 无 per-step progress)。
-    未知 node_type 抛 ValueError —— node-executor 转成 NodeResult status=failed。
+    spec §3.3：RunNode.node_type 是 runner role —— 现在只有 "tts"(AudioRequest,
+    boundary-cancel only)。未知 node_type 抛 ValueError —— node-executor 转成
+    NodeResult status=failed。
     """
-    from src.services.inference.base import AudioRequest, ImageRequest
+    from src.services.inference.base import AudioRequest
 
-    if node.node_type == "upscale":
-        from src.services.inference.base import UpscaleRequest  # noqa: PLC0415
-
-        # 上游图从 image_url(签名 URL)来;runner 解析成本地路径喂 adapter。
-        image_url = node.inputs.get("image_url") or node.inputs.get("image")
-        if not image_url:
-            raise ValueError("seedvr2_upscale 节点缺上游 image 输入(inputs.image_url)")
-        raw_seed = node.inputs.get("seed")
-        seed = int(raw_seed) if raw_seed not in (None, "") else None
-
-        def _f(key: str, default: float) -> float:
-            v = node.inputs.get(key)
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                return default
-
-        def _i(key: str, default: int) -> int:
-            v = node.inputs.get(key)
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                return default
-
-        return UpscaleRequest(
-            request_id=f"task-{node.task_id}",
-            image=_resolve_input_image_path(image_url),
-            resolution=_i("resolution", 1080),
-            seed=seed,
-            color_correction=str(node.inputs.get("color_correction") or "lab"),
-            # 三节点增强参数:dit/vae config + offload/enable_debug 是 load-time(走 _node_executor),
-            # 这里只放 per-inference。
-            max_resolution=_i("max_resolution", 0),
-            batch_size=_i("batch_size", 1),
-            input_noise_scale=_f("input_noise_scale", 0.0),
-            latent_noise_scale=_f("latent_noise_scale", 0.0),
-            temporal_overlap=_i("temporal_overlap", 0),
-            prepend_frames=_i("prepend_frames", 0),
-            uniform_batch_size=bool(node.inputs.get("uniform_batch_size", False)),
-        )
-    if node.node_type == "image":
-        from src.services.inference.component_spec import ComponentSpec
-
-        # 细粒度图 dispatch 终端(flux2_vae_decode):inputs 带嵌套 latent + vae。
-        # 摊平成 ImageRequest。逐组件选卡(spec 2026-06-04):clip/vae 用各自节点的 device/offload
-        # (默认 auto/none → get_or_load_image_adapter 把 auto 解析成跟随 transformer 卡 = 零回归;
-        # 显式选卡则逐组件落各自卡)。不再强制 clip/vae 同 transformer 卡。
-        latent = node.inputs.get("latent")
-        vae_d = node.inputs.get("vae")
-        if (isinstance(latent, dict) and latent.get("_type") == "flux2_latent"
-                and isinstance(vae_d, dict) and vae_d.get("_type") == "flux2_vae"):
-            model_d = latent["model"]
-            cond_d = latent["conditioning"]
-            unet_spec = dict(model_d["spec"])
-            unet_offload = str(model_d.get("offload") or "none")
-            unet_spec["offload"] = unet_offload  # 让 unet ComponentSpec 带上(与全局 offload 一致)
-            # Ideogram-4 双 DiT(spec 2026-06-12):合并节点把无条件 DiT 文件挂在 model_d.unconditional_file
-            # → 透传进 diffusion_models ComponentSpec.unconditional_file(get_or_load 据此建第二 DiT override)。
-            if model_d.get("unconditional_file"):
-                unet_spec["unconditional_file"] = model_d["unconditional_file"]
-            encoders = cond_d["clip"]["encoders"]
-            if len(encoders) != 1:
-                clip_type = cond_d["clip"].get("type", "?")
-                raise ValueError(
-                    f"多编码器架构 '{clip_type}'({len(encoders)} 个 encoder)执行未就绪 —— "
-                    f"需对应多编码器模型 backend(见 spec 2026-05-21 §9);"
-                    f"当前可用 flux2/qwen 单编码器")
-            clip_d = cond_d["clip"]
-            clip_spec = dict(encoders[0])
-            clip_spec["device"] = clip_d.get("device") or "auto"
-            clip_spec["offload"] = str(clip_d.get("offload") or "none")
-            vae_spec = dict(vae_d["spec"])  # executor 已写 device/offload;旧快照兜底 auto/none
-            vae_spec.setdefault("device", "auto")
-            vae_spec.setdefault("offload", "none")
-            lseed = latent.get("seed")
-            # 输入图(编辑/img2img/多参考,spec 2026-06-07):KSampler 的 image 端口接 image_input
-            # → executor 把签名 URL 写进 latent["input_image"](多图逗号分隔)。这里把 URL 解析回
-            # runner/backend 共享的本地路径(避免 base64 大图过 msgpack pipe;同 upscale 路径)。
-            # None / 空 = 纯文生图(零回归)。
-            input_image_raw = latent.get("input_image")
-            input_image_resolved: str | None = None
-            if input_image_raw:
-                urls = [u.strip() for u in str(input_image_raw).split(",") if u.strip()]
-                resolved = [_resolve_input_image_path(u) for u in urls]
-                input_image_resolved = ",".join(resolved) if resolved else None
-            # 多架构注册表(spec 2026-06-07 P0):adapter_arch → pipeline_class。加新架构
-            # (z-image / qwen-edit)= 往 IMAGE_ARCH_REGISTRY 注册一条,不用改这里的派发。
-            from src.services.inference.model_arch_adapter import arch_spec_by_name  # noqa: PLC0415
-            pipeline_class = arch_spec_by_name(unet_spec.get("adapter_arch")).pipeline_class
-            return ImageRequest(
-                request_id=f"task-{node.task_id}",
-                prompt=str(cond_d.get("text", "")),
-                negative_prompt=str(cond_d.get("negative", "")),
-                width=int(latent.get("width") or 1024),
-                height=int(latent.get("height") or 1024),
-                steps=int(latent.get("steps") or 25),
-                cfg_scale=float(latent.get("cfg_scale") or 4.0),
-                sampler_name=str(latent.get("sampler_name") or "euler"),
-                scheduler=str(latent.get("scheduler") or "normal"),
-                num_images=int(latent.get("num_images") or 1),
-                # PR-A2:img2img 重绘强度(默认 1.0 = 全量去噪 ≈ 文生图,零回归;<1 + input_image
-                # + arch 有 img2img 变体 → 引擎走 ZImageImg2ImgPipeline 加噪重去噪)。
-                strength=float(latent.get("strength") or 1.0),
-                offload=unet_offload,
-                seed=int(lseed) if lseed not in (None, "") else None,
-                input_image=input_image_resolved,
-                # 路 B(PR-B1):flux2_vae_decode 自己的 output_mode widget(image|latent)→ node.inputs
-                # (dispatch 节点的 widget 同 seedvr2 的 resolution 一样进 inputs)。默认 image 零回归。
-                output_mode=str(node.inputs.get("output_mode") or "image"),
-                # 留噪 latent 接力 / 分段采样(PR-B2):从 ksampler 描述符透传(exec_ksampler 写进 latent)。
-                # 全默认 = 整段采样(零回归);任一非默认 → 引擎走手写分段去噪循环(仅 z-image)。
-                # init_latent_ref 是上段 latent_ref(本地路径,runner 同机直接读,无需 URL 解析)。
-                start_at_step=int(latent.get("start_at_step") or 0),
-                end_at_step=(int(latent["end_at_step"]) if latent.get("end_at_step") is not None else None),
-                add_noise=bool(latent.get("add_noise", True)),
-                return_with_leftover_noise=bool(latent.get("return_with_leftover_noise", False)),
-                init_latent_ref=(latent.get("init_latent_ref")
-                                 if isinstance(latent.get("init_latent_ref"), dict) else None),
-                # 采样期 latent 干预描述符 list(LCS 等,spec 2026-06-10):从 ksampler 透传(exec_ksampler
-                # 写进 latent["interventions"])。None/空 = 无干预(零回归)。PR-2/3 接 LCS 节点产描述符。
-                interventions=(latent.get("interventions")
-                               if isinstance(latent.get("interventions"), list) else None),
-                # loras 必须同时进两处:components(L1/L2 缓存键,装错权重就错命中)和
-                # req.loras(引擎 infer() 里 _apply_loras 真正读的字段)。早先只进了前者 →
-                # 细粒度图挂 LoRA 是「键变了、adapter 重建了、权重从没应用」的静默 no-op,
-                # 出图 = 基模(2026-06-11 万物迁移 A/B bit 同图坐实)。
-                loras=model_d.get("loras") or [],
-                components={
-                    "diffusion_models": ComponentSpec(loras=model_d.get("loras") or [], **unet_spec),
-                    "clip": ComponentSpec(**clip_spec),
-                    "vae": ComponentSpec(**vae_spec),
-                },
-                pipeline_class=pipeline_class,
-            )
-
-        # 非细粒度图:model_key 单模型路径 —— runner _node_executor 用 node.model_key
-        # 走 get_or_load(model_key) 拿整 adapter 再 infer(无 components)。收敛后 Family B
-        # 的 flat unet/clip/vae 组件分支(image_generate)已删;此 model_key 路径是通用
-        # 单模型 fallback(by-key 整模型加载)。
-        raw_seed = node.inputs.get("seed")
-        seed = int(raw_seed) if raw_seed not in (None, "") else None
-        loras_raw = node.inputs.get("loras") or []
-        return ImageRequest(
-            request_id=f"task-{node.task_id}",
-            prompt=str(node.inputs.get("prompt", "")),
-            negative_prompt=str(node.inputs.get("negative_prompt", "")),
-            steps=int(node.inputs.get("steps") or 25),
-            width=int(node.inputs.get("width") or 1024),
-            height=int(node.inputs.get("height") or 1024),
-            cfg_scale=float(node.inputs.get("cfg_scale") or 7.0),
-            sampler_name=str(node.inputs.get("sampler_name") or "euler"),
-            scheduler=str(node.inputs.get("scheduler") or "normal"),
-            seed=seed,
-            num_images=int(node.inputs.get("num_images") or 1),
-            loras=loras_raw if isinstance(loras_raw, list) else [],
-        )
     if node.node_type == "tts":
         return AudioRequest(
             request_id=f"task-{node.task_id}",
@@ -489,7 +218,7 @@ def _build_request(node: P.RunNode):
             speed=float(node.inputs.get("speed", 1.0) or 1.0),
             sample_rate=int(node.inputs.get("sample_rate", 24000) or 24000),
         )
-    raise ValueError(f"unsupported node_type {node.node_type!r} (expected image / tts / upscale)")
+    raise ValueError(f"unsupported node_type {node.node_type!r} (expected tts)")
 
 
 async def _node_executor(state: _RunnerState, ch: PipeChannel) -> None:
@@ -503,7 +232,7 @@ async def _node_executor(state: _RunnerState, ch: PipeChannel) -> None:
         cancel_flag = state.cancel_flags.get(node.task_id) or threading.Event()
         started = time.monotonic()
 
-        # 先 build typed request —— components 路径据此分流 adapter 获取方式。
+        # 先 build typed request —— 未知 node_type 在这里就判 failed。
         try:
             req = _build_request(node)
         except ValueError as e:
@@ -514,72 +243,9 @@ async def _node_executor(state: _RunnerState, ch: PipeChannel) -> None:
             state.cancel_flags.pop(node.task_id, None)
             continue
 
-        # PR-6: L2 output cache —— 确定性 image 节点二跑命中则跳过 load+infer。
-        # batch(num_images>1)跳过:L2 单图缓存只存/返一张,会吞掉其余 N-1 张。
-        l2_key = None
-        if (node.node_type == "image" and getattr(node, "is_deterministic", False)
-                and int(getattr(req, "num_images", 1) or 1) == 1):
-            from src.services.inference.image_l2_cache import image_l2_key, serve_image_l2
-            l2_key = image_l2_key(node, req)
-            entry = state.image_l2.get(l2_key)
-            if entry is not None:
-                from src.config import get_settings  # noqa: PLC0415
-                ttl = int(get_settings().IMAGE_URL_TTL_SECONDS)  # PR-4:TTL 归服务层配置
-                hit = serve_image_l2(entry, ttl)
-                if hit is not None:
-                    await ch.send_message(P.NodeResult(
-                        task_id=node.task_id, node_id=node.node_id, status="completed",
-                        outputs={
-                            "meta": hit["meta"], "media_type": hit["media_type"],
-                            "image_url": hit["image_url"], "image_uuid": hit["image_uuid"],
-                            "image_expires": hit["image_expires"],
-                            "width": hit["width"], "height": hit["height"], "cached": True,
-                        },
-                        error=None,
-                        duration_ms=int((time.monotonic() - started) * 1000)))
-                    state.cancel_flags.pop(node.task_id, None)
-                    continue
-                # PNG reaped → drop stale entry, fall through to recompute
-                state.image_l2._d.pop(l2_key, None)
-
-        # adapter 获取:components 路径走 get_or_load_image_adapter(组件级 L1 +
-        # combo 缓存);否则老 model_key 路径(get_or_load,含 OOM evict)。
+        # adapter 获取:by-key 走 get_or_load(含 OOM evict)。
         try:
-            components = getattr(req, "components", None)
-            if node.node_type == "upscale":
-                # SeedVR2 不是三组件模型(DiT+VAE 整套自带)—— 走 by-key 装载。model_dir
-                # 默认 NAS_MODELS_PATH/media/SEEDVR2;dit/vae 缺省 DEFAULT(NumZ 白名单,缺则 HF 下)。
-                # 三节点(PR-2):上游 seedvr2_load_dit/seedvr2_load_vae 产配置 dict,经 inputs.dit/inputs.vae
-                # 进来(device/blockswap/tiling)。向后兼容:没连 loader → 空配置 → 默认;旧单节点工作流
-                # 的 inputs.dit_model(字符串)兜底成 dit_config.model。
-                import os  # noqa: PLC0415
-
-                from src.config import get_settings  # noqa: PLC0415
-                nas = (get_settings().NAS_MODELS_PATH or "").strip()
-                model_dir = node.inputs.get("model_dir") or os.path.join(nas, "image", "SEEDVR2")
-                dit_cfg = node.inputs.get("dit")
-                vae_cfg = node.inputs.get("vae")
-                dit_cfg = dict(dit_cfg) if isinstance(dit_cfg, dict) else {}
-                vae_cfg = dict(vae_cfg) if isinstance(vae_cfg, dict) else {}
-                # 旧单节点 fallback:upscale 节点自身 dit_model widget → dit_config.model。
-                if not dit_cfg.get("model") and node.inputs.get("dit_model"):
-                    dit_cfg["model"] = node.inputs["dit_model"]
-                # 增强节点自身的 tensor offload + 调试(load-time,进 setup_generation_context / Debug)。
-                adapter = await state.mm.get_or_load_seedvr2_adapter(
-                    model_dir=model_dir,
-                    device=str(node.inputs.get("device") or "auto"),
-                    dit_config=dit_cfg,
-                    vae_config=vae_cfg,
-                    tensor_offload=str(node.inputs.get("offload_device") or "cpu"),
-                    enable_debug=bool(node.inputs.get("enable_debug", False)),
-                )
-            elif components:
-                adapter = await state.mm.get_or_load_image_adapter(
-                    components, getattr(req, "pipeline_class", "Flux2KleinPipeline"),
-                    on_event=_make_component_event_sender(ch),
-                    offload=getattr(req, "offload", "none"))
-            else:
-                adapter = await state.mm.get_or_load(node.model_key) if node.model_key else None
+            adapter = await state.mm.get_or_load(node.model_key) if node.model_key else None
         except Exception as e:  # noqa: BLE001
             await ch.send_message(P.NodeResult(
                 task_id=node.task_id, node_id=node.node_id, status="failed",
@@ -592,7 +258,7 @@ async def _node_executor(state: _RunnerState, ch: PipeChannel) -> None:
         if adapter is None:
             await ch.send_message(P.NodeResult(
                 task_id=node.task_id, node_id=node.node_id, status="failed",
-                outputs=None, error=f"node {node.node_id!r} has no model_key / components",
+                outputs=None, error=f"node {node.node_id!r} has no model_key",
                 duration_ms=int((time.monotonic() - started) * 1000),
             ))
             state.cancel_flags.pop(node.task_id, None)
@@ -710,50 +376,8 @@ async def _node_executor(state: _RunnerState, ch: PipeChannel) -> None:
         # 排空 progress 发送 —— 保证「所有 NodeProgress 先到、NodeResult 后到」
         if progress_tasks:
             await asyncio.gather(*progress_tasks, return_exceptions=True)
-        # outputs payload —— 与 inline image_generate/tts 节点对齐(spec §3.3 +
-        # workflow_publish exposed_outputs 白名单)。image 走 write_image 落盘签
-        # URL(NAS_OUTPUTS_PATH + ADMIN_SESSION_SECRET HMAC),把 image_url 塞进
-        # outputs,下游 image_output 节点才能从 inputs.image_url 取到。把 bytes
-        # 通过 msgpack pipe 直接传 50MB 是反模式。
+        # outputs payload —— adapter 返回的 metadata + media_type(spec §3.3)。
         outputs: dict[str, Any] = {"meta": result.metadata, "media_type": result.media_type}
-        # 路 B(PR-B1)latent 模式:引擎返序列化 latent 字节(media_type=application/x-latent)→
-        # 落盘成 latent_ref.path(本地路径,不进 msgpack 张量),下游 sample_from_latent 从 path 读回。
-        if (node.node_type == "image" and result.media_type == "application/x-latent"
-                and result.data):
-            from src.services.latent_storage import write_latent  # noqa: PLC0415
-            rec = write_latent(result.data)
-            lm = (result.metadata or {}).get("latent") or {}
-            outputs["latent_ref"] = {"_type": "latent_ref", "path": rec["path"],
-                                     "uuid": rec["uuid"], **lm}
-        elif (node.node_type in ("image", "upscale")
-                and result.media_type.startswith("image/") and result.data):
-            from src.config import get_settings  # noqa: PLC0415
-            from src.services.image_output_storage import write_image
-            ext = result.media_type.split("/", 1)[1].split("+", 1)[0] or "png"
-            ttl = int(get_settings().IMAGE_URL_TTL_SECONDS)  # PR-4:TTL 归服务层配置
-            record = write_image(result.data, ext=ext, ttl_seconds=ttl)
-            meta = result.metadata or {}
-            # batch:首张在 result.data,其余在 extra_images → 各自落盘签 URL。image_url 仍是首张
-            # (单图消费者 / 外部 API 不变);image_urls 是全部(含首张),前端累积网格逐张展示。
-            extra = list(getattr(result, "extra_images", None) or [])
-            image_urls = [record["url"]]
-            for blob in extra:
-                rec2 = write_image(blob, ext=ext, ttl_seconds=ttl)
-                image_urls.append(rec2["url"])
-            outputs.update({
-                "image_url": record["url"],
-                "image_uuid": record["uuid"],
-                "image_expires": record["expires"],
-                "width": meta.get("width"),
-                "height": meta.get("height"),
-            })
-            if len(image_urls) > 1:
-                outputs["image_urls"] = image_urls
-            if l2_key is not None:
-                state.image_l2.put(l2_key, {
-                    "image_uuid": record["uuid"], "date": record["date"], "ext": ext,
-                    "meta": result.metadata, "width": meta.get("width"), "height": meta.get("height"),
-                })
         await ch.send_message(P.NodeResult(
             task_id=node.task_id, node_id=node.node_id, status="completed",
             outputs=outputs,
@@ -784,7 +408,7 @@ def runner_main(
     models_yaml_path: str | None = None,
     fake_adapter: bool = False,
 ) -> None:
-    """multiprocessing.Process 的 target —— image/TTS runner 子进程入口。
+    """multiprocessing.Process 的 target —— TTS runner 子进程入口。
 
     起独立 event loop（spec §4.5：runner 有自己的 Event Loop B）+ 构造 per-runner
     独立 ModelManager（spec §4.5）。fake_adapter=True → 所有模型走 FakeAdapter。

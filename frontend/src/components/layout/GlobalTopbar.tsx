@@ -6,7 +6,7 @@
  * cook overview(运行/排队/完成 + GPU)+ 任务行(4 type 配色)。
  *
  * Topbar 布局:
- *   nous-logo  · spacer · infra healthy · ⌕ search · ☰ tasks(下拉)· ⋮ user
+ *   nous-logo  · spacer · infra 状态(/health)· ⌕ search · ☰ tasks(下拉)· ⋮ user
  */
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Search, MoreVertical, LogOut, ListTodo, Cpu, Menu, Info } from 'lucide-react'
@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAdminLogout, useAdminMe } from '../../api/admin'
 import { useTasks, type ExecutionTask } from '../../api/tasks'
 import { useGpuStats, pickPrimaryGpu, type GpuInfo } from '../../api/gpuStats'
+import { useHealth, healthDegradedReasons } from '../../api/health'
 import { useExecutionStore } from '../../stores/execution'
 import ActiveTaskRow from './ActiveTaskRow'
 import HistoryCard from './HistoryCard'
@@ -74,16 +75,7 @@ export default function GlobalTopbar() {
       <div style={{ width: 1, height: 16, background: 'var(--tp-border-faint)', marginRight: 12 }} />
 
       {/* 全局状态 */}
-      <div className="text-xs flex items-center gap-1.5 mr-4" style={{ color: 'var(--tp-text-muted)' }}>
-        <span
-          style={{
-            width: 7, height: 7, borderRadius: '50%',
-            background: 'var(--status-running)',
-            boxShadow: '0 0 8px var(--status-running)',
-          }}
-        />
-        infra <span style={{ color: 'var(--tp-text)', fontWeight: 500 }}>healthy</span>
-      </div>
+      <InfraStatus />
 
       {/* 搜索 placeholder */}
       <button
@@ -135,6 +127,51 @@ export default function GlobalTopbar() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * InfraStatus — 顶栏「infra healthy」,读 /health(useHealth 20s 轮询)。
+ *
+ * 2026-09-26 前这里是写死的文字:ComfyUI 被换成手工实例停了一天多,顶栏一直绿着。
+ * 拉不到 /health → 红 down;status=degraded → 琥珀 degraded(title 列原因);否则绿 healthy。
+ */
+function InfraStatus() {
+  const health = useHealth()
+  const h = health.data
+  let color = 'var(--tp-text-dim)'
+  let label = 'checking'
+  let title = '正在检查 /health'
+  if (health.isError) {
+    color = 'var(--status-failed)'
+    label = 'down'
+    title = '拉不到 /health —— 后端可能挂了'
+  } else if (h?.status === 'degraded') {
+    color = 'var(--status-queued)'
+    label = 'degraded'
+    const reasons = healthDegradedReasons(h)
+    title = reasons.length ? reasons.join('\n') : 'degraded'
+  } else if (h) {
+    color = 'var(--status-running)'
+    label = 'healthy'
+    title = 'infra healthy'
+  }
+  return (
+    <div
+      className="text-xs flex items-center gap-1.5 mr-4"
+      style={{ color: 'var(--tp-text-muted)' }}
+      title={title}
+      data-testid="infra-status"
+    >
+      <span
+        style={{
+          width: 7, height: 7, borderRadius: '50%',
+          background: color,
+          boxShadow: `0 0 8px ${color}`,
+        }}
+      />
+      infra <span style={{ color: 'var(--tp-text)', fontWeight: 500 }}>{label}</span>
     </div>
   )
 }

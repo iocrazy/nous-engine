@@ -29,15 +29,11 @@ class Target:
     """一个引擎库条目对应的物理删除目标。"""
 
     name: str
-    kind: str  # model | upscale | component | lora
+    kind: str  # 恒为 model(2026-09-26 起超分/组件/LoRA 条目随自建图像引擎删除)
     path: Path
     is_dir: bool
     engine_key: str | None = None
     local_path: str | None = None
-
-
-_SEEDVR2_PREFIX = "seedvr2:"
-_COMPONENT_PREFIX = "component:"
 
 
 def _models_root() -> Path:
@@ -45,14 +41,12 @@ def _models_root() -> Path:
 
 
 def allowed_roots() -> list[Path]:
-    """可删范围的白名单根。
+    """可删范围的白名单根:只有 LOCAL_MODELS_PATH。
 
-    LORA_PATHS 可显式配置到 LOCAL_MODELS_PATH 之外，也可逗号分隔多个目录，
-    因此每个配置根都需要参与边界检查。
+    2026-09-26 起 LoRA 条目随自建图像引擎删除,LORA_PATHS 不再进白名单
+    (删除目标只剩 LOCAL_MODELS_PATH/<local_path> 整模型目录)。
     """
     roots = [_models_root()]
-    raw = getattr(get_settings(), "LORA_PATHS", "") or ""
-    roots.extend(Path(p.strip()) for p in raw.split(",") if p.strip())
     out: list[Path] = []
     for r in roots:
         try:
@@ -89,7 +83,7 @@ def assert_safe_target(target: Target) -> None:
         raise DeleteError(400, f"拒绝删除模型根本身: {candidate}")
 
     # 目录必须在根下至少两层，避免删除 media/、llm/、speech/ 等类型目录。
-    # (文件永远不是类型目录),否则独立 LoRA 根下的一层文件会被误拒。
+    # 只查目录(文件永远不是类型目录;软链目录已在下方降级为只删链接)。
     rel_parts = candidate.relative_to(root).parts
     if target.is_dir and len(rel_parts) < 2:
         raise DeleteError(400, f"拒绝删除类型目录(深度不足): {candidate}")
@@ -255,21 +249,17 @@ async def find_referencing_services(session, engine_key: str) -> list[dict]:
 
 
 def invalidate_all_caches() -> None:
-    """删完清 5 层缓存,否则引擎库最长 30s 内仍显示已删的条目。
+    """删完清 3 层缓存,否则引擎库最长 30s 内仍显示已删的条目。
 
     刻意按**模块属性**调用(而非 from-import 绑定):这些失效函数在测试里被 monkeypatch,
     早绑定会拿到打补丁前的旧引用。
     """
     from src.api import response_cache  # noqa: PLC0415
-    from src.services import component_scanner  # noqa: PLC0415
-    from src.services import lora_scanner  # noqa: PLC0415
     from src.services import model_metadata_service  # noqa: PLC0415
     from src.services import model_scanner  # noqa: PLC0415
 
     model_scanner.invalidate_scan_cache()
     model_metadata_service.invalidate_local_scan_cache()
-    lora_scanner.invalidate_cache()
-    component_scanner.invalidate_component_cache()
     response_cache.invalidate("engines")
 
 
@@ -402,29 +392,6 @@ def resolve_target(name: str, configs: dict) -> Target:
     """
     if ".." in Path(name).parts or "/.." in name or name.startswith(".."):
         raise DeleteError(400, f"非法条目名(含 .. 路径段): {name}")
-
-    if name.startswith(_SEEDVR2_PREFIX):
-        filename = name[len(_SEEDVR2_PREFIX):]
-        if not filename or "/" in filename:
-            raise DeleteError(400, f"非法 SeedVR2 条目名: {name}")
-        return Target(
-            name=name,
-            kind="upscale",
-            path=_models_root() / "media" / "SEEDVR2" / filename,
-            is_dir=False,
-        )
-
-    if name.startswith(_COMPONENT_PREFIX):
-        rest = name[len(_COMPONENT_PREFIX):]
-        role, sep, abs_path = rest.partition(":")
-        if not sep or not abs_path:
-            raise DeleteError(400, f"非法组件条目名: {name}")
-        return Target(
-            name=name,
-            kind="lora" if role == "loras" else "component",
-            path=Path(abs_path),
-            is_dir=False,
-        )
 
     cfg = configs.get(name)
     if cfg is None:

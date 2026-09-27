@@ -51,11 +51,14 @@ async def test_inline_node_does_not_touch_runner_client():
     assert "t1" in result["outputs"]
 
 
+# 2026-09-26:以下 dispatch 用例原先拿 flux2_vae_decode 当样本节点;该节点随自建图像引擎
+# 删除,现在唯一的 dispatch 节点是 tts_engine。用例改名重建,断言逐字保留。
+
 @pytest.mark.asyncio
-async def test_dispatch_node_routes_to_runner_client():
-    """flux2_vae_decode 节点 → RunnerClient.run_node，结果进 outputs。"""
+async def test_tts_dispatch_node_routes_to_runner_client():
+    """tts_engine 节点 → RunnerClient.run_node，结果进 outputs。"""
     rc = FakeRunnerClient(results={"img": {"image_url": "out.png"}})
-    wf = _wf([{"id": "img", "type": "flux2_vae_decode", "data": {"prompt": "cat"}}])
+    wf = _wf([{"id": "img", "type": "tts_engine", "data": {"prompt": "cat"}}])
     ex = WorkflowExecutor(wf, runner_client=rc)
     result = await ex.execute()
     assert rc.calls[0][0] == "img"
@@ -63,13 +66,13 @@ async def test_dispatch_node_routes_to_runner_client():
 
 
 @pytest.mark.asyncio
-async def test_mixed_workflow_inline_then_dispatch():
-    """text_input(inline) → flux2_vae_decode(dispatch)：上游 inline 输出进下游 dispatch 的 inputs。"""
+async def test_mixed_workflow_inline_then_tts_dispatch():
+    """text_input(inline) → tts_engine(dispatch)：上游 inline 输出进下游 dispatch 的 inputs。"""
     rc = FakeRunnerClient(results={"img": {"image_url": "out.png"}})
     wf = _wf(
         nodes=[
             {"id": "t", "type": "text_input", "data": {"text": "a cat"}},
-            {"id": "img", "type": "flux2_vae_decode", "data": {}},
+            {"id": "img", "type": "tts_engine", "data": {}},
         ],
         edges=[{"source": "t", "target": "img",
                 "sourceHandle": "text", "targetHandle": "prompt"}],
@@ -82,20 +85,20 @@ async def test_mixed_workflow_inline_then_dispatch():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_node_without_runner_client_raises():
+async def test_tts_dispatch_node_without_runner_client_raises():
     """runner_client=None 但 workflow 含 dispatch 节点 → ExecutionError（不静默 inline 跑 GPU 节点）。"""
-    wf = _wf([{"id": "img", "type": "flux2_vae_decode", "data": {}}])
+    wf = _wf([{"id": "img", "type": "tts_engine", "data": {}}])
     ex = WorkflowExecutor(wf, runner_client=None)
     with pytest.raises(ExecutionError, match="runner"):
         await ex.execute()
 
 
 @pytest.mark.asyncio
-async def test_dispatch_node_failure_wrapped():
+async def test_tts_dispatch_node_failure_wrapped():
     """runner 抛错 → ExecutionError，node_error progress 事件发出。"""
     events, on_progress = _collector()
     rc = FakeRunnerClient(fail_nodes={"img"})
-    wf = _wf([{"id": "img", "type": "flux2_vae_decode", "data": {}}])
+    wf = _wf([{"id": "img", "type": "tts_engine", "data": {}}])
     ex = WorkflowExecutor(wf, runner_client=rc, on_progress=on_progress)
     with pytest.raises(ExecutionError):
         await ex.execute()
@@ -103,11 +106,11 @@ async def test_dispatch_node_failure_wrapped():
 
 
 @pytest.mark.asyncio
-async def test_progress_events_unchanged_for_dispatch():
+async def test_progress_events_unchanged_for_tts_dispatch():
     """dispatch 节点同样发 node_start / node_complete progress 事件。"""
     events, on_progress = _collector()
     rc = FakeRunnerClient(results={"img": {"image_url": "x"}})
-    wf = _wf([{"id": "img", "type": "flux2_vae_decode", "data": {}}])
+    wf = _wf([{"id": "img", "type": "tts_engine", "data": {}}])
     ex = WorkflowExecutor(wf, runner_client=rc, on_progress=on_progress)
     await ex.execute()
     types = [e["type"] for e in events]
