@@ -22,12 +22,11 @@ class Settings(BaseSettings):
     MODELS_ROOT: str = "/media/heygo/program/models"
     REPOS_ROOT: str = "/media/heygo/program/projects-code/github-repos"
 
-    # 以下 6 个**留空即从根派生**(_derive_paths 填);仍是真字段 —— 消费代码 settings.XXX
+    # 以下 5 个**留空即从根派生**(_derive_paths 填);仍是真字段 —— 消费代码 settings.XXX
     # 不变、测试可 setattr 注入、需要时也能在 .env/settings.yaml 显式覆盖单个(可选,非必需)。
     LOCAL_MODELS_PATH: str = ""
     NAS_MODELS_PATH: str = ""
     NAS_OUTPUTS_PATH: str = ""
-    LORA_PATHS: str = ""  # lora_scanner 扫描目录(可逗号分隔多个)
     COSYVOICE_REPO_PATH: str = ""
     INDEXTTS_REPO_PATH: str = ""
 
@@ -42,8 +41,6 @@ class Settings(BaseSettings):
             self.NAS_MODELS_PATH = self.LOCAL_MODELS_PATH  # NAS 已并进本地根
         if not self.NAS_OUTPUTS_PATH:
             self.NAS_OUTPUTS_PATH = str(m / r["models"]["outputs"])
-        if not self.LORA_PATHS:
-            self.LORA_PATHS = str(m / r["models"]["loras"])
         if not self.COSYVOICE_REPO_PATH:
             self.COSYVOICE_REPO_PATH = str(repo / r["repos"]["cosyvoice"])
         if not self.INDEXTTS_REPO_PATH:
@@ -92,7 +89,7 @@ def _resolve_path(relative: str) -> Path:
 # fail-soft —— 文件缺失/坏时退回内置默认(与 model_roots.yaml 同值),绝不让缺配置崩启动。
 MODEL_ROOTS_YAML_PATH = _BACKEND_DIR / "configs" / "model_roots.yaml"
 _MODEL_ROOTS_DEFAULT = {
-    "models": {"local": "nous", "loras": "nous/media/loras", "outputs": "nous/outputs"},
+    "models": {"local": "nous", "outputs": "nous/outputs"},
     "repos": {"cosyvoice": "CosyVoice", "indextts": "index-tts"},
 }
 

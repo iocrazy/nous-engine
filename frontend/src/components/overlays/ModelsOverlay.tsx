@@ -90,7 +90,7 @@ export default function ModelsOverlay() {
   const [paramsTarget, setParamsTarget] = useState<EngineInfo | null>(null)
   // 物理删除确认框目标,null = 关闭。
   const [deleteTarget, setDeleteTarget] = useState<EngineInfo | null>(null)
-  // 图像 tab 下的二级子 tab —— 按**文件夹/角色**分:整模型 / 超分 / diffusion_models / clip / vae / loras。
+  // 图像 tab 下的二级子 tab(2026-09-26 自建图像引擎删除后只剩「整模型」一桶)。
   const [imageBucket, setImageBucket] = useState<string>('all')
   // 跨 tab/桶的名称搜索 —— 在当前可见列表里再按 display_name/name/路径 子串过滤。统一模型管理收尾 PR-3。
   const [search, setSearch] = useState('')
@@ -253,13 +253,9 @@ export default function ModelsOverlay() {
   const typeCounts: Record<string, number> = {}
   for (const e of allEngines) typeCounts[e.type] = (typeCounts[e.type] ?? 0) + 1
 
-  // 图像条目归到哪个「桶」(文件夹/角色):整模型/超分用 kind;组件/LoRA 用文件夹(从 name
-  // "component:<role>:<path>" 取 role:diffusion_models/clip/vae/loras)。
-  const imageBucketOf = (e: EngineInfo): string => {
-    if (e.kind === 'model' || e.kind === 'upscale') return e.kind
-    if (e.name.startsWith('component:')) return e.name.split(':')[1] || 'component'
-    return e.kind ?? 'component'
-  }
+  // 2026-09-26 自建图像引擎删除后 kind 只剩 'model';component:/lora 的文件夹分桶
+  // (diffusion_models/clip/vae/loras)、超分桶随组件库一起没了意义,只留「整模型」这一桶。
+  const imageBucketOf = (e: EngineInfo): string => e.kind ?? 'model'
   const imageEngines = allEngines.filter((e) => e.type === 'image')
   const bucketCounts: Record<string, number> = { all: imageEngines.length }
   for (const e of imageEngines) {
@@ -269,14 +265,9 @@ export default function ModelsOverlay() {
   // 「已加载」快速筛(用户 2026-06-11):紧跟「全部」,在**当前 tab 内**按 status 过滤,
   // 不用切去顶层「已加载」tab(那个跨全类型)。所有类型 tab 通用;图像 tab 额外有桶。
   bucketCounts.loaded = imageEngines.filter((e) => e.status === 'loaded').length
-  // 子 tab 顺序:整模型 → 超分 → 各文件夹。label 友好化。
-  // clip 角色对齐 ComfyUI「Load CLIP」节点,但文件实际在 media/text_encoders/ —— 标签用「文本编码器」
-  // 对齐文件夹,免「为啥叫 CLIP 不是 text_encoders」的困惑(底层角色 key 仍是 clip,扫描/端点不变)。
-  const BUCKET_LABEL: Record<string, string> = {
-    model: '整模型', upscale: '超分', diffusion_models: 'diffusion_models',
-    clip: '文本编码器', vae: 'VAE', loras: 'LoRA',
-  }
-  const BUCKET_ORDER = ['model', 'upscale', 'diffusion_models', 'clip', 'vae', 'loras']
+  // 子 tab 顺序:2026-09-26 自建图像引擎删除后只剩「整模型」一桶(超分/组件/LoRA 随组件库一起删除)。
+  const BUCKET_LABEL: Record<string, string> = { model: '整模型' }
+  const BUCKET_ORDER = ['model']
   const imageSubTabs = [
     { id: 'all', label: '全部' },
     { id: 'loaded', label: '已加载' },
@@ -306,7 +297,7 @@ export default function ModelsOverlay() {
     } else {
       list = allEngines.filter((e) => e.type === activeTab)
       if (imageBucket !== 'all') {
-        // 「已加载」对所有类型 tab 通用;桶(整模型/VAE/LoRA…)仅图像 tab 有意义。
+        // 「已加载」对所有类型 tab 通用;整模型桶仅图像 tab 有意义。
         if (imageBucket === 'loaded') list = list.filter((e) => e.status === 'loaded')
         else if (activeTab === 'image') list = list.filter((e) => imageBucketOf(e) === imageBucket)
       }
@@ -475,7 +466,7 @@ export default function ModelsOverlay() {
           })}
         </div>
 
-        {/* 二级子筛:图像 = 全部/已加载 + 文件夹桶;其余 tab(含「全部」)= 全部/已加载。 */}
+        {/* 二级子筛:图像 = 全部/已加载 + 整模型桶;其余 tab(含「全部」)= 全部/已加载。 */}
         {(
           <div style={{ display: 'flex', gap: 6, marginTop: -8, marginBottom: 16, flexWrap: 'wrap' }}>
             {(activeTab === 'image'
@@ -512,7 +503,7 @@ export default function ModelsOverlay() {
           </div>
         )}
 
-        {/* m11 single flat grid — 卡片;图像 tab 下按文件夹(diffusion_models/clip/vae/loras)子 tab 过滤。 */}
+        {/* m11 single flat grid — 卡片;图像 tab 下按「整模型」子 tab 过滤。 */}
         <div
           style={{
             display: 'grid',
