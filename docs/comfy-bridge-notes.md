@@ -31,6 +31,16 @@
   上传**(`_prevalidate_files`,免得后一个参数不合法时前一个已传成孤儿):data URI 必须 base64,
   `image`/`video`/`audio` 型要 mime 大类对得上;调用方给的非 data URI 字符串若是 URL、路径
   或 `[output]` 注解一律拒(桥不替调用方抓远程资源;注解会让 LoadImage 读 output 目录)。
+- **无音轨视频上传前补静音轨**(2026-09-27,`comfy/video_audio.ensure_audio_track`):
+  `video/*` 的 data URI 在校验完、**任何上传之前**过一遍 ffprobe;没有音轨就
+  `-c:v copy` 重封装 + 一条 `anullsrc` 静音 AAC(webm 用 libopus),视频不重编码;有音轨
+  原字节上传。原因:VHS_LoadVideo 的 audio 输出接了下游(VOSR2 视频模板 `["18",2]` →
+  VideoCombine 的 `audio`)时 VHS 懒提取音频,无音轨输入 ffmpeg 报 "Output file does not
+  contain any stream" → "VHS failed to extract audio",整条渲染挂在 LoadVideo。放在桥里而
+  不是改模板:所有带 LoadVideo→音频的模板一次兜住,且保留有音轨时的原声。它是**兜底**:
+  ffprobe/ffmpeg 缺失、超时、失败一律 warning + 原字节上传,绝不让本来能跑的上传失败;子进程
+  走 asyncio + 超时、磁盘读写走线程(不堵事件循环),输入只放行 `file` 协议(伪装成 mp4 的
+  HLS 清单会让 ffprobe 替调用方抓远程 URL)。
 - **长任务走 respond-async**:`POST /v1/services/{name}/predictions`(注意前缀是
   `/v1/`,不是 `/api/v1/`)带 `Prefer: respond-async` → 202 `{id,status:"starting"}`,
   轮询 `GET /v1/predictions/{id}` 到终态(`succeeded|failed|canceled`)。鉴权跟

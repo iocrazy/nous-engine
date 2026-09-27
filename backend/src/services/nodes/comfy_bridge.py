@@ -33,6 +33,7 @@ from src.services.comfy.client import get_comfy_client as get_client
 from src.services.comfy.outputs import collect_outputs, history_error
 from src.services.comfy.thumbnail import extract_first_frame
 from src.services.comfy.upload_inputs import check_plain_filename, decode_data_uri
+from src.services.comfy.video_audio import ensure_audio_track
 from src.services.image_output_storage import write_image as _write_media_sync
 from src.services.nodes.registry import register
 
@@ -136,6 +137,22 @@ def _prevalidate_files(exposed_params: list[dict], data: dict) -> dict[str, tupl
     return decoded
 
 
+async def _with_audio_tracks(
+    decoded: dict[str, tuple[bytes, str, str]],
+) -> dict[str, tuple[bytes, str, str]]:
+    """视频类 data URI 过一遍 `ensure_audio_track`(无音轨补静音轨),返回新 dict。
+
+    只动 `video/*`;图片/音频原样。在**任何上传之前**跑完,保住「全部处理完才上传」的顺序;
+    helper 自身从不抛(失败退回原字节),所以不会因它留下孤儿上传。
+    """
+    out: dict[str, tuple[bytes, str, str]] = {}
+    for key, (raw, ext, mime) in decoded.items():
+        if mime.startswith("video/"):
+            raw = await ensure_audio_track(raw, ext)
+        out[key] = (raw, ext, mime)
+    return out
+
+
 @register("comfyui_workflow")
 class ComfyUIWorkflowNode:
     """Bridge node: patch exposed params into the ComfyUI graph, run it on
@@ -155,6 +172,9 @@ class ComfyUIWorkflowNode:
         # 先把**所有**文件类入参校验/解码完,再开始上传 —— 否则第二个参数不合法时,
         # 第一个已经传到 sidecar input 目录的文件就成了孤儿。
         decoded = _prevalidate_files(exposed_params, data)
+        # 无音轨视频补静音轨:VHS_LoadVideo 的 audio 输出接了下游时,无音轨输入会让 VHS
+        # 懒提取音频失败、整条渲染挂掉(见 comfy/video_audio.py)。
+        decoded = await _with_audio_tracks(decoded)
 
         for m in exposed_params:
             key = m["key"]
