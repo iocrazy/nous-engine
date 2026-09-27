@@ -233,3 +233,54 @@ async def test_invoke_without_task_id_passes_no_abort_probe(fake, monkeypatch):
     out = await node.invoke({"template_id": 1, "prompt": "hi"}, {})
     assert out["video_url"] == "/files/x.mp4"
     assert captured["should_abort"] is None
+
+
+# ---------- 无音轨视频补静音轨(VHS_LoadVideo 懒提取音频,无音轨直接挂)----------
+
+MIXED_GRAPH = {
+    "1": {"class_type": "VHS_LoadVideo", "inputs": {"video": ""}},
+    "2": {"class_type": "LoadImage", "inputs": {"image": ""}},
+    "3": {"class_type": "LoadAudio", "inputs": {"audio": ""}},
+    "92": {"class_type": "SaveVideo", "inputs": {}},
+}
+MIXED_MAPPING = [
+    {"key": "video", "type": "video", "comfy_node_id": "1", "comfy_input": "video"},
+    {"key": "image", "type": "image", "comfy_node_id": "2", "comfy_input": "image"},
+    {"key": "audio", "type": "audio", "comfy_node_id": "3", "comfy_input": "audio"},
+]
+
+
+@pytest.mark.asyncio
+async def test_video_params_go_through_audio_helper_others_dont(monkeypatch, fake):
+    async def fake_load(tid):
+        return MIXED_GRAPH, MIXED_MAPPING
+    monkeypatch.setattr(nb, "load_template", fake_load)
+
+    calls: list[tuple[bytes, str]] = []
+
+    async def fake_ensure(raw, ext):
+        calls.append((raw, ext))
+        return b"REMUXED"
+    monkeypatch.setattr(nb, "ensure_audio_track", fake_ensure)
+
+    contents: dict[str, bytes] = {}
+
+    async def rec_upload(filename, content, mime="image/png"):
+        contents[mime] = content
+        return f"up_{filename}"
+    monkeypatch.setattr(fake, "upload_image", rec_upload)
+
+    def uri(mime, raw):
+        return f"data:{mime};base64," + base64.b64encode(raw).decode()
+
+    await get_node_class("comfyui_workflow")().invoke({
+        "template_id": 1,
+        "video": uri("video/mp4", b"VIDEOBYTES"),
+        "image": uri("image/png", PNG1PX),
+        "audio": uri("audio/wav", b"RIFFWAVE"),
+    }, {})
+
+    assert calls == [(b"VIDEOBYTES", "mp4")]  # 只有视频走 helper
+    assert contents["video/mp4"] == b"REMUXED"  # 上传的是 helper 返回的字节
+    assert contents["image/png"] == PNG1PX
+    assert contents["audio/wav"] == b"RIFFWAVE"
