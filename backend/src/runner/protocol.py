@@ -1,7 +1,7 @@
-"""GPU Runner IPC 协议 —— 主进程 <-> image/TTS runner 子进程的 wire format.
+"""GPU Runner IPC 协议 —— 主进程 <-> TTS runner 子进程的 wire format.
 
 spec §3.3。走 multiprocessing.Pipe，msgpack 编码（dev 模式 NOUS_IPC_FORMAT=json
-fallback 便于 journalctl 调试）。**仅 image/TTS runner 走此协议**；LLM runner 不
+fallback 便于 journalctl 调试）。**仅 TTS runner 走此协议**；LLM runner 不
 收 RunNode，主进程直连其 vLLM HTTP 端口（Lane E）。
 
 消息是 frozen dataclass —— 跨进程边界传不可变值，避免别名 bug。每个消息有一个
@@ -20,7 +20,7 @@ class ProtocolError(Exception):
 
 
 # ------------------------------------------------------------------
-# 主进程 -> image/TTS runner
+# 主进程 -> TTS runner
 # ------------------------------------------------------------------
 
 
@@ -41,7 +41,7 @@ class UnloadModel:
 class RunNode:
     task_id: int
     node_id: str
-    node_type: str  # 仅 "image" / "tts"
+    node_type: str  # 仅 "tts"
     model_key: str | None
     inputs: dict[str, Any]
     is_deterministic: bool = False
@@ -61,62 +61,9 @@ class Ping:
 
 
 @dataclass(frozen=True)
-class PreloadComponents:
-    """主进程 → image runner:批量预热一组 unet+clip+vae(spec §6.2)。
-    components = {"diffusion_models": <spec dict>, "clip": <spec dict>, "vae": <spec dict>}。
-    runner 走 get_or_load_image_adapter,过程中发 ComponentEvent。"""
-    task_id: int
-    components: dict[str, Any]
-    pipeline_class: str = "Flux2KleinPipeline"
-    kind: Literal["preload_components"] = "preload_components"
-
-
-@dataclass(frozen=True)
-class PreloadSeedVR2:
-    """主进程 → image runner:从引擎库预热 SeedVR2 超分(by-key,默认配置,无 tiling/blockswap)。
-    runner 走 get_or_load_seedvr2_adapter;loaded 状态经下一个 Pong 快照反映(无专门事件)。
-    统一引擎库 PR-3。"""
-    model_dir: str
-    dit_model: str
-    vae_model: str
-    kind: Literal["preload_seedvr2"] = "preload_seedvr2"
-
-
-@dataclass(frozen=True)
-class PreloadComponent:
-    """主进程 → image runner:预加载**单个**组件进 L1 池(引擎库「预加载/常驻」,组件 L1 PR-2)。
-    spec = 一个 ComponentSpec dict(kind=diffusion_models/clip/vae);resident=True 同时钉常驻。
-    runner 走 mm.preload_image_component;loaded 状态经下一个 Pong 快照反映(无专门事件)。"""
-    spec: dict[str, Any]
-    resident: bool = False
-    arch: str = "flux2"  # 单组件 build 反推 repo 用(clip/vae 的 spec 不带 adapter_arch)
-    kind: Literal["preload_component"] = "preload_component"
-
-
-@dataclass(frozen=True)
-class SetComponentResident:
-    """主进程 → image runner:切**已加载**单组件的常驻位(引擎库 toggle,组件 L1 PR-2)。
-    state_key = component_state_key(file|device|dtype|loras)。runner 走 mm.set_component_resident;
-    没加载该组件则 no-op;状态经下个 Pong 快照反映。"""
-    state_key: str
-    resident: bool
-    kind: Literal["set_component_resident"] = "set_component_resident"
-
-
-@dataclass(frozen=True)
-class UnloadComponent:
-    """主进程 → image runner:卸载**已预加载**的单组件(引擎库「出缓存」,统一模型管理收尾 PR-1)。
-    state_key = component_state_key(file|device|dtype|loras)。runner 走 mm.unload_image_component:
-    清常驻 + refs 空则出 L1 池真释放显存;refs 非空(combo 在用)→ 只清常驻待其自然释放。
-    没加载该组件则 no-op;状态经下个 Pong 快照反映。"""
-    state_key: str
-    kind: Literal["unload_component"] = "unload_component"
-
-
-@dataclass(frozen=True)
 class SetModelResident:
-    """主进程 → runner:切已加载 by-key 模型(如 SeedVR2)的常驻位(组件 L1 PR-2c)。
-    model_id = runner _models 的键(如 image:SeedVR2:<hash>)。runner 走 mm.set_model_resident;
+    """主进程 → runner:切已加载 by-key 模型的常驻位(组件 L1 PR-2c)。
+    model_id = runner _models 的键。runner 走 mm.set_model_resident;
     没加载则 no-op;状态经下个 Pong 快照反映。"""
     model_id: str
     resident: bool
@@ -124,7 +71,7 @@ class SetModelResident:
 
 
 # ------------------------------------------------------------------
-# image/TTS runner -> 主进程
+# TTS runner -> 主进程
 # ------------------------------------------------------------------
 
 
@@ -187,28 +134,10 @@ class Pong:
     # _models,主进程靠这份快照(supervisor watchdog 每 ping 一次对账)还原「已加载」
     # 视图。历史上是 list[str](仅 id);改 dict 向后兼容(decode 不校验元素类型)。
     loaded_models: list[dict] = field(default_factory=list)
-    # 已加载单组件快照(ModelManager.loaded_components_snapshot()):每条 =
-    # {state_key, role, file, device, dtype, resident, refs_count, last_used_ago_sec}。
-    # 含预加载的孤组件(不属于任何 combo)—— 引擎库标组件 loaded@卡 + resident。组件 L1 PR-3a。
-    # 默认空 list 向后兼容(老 runner 不带 → 主进程聚合得空)。
-    loaded_components: list[dict] = field(default_factory=list)
-    # 本 runner 进程的 host RAM 占用快照(MB,spec ram-pinned-linkage PR-1b):pinned =
-    # pinned_stash.total_pinned_bytes()(stash 原地注册 + 流式预 pin 外部入账);stash =
-    # RAM stash 池(组件 stash_bytes + adapter stash vram)之和。主进程 /monitor/stats 聚合
-    # 各 runner + 主进程本体,答「RAM 去哪了」(流式预 pin ~35G 历史上隐身)。默认 0 向后兼容。
-    pinned_ram_mb: int = 0
+    # 本 runner 进程的 host RAM stash 池占用快照(MB,spec ram-pinned-linkage PR-1b)。
+    # 主进程 /monitor/stats 聚合各 runner + 主进程本体。默认 0 向后兼容。
     stash_ram_mb: int = 0
     kind: Literal["pong"] = "pong"
-
-
-@dataclass(frozen=True)
-class ComponentEvent:
-    """image runner → 主进程:单个组件加载状态迁移(spec §6.1 四态)。
-    component_key = component_state_key(spec)(file|device|dtype|lora_sig)。"""
-    component_key: str
-    state: Literal["loading", "loaded", "failed", "cold"]
-    error: str | None = None
-    kind: Literal["component_event"] = "component_event"
 
 
 # kind 字面量 -> dataclass 类的路由表
@@ -218,25 +147,18 @@ _KIND_TO_CLASS: dict[str, type] = {
     "run_node": RunNode,
     "abort": Abort,
     "ping": Ping,
-    "preload_components": PreloadComponents,
-    "preload_seedvr2": PreloadSeedVR2,
-    "preload_component": PreloadComponent,
-    "set_component_resident": SetComponentResident,
-    "unload_component": UnloadComponent,
     "set_model_resident": SetModelResident,
     "ready": Ready,
     "node_result": NodeResult,
     "node_progress": NodeProgress,
     "model_event": ModelEvent,
     "pong": Pong,
-    "component_event": ComponentEvent,
 }
 
 # 类型注解仅供调用方做 isinstance / match —— 任意消息的联合类型
 Message = (
-    LoadModel | UnloadModel | RunNode | Abort | Ping | PreloadComponents | PreloadSeedVR2
-    | PreloadComponent | SetComponentResident | UnloadComponent | SetModelResident
-    | Ready | NodeResult | NodeProgress | ModelEvent | Pong | ComponentEvent
+    LoadModel | UnloadModel | RunNode | Abort | Ping | SetModelResident
+    | Ready | NodeResult | NodeProgress | ModelEvent | Pong
 )
 
 

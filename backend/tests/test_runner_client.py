@@ -70,11 +70,11 @@ async def test_load_model_returns_on_model_event():
 async def test_run_node_resolves_with_node_result():
     proc, client = await _make_client()
     try:
-        await client.load_model("fake-img-a", config={})
+        await client.load_model("fake-img-a", config={"steps": 4})  # AudioRequest 不带 steps
         progress_seen: list[float] = []
         result = await client.run_node(
             P.RunNode(
-                task_id=11, node_id="sampler", node_type="image",
+                task_id=11, node_id="sampler", node_type="tts",
                 model_key="fake-img-a", inputs={"steps": 4},
             ),
             on_progress=lambda pr: progress_seen.append(pr.progress),
@@ -99,14 +99,14 @@ async def test_progress_callback_exception_does_not_kill_demux():
             raise RuntimeError("callback blew up")
 
         r1 = await client.run_node(
-            P.RunNode(task_id=21, node_id="s", node_type="image",
+            P.RunNode(task_id=21, node_id="s", node_type="tts",
                       model_key="fake-img-a", inputs={"steps": 4}),
             on_progress=_boom,
         )
         assert r1.status == "completed"  # 回调炸了但 NodeResult 仍 resolve
         # demux 还活着:再跑一次能正常完成
         r2 = await client.run_node(
-            P.RunNode(task_id=22, node_id="s", node_type="image",
+            P.RunNode(task_id=22, node_id="s", node_type="tts",
                       model_key="fake-img-a", inputs={"steps": 2}),
             on_progress=lambda pr: None,
         )
@@ -130,11 +130,11 @@ async def test_recv_eof_marks_client_disconnected():
     """runner 子进程死掉 → pipe EOF → client 的 inflight run_node 异常结束。"""
     proc, client = await _make_client()
     try:
-        await client.load_model("fake-img-a", config={"infer_seconds": 0.2})
+        await client.load_model("fake-img-a", config={"infer_seconds": 0.2, "steps": 50})
 
         # 跑一个长节点，执行中杀掉 runner
         run_task = asyncio.create_task(client.run_node(P.RunNode(
-            task_id=12, node_id="sampler", node_type="image",
+            task_id=12, node_id="sampler", node_type="tts",
             model_key="fake-img-a", inputs={"steps": 50},
         )))
         await asyncio.sleep(0.3)

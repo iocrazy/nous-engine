@@ -41,7 +41,7 @@ async def test_start_spawns_runner_and_handshakes():
         # 能正常派活
         await sup.client.load_model("fake-img-a", config={})
         result = await sup.client.run_node(P.RunNode(
-            task_id=1, node_id="n", node_type="image",
+            task_id=1, node_id="n", node_type="tts",
             model_key="fake-img-a", inputs={"steps": 2},
         ))
         assert result.status == "completed"
@@ -116,7 +116,7 @@ async def test_node_done_triggers_live_reconcile():
         await sup.client.load_model("fake-img-a", config={})
         assert sup.loaded_models == []  # load_model 不触发 reconcile(只有 NodeResult 才)
         await sup.client.run_node(P.RunNode(
-            task_id=99, node_id="n", node_type="image",
+            task_id=99, node_id="n", node_type="tts",
             model_key="fake-img-a", inputs={"steps": 2}))
         # on_node_done → create_task(reconcile);轮询等它跑完(ping 往返很快)
         for _ in range(40):
@@ -161,7 +161,7 @@ async def test_watchdog_detects_crash_and_restarts():
         # 新 runner 能干活
         await sup.client.load_model("fake-img-a", config={})
         result = await sup.client.run_node(P.RunNode(
-            task_id=2, node_id="n", node_type="image",
+            task_id=2, node_id="n", node_type="tts",
             model_key="fake-img-a", inputs={"steps": 2},
         ))
         assert result.status == "completed"

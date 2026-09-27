@@ -1,6 +1,6 @@
 """runner 子进程内的 ModelManager 工厂（spec §4.5）。
 
-spec §4.5：每个 image/TTS runner 子进程持有**自己的** ModelManager 实例 —— 不是
+spec §4.5：每个 TTS runner 子进程持有**自己的** ModelManager 实例 —— 不是
 主进程的 app.state.model_manager（子进程根本拿不到那个对象）。本模块把「子进程内
 构造 ModelRegistry + GPUAllocator + ModelManager」收进一个工厂函数，单独可测。
 

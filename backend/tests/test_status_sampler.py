@@ -37,7 +37,7 @@ def _sup(group, running=True, n_loaded=1):
 
 
 def _app_state(models=None, runners=None):
-    # runners: list of supervisor namespaces; 默认 image+tts 各加载 1 个模型(operational)
+    # runners: list of supervisor namespaces; 默认 image+tts 各加载 1 个模型(image 组件已删,被忽略)
     sups = runners if runners is not None else [_sup("image"), _sup("tts")]
     return SimpleNamespace(
         model_manager=SimpleNamespace(_models=models or {}),
@@ -60,18 +60,6 @@ def test_worst_ranking():
 # ---------- compute_statuses ----------
 
 @pytest.mark.asyncio
-async def test_compute_all_healthy(session, monkeypatch):
-    async def snap(targets): return [{"name": m, "healthy": True} for m, _ in targets]
-    monkeypatch.setattr("src.services.vllm_metrics.snapshot_all", snap)
-    monkeypatch.setattr("src.services.gpu_monitor.get_gpu_stats", lambda: [1, 2, 3])
-    st = _app_state(models={"q": _entry(mtype="llm"), "e": _entry(port=40001, mtype="embedding")})
-    out = await ss.compute_statuses(st, session)
-    assert out == {"backend": "operational", "database": "operational", "llm": "operational",
-                   "embedding": "operational", "image": "operational", "tts": "operational",
-                   "gpu": "operational", "comfy": "operational"}
-
-
-@pytest.mark.asyncio
 async def test_compute_llm_down_when_vllm_unhealthy(session, monkeypatch):
     async def snap(targets): return [{"name": m, "healthy": False, "error": "ConnectError"} for m, _ in targets]
     monkeypatch.setattr("src.services.vllm_metrics.snapshot_all", snap)
@@ -90,23 +78,33 @@ async def test_compute_vllm_idle_when_no_instances(session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_compute_runner_idle_vs_serving_vs_down(session, monkeypatch):
+async def test_compute_all_healthy_without_image_runner(session, monkeypatch):
+    async def snap(targets): return [{"name": m, "healthy": True} for m, _ in targets]
+    monkeypatch.setattr("src.services.vllm_metrics.snapshot_all", snap)
+    monkeypatch.setattr("src.services.gpu_monitor.get_gpu_stats", lambda: [1, 2, 3])
+    st = _app_state(models={"q": _entry(mtype="llm"), "e": _entry(port=40001, mtype="embedding")})
+    out = await ss.compute_statuses(st, session)
+    assert out == {"backend": "operational", "database": "operational", "llm": "operational",
+                   "embedding": "operational", "tts": "operational",
+                   "gpu": "operational", "comfy": "operational"}
+
+
+@pytest.mark.asyncio
+async def test_compute_tts_runner_idle_when_nothing_loaded(session, monkeypatch):
     monkeypatch.setattr("src.services.gpu_monitor.get_gpu_stats", lambda: [1])
     st = _app_state(models={}, runners=[
-        _sup("image", running=True, n_loaded=2),   # 有模型 → operational
+        _sup("image", running=True, n_loaded=2),   # image 组件已删,这条被忽略
         _sup("tts", running=True, n_loaded=0),      # 进程活但没装 → idle(用户反馈点)
     ])
     out = await ss.compute_statuses(st, session)
-    assert out["image"] == "operational"
     assert out["tts"] == "idle"
 
 
 @pytest.mark.asyncio
-async def test_compute_runner_missing_is_down(session, monkeypatch):
+async def test_compute_tts_runner_missing_is_down(session, monkeypatch):
     monkeypatch.setattr("src.services.gpu_monitor.get_gpu_stats", lambda: [1])
     st = _app_state(models={}, runners=[_sup("image", n_loaded=1)])  # 缺 tts
     out = await ss.compute_statuses(st, session)
-    assert out["image"] == "operational"
     assert out["tts"] == "down"
 
 

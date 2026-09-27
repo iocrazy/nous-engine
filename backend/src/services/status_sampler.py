@@ -38,7 +38,6 @@ COMPONENTS: list[tuple[str, str]] = [
     ("database", "数据库"),
     ("llm", "LLM 推理 (vLLM)"),
     ("embedding", "向量 (vLLM)"),
-    ("image", "图像 Runner"),
     ("tts", "语音 Runner"),
     ("gpu", "GPU"),
     ("comfy", "ComfyUI 桥"),
@@ -130,7 +129,7 @@ async def compute_statuses(
         logger.warning("status: embedding check failed: %s", e)
         out["embedding"] = DOWN
 
-    # image / tts runner:三态 —— 进程死=down;进程活但没加载模型=**idle**(用户反馈:
+    # tts runner:三态 —— 进程死=down;进程活但没加载模型=**idle**(用户反馈:
     # 没装 TTS 不该显示"运行正常");进程活+有已加载 adapter=operational。runner 上报的
     # 已加载 adapter 在 supervisor.loaded_models(ping/pong 快照),主进程据此判 idle vs serving。
     runners: dict[str, dict] = {}
@@ -142,14 +141,13 @@ async def compute_statuses(
             }
         except Exception:  # noqa: BLE001
             pass
-    for key in ("image", "tts"):
-        r = runners.get(key)
-        if r is None or not r["running"]:
-            out[key] = DOWN  # runner 进程不在/死了
-        elif r["n_loaded"] > 0:
-            out[key] = OPERATIONAL
-        else:
-            out[key] = IDLE  # 进程在、随时可加载,但当前没装模型
+    r = runners.get("tts")
+    if r is None or not r["running"]:
+        out["tts"] = DOWN  # runner 进程不在/死了
+    elif r["n_loaded"] > 0:
+        out["tts"] = OPERATIONAL
+    else:
+        out["tts"] = IDLE  # 进程在、随时可加载,但当前没装模型
 
     # gpu:nvidia-smi 能列出卡。
     try:

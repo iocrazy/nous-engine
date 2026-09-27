@@ -1,0 +1,13 @@
+# runner 框架测试用:与 runner_models.yaml 同一个 fake-img-a,但 params.steps=3。
+# 图像派发删除后 runner 只收 tts,AudioRequest 不带 steps —— 不先发 LoadModel 的
+# lazy-load 用例只能经 yaml params 让 FakeAdapter 跑多步(见 fake_adapter.py 的 steps 兜底)。
+models:
+  - id: fake-img-a
+    type: image
+    adapter: src.runner.fake_adapter.FakeAdapter
+    paths:
+      main: /fake/fake-img-a
+    vram_mb: 1024
+    resident: false
+    params:
+      steps: 3

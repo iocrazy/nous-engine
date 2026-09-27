@@ -20,7 +20,7 @@ async def test_fake_runner_handshakes_and_runs_node(fake_runner):
             P.RunNode(
                 task_id=1,
                 node_id="sampler",
-                node_type="image",
+                node_type="tts",
                 model_key=runner.model_key,
                 inputs={"steps": 1},
             )
@@ -49,7 +49,7 @@ async def test_fake_runner_crash_on_node_yields_failed_result(fake_runner):
                 P.RunNode(
                     task_id=2,
                     node_id="n",
-                    node_type="image",
+                    node_type="tts",
                     model_key=runner.model_key,
                     inputs={"steps": 1},
                 )
