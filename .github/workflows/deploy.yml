@@ -1,0 +1,96 @@
+name: Deploy
+
+# 生产自动上线(2026-09-27):master 上 CI 跑绿 → 生产机本机的 self-hosted runner 跑
+# 闸门(infra/autodeploy-guard.sh)+ infra/deploy.sh + 校验生产 HEAD。取代「Mac 上 ship.sh」
+# 作为主路径(ship.sh 仍在,作手动兜底)。
+#
+# 安全(仓库是 public):
+#   - 本 workflow 只吃 workflow_run(CI 在 master 的 push 上完成)+ workflow_dispatch,
+#     **不吃 pull_request**。
+#   - 真正的硬闸在 runner 本机:job-started hook(infra/runner/job-started-guard.sh,装在仓库
+#     之外)只放行「本文件 @ refs/heads/master」+ workflow_run/workflow_dispatch。fork PR 自带的
+#     workflow 即使被误批准,在 hook 这一步就失败,一行代码都不跑。
+#   - runner 用 --no-default-labels + 专属 label nous-engine-prod,`runs-on: self-hosted` 落不到它。
+#
+# 闸门拒绝(自动上线开关关着 / ComfyUI 渲染进行中)→ job 标红并说明原因,代码已在 master,
+# 稍后 `gh workflow run deploy.yml` 或 Actions 页手动 Run workflow 重试。
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+# 串行,不取消:取消一个跑到一半的 deploy.sh 比多跑一次更危险。
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: [self-hosted, nous-engine-prod]
+    timeout-minutes: 45
+    env:
+      PROD: /media/heygo/program/projects-code/repos/nous-engine
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      # 只为拿到「正在被上线那一版」的 guard/deploy.sh(与 ship.sh 同理:不执行生产检出里
+      # 磁盘上那份旧脚本 —— 它跑到一半 reset --hard 会把自己换掉)。
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: master 已前进则跳过
+        id: stale
+        run: |
+          git -C "$PROD" fetch -q origin master
+          latest="$(git -C "$PROD" rev-parse origin/master)"
+          if [[ "$latest" != "$SHA" ]]; then
+            echo "master 已前进到 ${latest:0:12},本次 ${SHA:0:12} 跳过 —— 新提交的 CI 完成后会部署最新。"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 上线前闸门
+        if: steps.stale.outputs.skip != '1'
+        run: |
+          cd "$PROD"
+          set +e
+          out="$(bash "$GITHUB_WORKSPACE/infra/autodeploy-guard.sh" 2>&1)"; rc=$?
+          set -e
+          echo "$out"
+          if [[ $rc -ne 0 ]]; then
+            echo "::error::闸门拒绝上线:$out  —— 代码已在 master;稍后 gh workflow run deploy.yml 重试。"
+            { echo "### ⏸ 未上线"; echo; echo "$out"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: 上线(deploy.sh)
+        if: steps.stale.outputs.skip != '1'
+        run: |
+          # 与 ship.sh 相同:把本版 deploy.sh 落到生产检出 infra/ 下再执行(BASH_SOURCE 算出的
+          # REPO 才对;未跟踪文件不触发脏树守卫,reset --hard 也不碰它;跑完删)。
+          cp "$GITHUB_WORKSPACE/infra/deploy.sh" "$PROD/infra/.ship-deploy.sh"
+          chmod +x "$PROD/infra/.ship-deploy.sh"
+          cd "$PROD"
+          set +e
+          ./infra/.ship-deploy.sh; rc=$?
+          set -e
+          rm -f "$PROD/infra/.ship-deploy.sh"
+          exit $rc
+
+      - name: 校验生产 HEAD 含本次提交
+        if: steps.stale.outputs.skip != '1'
+        run: |
+          git -C "$PROD" merge-base --is-ancestor "$SHA" HEAD \
+            || { echo "::error::deploy.sh 报成功,但生产 HEAD 不含 ${SHA:0:12}"; exit 1; }
+          echo "### 🚀 已上线 ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
