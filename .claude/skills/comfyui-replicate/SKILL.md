@@ -1,9 +1,9 @@
 ---
 name: comfyui-replicate
-description: 复刻 ComfyUI 工作流到 nous-center 全流程 SOP:解析 JSON → 模型/节点能力盘点 → 缺口走 PR → API 搭画布工作流 → 真机连通性验证(含 LoRA 生效量化判据)→ 发布外部服务 → 生成模块化卸载 manifest。用户给出 ComfyUI 工作流 .json(或说「复刻这个工作流」)时使用。
+description: 复刻 ComfyUI 工作流到 nous-engine 全流程 SOP:解析 JSON → 模型/节点能力盘点 → 缺口走 PR → API 搭画布工作流 → 真机连通性验证(含 LoRA 生效量化判据)→ 发布外部服务 → 生成模块化卸载 manifest。用户给出 ComfyUI 工作流 .json(或说「复刻这个工作流」)时使用。
 ---
 
-# 复刻 ComfyUI 工作流到 nous-center
+# 复刻 ComfyUI 工作流到 nous-engine
 
 输入:ComfyUI 工作流 `.json` 路径(UI 导出格式,含 `nodes/links/groups`)。
 产出:画布工作流(可选 A/B 调试版)+ 已发布服务 + API key + **卸载 manifest**。

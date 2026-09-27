@@ -1,4 +1,4 @@
-"""OpenAI-style error classes for nous-center.
+"""OpenAI-style error classes for nous-engine.
 
 Raise these from route handlers or services; the global exception handlers in
 ``src.api.main`` serialize them into ``{"error": {"message", "type", "code",

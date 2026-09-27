@@ -800,7 +800,7 @@ function CollapsibleSystem({
             </div>
           ) : (
             <div style={{ fontSize: 11, color: 'var(--muted)', padding: 8 }}>
-              启动 nous-center-sys 以获取进程数据
+              暂无进程数据
             </div>
           )}
         </div>

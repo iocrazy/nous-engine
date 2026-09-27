@@ -178,7 +178,7 @@ def snapshot() -> dict:
 
 PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>nous-center 系统状态</title>
+<title>nous-engine 系统状态</title>
 <style>
 :root{--bg:#0f1115;--card:#171a21;--bd:#262b36;--tx:#e6e9ef;--mut:#8b93a3;
 --op:#22c55e;--dg:#f59e0b;--dn:#ef4444}
@@ -202,7 +202,7 @@ text-transform:uppercase;letter-spacing:.04em}
 .meta{display:flex;gap:18px;flex-wrap:wrap;padding:12px 16px;color:var(--mut);font-size:12px}
 .err{color:var(--dn);padding:16px}
 </style></head><body><div class="wrap">
-<h1>nous-center 系统状态</h1><div class="sub">独立监控 · 自动刷新 15s</div>
+<h1>nous-engine 系统状态</h1><div class="sub">独立监控 · 自动刷新 15s</div>
 <div id="app"><div class="sub" style="margin-top:20px">加载中…</div></div>
 </div>
 <script>

@@ -58,7 +58,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       !document.hasFocus()
     if (canSystemNotify) {
       try {
-        new Notification('nous-center', { body: message })
+        new Notification('nous-engine', { body: message })
       } catch {
         // 某些环境构造会抛 —— 静默吞，toast 已经发了。
       }

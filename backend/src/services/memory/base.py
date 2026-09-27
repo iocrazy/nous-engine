@@ -72,7 +72,7 @@ class PluginBase(ABC):
 class MemoryProvider(PluginBase):
     """ABC for long-term memory storage/retrieval.
 
-    nous-center 只存不抽取（决策 13）：mediahub 等上层 app 负责
+    nous-engine 只存不抽取（决策 13）：mediahub 等上层 app 负责
     "这段对话里什么值得记"的逻辑，然后调 add_entries 传结构化条目。
     """
 
@@ -120,7 +120,7 @@ class MemoryProvider(PluginBase):
     ) -> None:
         """Optional: post-session hook. Default no-op.
 
-        Implementations MAY extract facts here. nous-center's built-in
+        Implementations MAY extract facts here. nous-engine's built-in
         PGMemoryProvider does NOT (see 决策 2B — 只存不抽取).
         """
 

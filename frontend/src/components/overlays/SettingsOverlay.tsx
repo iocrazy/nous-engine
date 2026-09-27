@@ -238,7 +238,7 @@ function AccountPanel() {
       <KV label="部署模式" value="单管理员 · 本地单机" />
 
       <Note tone="warn">
-        nous-center 当前是单管理员模式，没有访客账户体系。外部调用走 <strong>API Key</strong>（左侧栏）。
+        nous-engine 当前是单管理员模式，没有访客账户体系。外部调用走 <strong>API Key</strong>（左侧栏）。
       </Note>
     </Card>
   )
@@ -339,7 +339,7 @@ function AboutPanel() {
           N
         </div>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Nous Center</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Nous Engine</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
             推理 infra 控制台 · v3 IA
           </div>
@@ -349,7 +349,7 @@ function AboutPanel() {
       <SubSection title="定位">
         <p style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.7, margin: 0 }}>
           单管理员的推理 infra 控制台 — 模型 / Workflow / 服务 / API Key 一站管理。Agent /
-          Skill 等上层应用由 mediahub 这类消费方实现，nous-center 只负责把"能调用的服务"
+          Skill 等上层应用由 mediahub 这类消费方实现，nous-engine 只负责把"能调用的服务"
           暴露成稳定 endpoint。
         </p>
       </SubSection>

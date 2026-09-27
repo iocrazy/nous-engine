@@ -1,7 +1,7 @@
 """Tests for src/api/response_cache.py — covers eng-review fixes #1-#10.
 
 Uses a thin FastAPI app with one cached GET so behavior is observable without
-loading the full nous-center app (which pulls torch/sqlalchemy/etc).
+loading the full nous-engine app (which pulls torch/sqlalchemy/etc).
 """
 
 from __future__ import annotations

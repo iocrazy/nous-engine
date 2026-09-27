@@ -1,6 +1,6 @@
 """ExternalCliProvider ABC + 契约模型。
 
-provider 只负责「驱动 CLI → 产出本地产物文件」,**不碰 nous-center 的存储/签名 URL**
+provider 只负责「驱动 CLI → 产出本地产物文件」,**不碰 nous-engine 的存储/签名 URL**
 (那是 inline 节点的事,保持子系统与存储层解耦)。所有 provider 共享 ExternalGenRequest /
 ExternalGenResult 契约,以便 governor 和节点对所有 provider 一视同仁。
 """

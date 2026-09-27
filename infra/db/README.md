@@ -2,7 +2,7 @@
 
 spec: `docs/superpowers/specs/2026-06-18-native-pg-systemd-stack-design.md`
 
-nous-center 的数据库从 **Docker Desktop** 迁到**原生 pg17 + systemd**。Docker Desktop
+nous-engine 的数据库从 **Docker Desktop** 迁到**原生 pg17 + systemd**。Docker Desktop
 在 Linux 上跑在 VM 内、socket 用户态、不接开机链,不适合做常驻数据层。原生 pg 经
 `postgresql.service` 天然进 systemd 依赖链(`nous-backend.service` 的 `Requires=/After=`
 已指向它)。

@@ -1,7 +1,7 @@
 name: qwen3-tts
 version: "1.2"
 description: "Qwen3-TTS 语音合成节点包 — 移植自 ComfyUI-Qwen-TTS"
-author: "flybirdxx (ComfyUI) / nous-center"
+author: "flybirdxx (ComfyUI) / nous-engine"
 
 nodes:
   qwen3_model_loader:

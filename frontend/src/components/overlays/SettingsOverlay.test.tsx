@@ -60,7 +60,7 @@ describe('SettingsOverlay sub-nav (m16 alignment)', () => {
   it('switches to 关于 sub-page', () => {
     render(withQuery(<SettingsOverlay />))
     fireEvent.click(screen.getByText('关于'))
-    expect(screen.getByText('Nous Center')).toBeTruthy()
+    expect(screen.getByText('Nous Engine')).toBeTruthy()
     expect(screen.getByText('协议兼容')).toBeTruthy()
   })
 

@@ -137,7 +137,7 @@ _status_endpoints() {
 # 从 journal 拉 backend 启动自检 banner。$1 = journalctl --since 时间戳(可空):给了就只
 # 认这个时间点之后的 banner,避免把**上一次**启动的旧 banner 当成本次重启的结果印出来。
 # 去掉 journal 行前缀(时间/host/uv[pid]:),取最后一段 banner。
-# 注意:后端自检 banner 里印的字样(NOUS-CENTER)是 backend 源码里的品牌串,归品牌
+# 注意:后端自检 banner 2026-09-27 起印 NOUS-ENGINE(旧版印 NOUS-CENTER),归品牌
 # rebrand(见 MIGRATION-nous-engine.md 可选项),本 infra 包未改。grep 同时匹配新旧两种
 # 写法,rebrand 前后都能抓到 banner。
 # 抓不到时返回 1 —— 调用方必须给一句「没抓到」的实话,而不是像旧版 `|| true` 那样静默

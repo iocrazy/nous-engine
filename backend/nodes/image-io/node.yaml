@@ -1,7 +1,7 @@
 name: image-io
 version: "1.0"
 description: "图像 I/O 节点 — 图像输入(上传)等通用图像来源/汇,喂下游 image 类型节点(调色/合并/对比/落地)"
-author: "nous-center"
+author: "nous-engine"
 
 # image_input:把上传的图(base64 data URI)落盘签 URL,产出 image 端口 →
 # 接下游 image 类型节点(调色/合并/对比/image_output 落地等)。inline 节点(主进程,CPU:

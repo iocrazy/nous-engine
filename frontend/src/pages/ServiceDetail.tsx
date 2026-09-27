@@ -650,7 +650,7 @@ export function PlaygroundTab({ svc, initialInputs }: { svc: ServiceDetailT; ini
               <textarea
                 value={asrContext}
                 onChange={(e) => setAsrContext(e.target.value)}
-                placeholder="例:本段是 nous-center 产品介绍,含人名 heygo、术语 vLLM、推理 infra…"
+                placeholder="例:本段是 nous-engine 产品介绍,含人名 heygo、术语 vLLM、推理 infra…"
                 rows={2}
                 style={{
                   resize: 'vertical', padding: '8px 10px', borderRadius: 6,

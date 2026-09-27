@@ -146,6 +146,10 @@ sudo -u heygo mv ~heygo/.claude/projects/-media-heygo-program-projects-code-repo
 
 ## 可选项:品牌 rebrand(与本 infra 包解耦,可后做)
 
+> **2026-09-27 已完成**(chore/rebrand-nous-engine):下列展示串已改为 nous-engine;「务必不动的功能串」
+> 与 `backend/pyproject.toml` 包名(会连带重生成 uv.lock)、前端 localStorage key `nous-center:workspace`
+> (改了丢工作区状态)、DB 名 `nous_center` 刻意保留。
+
 本包**只做 infra/路径/单元改名**,不动 backend/frontend 源码的品牌字样。以下是纯展示品牌,
 改动需重 build 前端 + 跑对应后端测试,单独一批走:
 

@@ -41,7 +41,7 @@ export default function Login() {
       >
         <div>
           <div className="text-lg font-medium" style={{ color: 'var(--text)' }}>
-            nous-center
+            nous-engine
           </div>
           <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
             管理员登录
