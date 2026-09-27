@@ -33,7 +33,7 @@ from src.services.skill_run import (
     parse_skill,
     text_input_fields,
 )
-from src.utils.url_security import UnsafeURLError, validate_chat_image_urls
+from src.utils.url_security import UnsafeURLError, validate_chat_media_urls
 
 router = APIRouter(prefix="/v1/skill-runs", tags=["skill-runs"])
 
@@ -92,7 +92,7 @@ async def preview(
         thinking=body.options.thinking,
     )
     try:
-        await validate_chat_image_urls(chat_body["messages"])
+        await validate_chat_media_urls(chat_body["messages"])
     except UnsafeURLError as e:
         raise InvalidRequestError(str(e), code="unsafe_image_url", param="input") from e
 
