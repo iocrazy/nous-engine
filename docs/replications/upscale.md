@@ -47,4 +47,7 @@ comfy validate --workflow /tmp/out/<name>.api.json --input object_info.json
 POST 模板(校验返回的 `output_kind`)→ PUT mapping(失败就删掉刚建的模板)→ 调
 `fix-image-outputs.sh`,把修复前建的图片模板(`nous-krea2`、`nous-qwen21-text-to-image`、
 `nous-qwen21-image-edit`)的 exposed_outputs 从 `video_url` 改成 `image_url`(按名字查 id;
-已改过的跳过;形状不认识的拒改)。可重跑。不碰 DB、不重启。卸载:`DELETE /api/v1/comfy-templates/{id}`。
+已改过的跳过;形状不认识的拒改)。可重跑,**也是改参数的唯一入口**:模板已存在时把仓库里的
+workflow / mapping 同步上去(只写有差异的部分,比较前忽略后端补的 null/false 字段),所以改了
+`*.mapping.json` 的默认值或范围后直接重跑即可,不用手动 `PUT …/mapping`。输出类型只在新建时定。
+不碰 DB、不重启。卸载:`DELETE /api/v1/comfy-templates/{id}`。

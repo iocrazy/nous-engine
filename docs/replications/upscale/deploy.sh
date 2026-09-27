@@ -3,8 +3,13 @@
 #
 #   BASE=http://127.0.0.1:8000 ADMIN_TOKEN=... ./docs/replications/upscale/deploy.sh
 #
-# 可重跑:已存在的同名模板直接跳过(不覆盖 workflow/mapping;要重建先
-# `DELETE /api/v1/comfy-templates/{id}`,级联删服务)。最后一步修旧图片模板的输出契约。
+# 可重跑,且会把仓库里的产物同步到已存在的服务(2026-09-27):
+# - 模板不存在 → 新建 + 核对 output_kind + 写 mapping(失败回滚);
+# - 模板已存在 → workflow 与仓库不同就 `PUT /{id}` 重传,mapping 与仓库不同就
+#   `PUT /{id}/mapping`;都相同则什么也不写。改了 mapping 默认值 / 参数范围后重跑本脚本即生效,
+#   不必再手动 PUT。输出类型(image/video)只在新建时定,已存在的模板不改 —— 要换类型先
+#   `DELETE /api/v1/comfy-templates/{id}`(级联删服务)再重跑。
+# 最后一步修旧图片模板的输出契约。
 set -euo pipefail
 
 BASE="${BASE:-http://127.0.0.1:8000}"
@@ -19,11 +24,37 @@ SERVICES=(
   "nous-vosr2-video-upscale|vosr2-video-upscale|video"
 )
 
+# 已存在的模板:按仓库产物同步 workflow 与 mapping(按 JSON 语义比较,只写有差异的部分)。
+sync_existing() {
+  local name="$1" artifact="$2" tid="$3" cur changed=0
+  cur="$(curl -sS --fail-with-body "${AUTH[@]}" "$BASE/api/v1/comfy-templates/$tid")"
+  if ! jq -e --slurpfile wf "$DIR/$artifact.api.json" '.workflow_json == $wf[0]' <<<"$cur" >/dev/null; then
+    jq -n --slurpfile wf "$DIR/$artifact.api.json" '{workflow: $wf[0]}' \
+      | curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid" -d @- >/dev/null
+    echo "  $name:workflow 已同步"
+    changed=1
+  fi
+  # workflow 重传后 mapping 一律重写(旧 mapping 可能指向已不存在的节点);否则只在有差异时写。
+  # 后端回读时把没写的字段补成 null/false(random、multiple、options_source…),所以比较前两边
+  # 都去掉 null/false/空值;真改动(如 required true→false)在一边留键一边没有,照样判为不同。
+  local norm='map(with_entries(select(.value != null and .value != false and .value != [] and .value != {})))'
+  if (( changed )) || ! jq -e --slurpfile m "$DIR/$artifact.mapping.json" \
+      "(.exposed_params | $norm) == (\$m[0].exposed_params | $norm)" <<<"$cur" >/dev/null; then
+    curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid/mapping" \
+      --data-binary "@$DIR/$artifact.mapping.json" >/dev/null
+    echo "  $name:mapping 已同步($(jq '.exposed_params | length' "$DIR/$artifact.mapping.json") 个参数)"
+    changed=1
+  fi
+  (( changed )) || echo "  $name:已是最新,未改动"
+  echo "synced $name → template_id=$tid"
+}
+
 existing="$(curl -sS --fail-with-body "${AUTH[@]}" "$BASE/api/v1/comfy-templates")"
 for row in "${SERVICES[@]}"; do
   IFS='|' read -r name artifact kind <<<"$row"
-  if jq -e --arg n "$name" 'any(.[]; .name == $n)' <<<"$existing" >/dev/null; then
-    echo "skip $name:模板已存在"
+  tid="$(jq -r --arg n "$name" 'first(.[] | select(.name == $n) | .id) // empty' <<<"$existing")"
+  if [[ -n "$tid" ]]; then
+    sync_existing "$name" "$artifact" "$tid"
     continue
   fi
   payload="$(jq -n --arg name "$name" --arg kind "$kind" \
