@@ -260,15 +260,16 @@ async def test_video_service_returns_video_schema(client, monkeypatch, no_thumbn
 @pytest.mark.asyncio
 async def test_vosr2_video_defaults_are_applied(client, monkeypatch, no_thumbnail):
     """只传 video:其余参数落 mapping default(frame_load_cap=150 限帧防主机 RAM OOM,
-    force_rate=0 原帧率)。"""
+    force_rate=0 原帧率)。tile_size=512 / vae_tile_size=1024 是用户 2026-09-27 定的默认:
+    不分块时 640×360 4s@24fps ×4 在 VOSR2Upscale 要 225GiB 直接 OOM,开分块实测 214s 跑通。"""
     service = "nous-vosr2-video-upscale"
     fc = _use(monkeypatch, UpscaleFakeClient(_ok_history(service)))
     await _deploy(client, service)
     r = await _predict(client, service, {"video": MP4_URI})
     assert r.json()["status"] == "succeeded", r.text
     g = fc.submitted
-    want = {"upscale": 4, "seed": 42, "color_alignment": "wavelet", "tile_size": 0,
-            "tile_overlap": 32, "vae_tile_size": 0, "vae_tile_overlap": 32}
+    want = {"upscale": 4, "seed": 42, "color_alignment": "wavelet", "tile_size": 512,
+            "tile_overlap": 32, "vae_tile_size": 1024, "vae_tile_overlap": 32}
     assert {k: g["8"]["inputs"][k] for k in want} == want
     assert g["7"]["inputs"] == {"model": "VOSR2", "dtype": "default"}
     assert g["22"]["inputs"]["upscale_method"] == "bicubic"
