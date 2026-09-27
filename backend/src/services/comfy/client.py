@@ -67,6 +67,21 @@ class ComfyClient:
     async def object_info(self) -> dict:
         return (await self._client.get("/object_info", timeout=15)).json()
 
+    async def node_info(self, class_type: str, *, timeout: float = 5.0) -> dict | None:
+        """单个节点类型的 object_info(`/object_info/{class_type}`)。
+
+        比整份 `/object_info`(几 MB)轻得多,桥剪枝只要几个下游节点的输入声明。
+        sidecar 不认识这个类型时返回 `{}` → 这里返回 None;HTTP 非 200 抛 ComfyError。
+        类名里有空格/括号(`Image Comparer (rgthree)`),按路径段整体转义。
+        """
+        r = await self._client.get(
+            f"/object_info/{urllib.parse.quote(class_type, safe='')}", timeout=timeout)
+        if r.status_code != 200:
+            raise ComfyError(f"读取节点信息失败(HTTP {r.status_code}):{class_type}")
+        data = r.json()
+        info = data.get(class_type) if isinstance(data, dict) else None
+        return info if isinstance(info, dict) else None
+
     async def styles(self, pack: str, *, timeout: float = 15.0) -> list[dict]:
         """ComfyUI-Easy-Use 的风格清单(`/easyuse/prompt/styles?name=<包>`)。
 

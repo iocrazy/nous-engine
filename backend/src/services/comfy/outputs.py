@@ -37,7 +37,8 @@ def classify_ext(filename: str) -> str:
     return KIND_BY_EXT.get(ext, "file")
 
 
-def _is_preview(class_type: str) -> bool:
+def is_preview_class(class_type: str) -> bool:
+    """预览/对比类节点(不是模板的产出端)。`collect_outputs` 与 `graph_prune` 共用。"""
     ct = class_type.lower()
     return any(h in ct for h in _PREVIEW_HINTS)
 
@@ -56,9 +57,9 @@ def collect_outputs(history: dict, graph: dict) -> list[OutputItem]:
                     subfolder=str(item.get("subfolder", "")),
                     file_type=str(item.get("type", "output")),
                     kind=classify_ext(str(item["filename"]))))
-    has_primary_image = any(c.kind == "image" and not _is_preview(c.class_type) for c in cands)
+    has_primary_image = any(c.kind == "image" and not is_preview_class(c.class_type) for c in cands)
     return [c for c in cands
-            if not (c.kind == "image" and has_primary_image and _is_preview(c.class_type))]
+            if not (c.kind == "image" and has_primary_image and is_preview_class(c.class_type))]
 
 
 # `execution_error` 的异常消息可能很长,截断后再进 task.error / prediction.error。

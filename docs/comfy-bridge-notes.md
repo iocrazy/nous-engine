@@ -31,6 +31,24 @@
   上传**(`_prevalidate_files`,免得后一个参数不合法时前一个已传成孤儿):data URI 必须 base64,
   `image`/`video`/`audio` 型要 mime 大类对得上;调用方给的非 data URI 字符串若是 URL、路径
   或 `[output]` 注解一律拒(桥不替调用方抓远程资源;注解会让 LoadImage 读 output 目录)。
+- **可选文件参数未传 → 剪掉整条支路(`omit_when_empty`,2026-09-27)**:默认行为(上一条之外)
+  是可选参数没传就 `continue`,**图里保留模板原值** —— 对 LoadImage 来说就是模板里烤死的占位图
+  照样喂进模型(qwen21 编辑的「测试图 (17).png」、krea2 `ref_image` 的 `example.png`)。
+  mapping 条目标 `omit_when_empty: true`(**只许文件类 + `required: false`**,PUT mapping 否则
+  400)后,调用方没传(None 或空串)且 mapping 无 `default` 时,桥在上传/打补丁之后、submit
+  之前调 `comfy/graph_prune.prune_graph`:删 `comfy_node_id` 指向的节点,顺连线级联 ——
+  下游输入在 object_info 里 **optional 或是 autogrow 子键(键名带 `.`,如 `images.image_3`)
+  → 只删该键**;**required → 节点也删、继续级联**;object_info 取不到 / 没声明该输入 →
+  **保守删节点**(warning,宁可少一条支路也不喂占位图)。级联删到**产出端**(`output_node`
+  且非预览/对比类;info 缺失时按 `FALLBACK_OUTPUT_CLASSES` 兜底)→ `GraphPruneError`
+  (ValueError)落 failed、不提交:那个「可选」参数其实是输出链路必需的,是 mapping 配错了。
+  object_info 走 `comfy/object_info.get_node_infos`:只取被剪节点**下游**那几种类型的
+  `/object_info/{class}`,进程内缓存(成功 10 分钟 / 失败 30 秒),**绝不抛**(取不到 = None
+  → 保守分支)。全部参数都传了就一次也不查。未标 flag 的老 mapping 行为一字不变。
+  **autogrow 跳号**(传图 1、3 不传 2):ComfyUI 只按实际连了的子键展开 autogrow
+  (`_expand_schema_for_dynamic`),`TextEncodeQwenImage21` 把收到的子键按序号排序后依次喂入,
+  所以模型看到的是「第 1、第 2 张」—— 提示词里的「图三」此时指的是第二张。桥不重排序号
+  (改了反而和调用方的参数名对不上),调用方按顺序连续传即可。
 - **无音轨视频上传前补静音轨**(2026-09-27,`comfy/video_audio.ensure_audio_track`):
   `video/*` 的 data URI 在校验完、**任何上传之前**过一遍 ffprobe;没有音轨就
   `-c:v copy` 重封装 + 一条 `anullsrc` 静音 AAC(webm 用 libopus),视频不重编码;有音轨

@@ -174,6 +174,36 @@ describe('ComfyTemplateEditor', () => {
     ])
   })
 
+  it('omit_when_empty:已保存的标志原样随保存送回(编辑器不抹掉)', async () => {
+    vi.mocked(api.getComfyTemplate).mockResolvedValue(baseDetail([
+      { key: 'ref2', label: '参考图 2', type: 'image', comfy_node_id: '1', comfy_input: 'image',
+        required: false, omit_when_empty: true },
+    ]))
+    renderEditor({ templateId: '7' })
+    await screen.findByTestId('canvas-preview-panel')
+    fireEvent.click(screen.getByRole('button', { name: /保存配置/ }))
+    await waitFor(() => expect(api.putMapping).toHaveBeenCalled())
+    const [, params] = vi.mocked(api.putMapping).mock.calls.at(-1)!
+    expect(params).toEqual([expect.objectContaining({ key: 'ref2', omit_when_empty: true, required: false })])
+  })
+
+  it('omit_when_empty:文件类字段出「未传时剪掉」勾选,勾上即同时设为非必填', async () => {
+    renderEditor({ templateId: '7' })
+    fireEvent.click(await screen.findByText('LoadImage #1'))
+    const row = (await screen.findByText('image')).closest('[data-input-row]') as HTMLElement
+    fireEvent.click(within(row).getByRole('checkbox', { name: /暴露/ }))
+    // 非文件类型时不出这个开关
+    expect(within(row).queryByRole('checkbox', { name: /未传时剪掉/ })).not.toBeInTheDocument()
+    fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'image' } })
+    fireEvent.click(within(row).getByRole('checkbox', { name: /未传时剪掉/ }))
+    fireEvent.click(screen.getByRole('button', { name: /保存配置/ }))
+    await waitFor(() => expect(api.putMapping).toHaveBeenCalled())
+    const [, params] = vi.mocked(api.putMapping).mock.calls.at(-1)!
+    expect(params).toEqual([
+      expect.objectContaining({ key: 'image', type: 'image', omit_when_empty: true, required: false }),
+    ])
+  })
+
   it('sidecar 离线 → 降级提示', async () => {
     vi.mocked(api.getComfyHealth).mockResolvedValue({
       online: false, queue_depth: 0, version: '', base_url: 'http://x', timeout_s: 30, devices: [],

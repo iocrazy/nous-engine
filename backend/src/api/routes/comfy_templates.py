@@ -130,6 +130,10 @@ class ExposedParamMapping(BaseModel):
     # 来源(lora / checkpoint 清单…)时是加一个枚举值,协议形状不用改。
     options_depends_on: str | None = None
     options_source: Literal["comfy_styles"] | None = None
+    # 可选文件参数调用方没传(且无 default)时,桥把它指向的节点连同只为它服务的下游支路
+    # 从 graph 里剪掉(comfy/graph_prune.py),而不是把模板里烤死的占位图喂进模型。
+    # 默认 False:老模板行为一字不变。
+    omit_when_empty: bool = False
     comfy_node_id: str
     comfy_input: str
 
@@ -160,6 +164,15 @@ class MappingBody(BaseModel):
                     f"exposed_param {p.key!r}: 文件类参数(type={p.type!r})不能声明 "
                     "options_depends_on/options_source —— 它的值是上传的文件,不是从"
                     "选项清单里选一项,挂上动态清单会让上传被白名单拒掉")
+            if p.omit_when_empty:
+                if str(p.type or "").lower() not in _FILE_IN_TYPES:
+                    raise ValueError(
+                        f"exposed_param {p.key!r}: omit_when_empty 只用于文件类参数"
+                        f"(当前 type={p.type!r})")
+                if p.required:
+                    raise ValueError(
+                        f"exposed_param {p.key!r}: omit_when_empty 与 required=true 矛盾"
+                        "(必填参数永远不会「未传」)")
             if dep is None:
                 continue
             if dep == p.key:
@@ -218,6 +231,9 @@ def _mapping_to_exposed_input(m: ExposedParamMapping) -> dict:
         # 读不到——Playground 数字字段永远渲不成 slider,随机种子按钮也出不来。
         "constraints": _numeric_constraints(m),
         "required": m.required,
+        # 桥节点直接读顶层(与 required 同层),不进 constraints:它不是取值约束,
+        # 是「没传时怎么改图」的渲染行为。
+        "omit_when_empty": m.omit_when_empty,
         "comfy_node_id": m.comfy_node_id,
         "comfy_input": m.comfy_input,
     }
@@ -316,6 +332,7 @@ def _exposed_input_to_param(item: dict) -> dict:
         "multiple": c.get("multiple", item.get("multiple", False)),
         "options_depends_on": c.get("options_depends_on", item.get("options_depends_on")),
         "options_source": c.get("options_source", item.get("options_source")),
+        "omit_when_empty": bool(item.get("omit_when_empty", False)),
         "comfy_node_id": item.get("comfy_node_id"),
         "comfy_input": item.get("comfy_input"),
     }

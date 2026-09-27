@@ -30,6 +30,8 @@ from src.models.execution_task import ExecutionTask
 from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
+from src.services.comfy.graph_prune import downstream_nodes, prune_graph
+from src.services.comfy.object_info import get_node_infos
 from src.services.comfy.outputs import collect_outputs, history_error
 from src.services.comfy.thumbnail import extract_first_frame
 from src.services.comfy.upload_inputs import check_plain_filename, decode_data_uri
@@ -130,6 +132,8 @@ def _prevalidate_files(exposed_params: list[dict], data: dict) -> dict[str, tupl
         value = data.get(key, m.get("default"))
         if m.get("type") not in _UPLOAD_TYPES or not isinstance(value, str):
             continue
+        if value == "" and m.get("omit_when_empty"):
+            continue  # 可省略参数传了空串 = 没传,支路会被剪掉,不当文件名校验
         if value.startswith("data:"):
             decoded[key] = decode_data_uri(key, m.get("type"), value)
         elif key in data:
@@ -151,6 +155,43 @@ async def _with_audio_tracks(
             raw = await ensure_audio_track(raw, ext)
         out[key] = (raw, ext, mime)
     return out
+
+
+def _omitted_nodes(exposed_params: list[dict], data: dict) -> dict[str, str]:
+    """标了 `omit_when_empty` 的文件类参数里,调用方没传(None / 空串)且无 default 的
+    → `{comfy_node_id: key}`,这些节点连同下游支路要从 graph 里剪掉。"""
+    out: dict[str, str] = {}
+    for m in exposed_params:
+        if not m.get("omit_when_empty") or m.get("type") not in _UPLOAD_TYPES:
+            continue
+        value = data.get(m["key"], m.get("default"))
+        if value is None or value == "":
+            out[str(m.get("comfy_node_id"))] = m["key"]
+    return out
+
+
+async def _prune_omitted(graph: dict, omitted: dict[str, str], template_id) -> dict:
+    """剪掉未传可选文件参数的整条支路(规则见 comfy/graph_prune.py)。
+
+    只取被剪节点**下游**那几种节点类型的 object_info(带 TTL 缓存);取不到的类型由
+    prune_graph 保守删节点,这里打 warning。剪到产出端 → GraphPruneError(ValueError),
+    说明 mapping 配错,任务落 failed,不提交。
+    """
+    present = {nid for nid in omitted if nid in graph}
+    if not present:
+        return graph
+    classes = {str(graph[n].get("class_type") or "") for n in downstream_nodes(graph, present)}
+    infos = await get_node_infos(sorted(classes))
+    result = prune_graph(graph, present, infos)
+    if result.unknown_classes:
+        logger.warning(
+            "comfy_bridge: template=%s 剪枝时取不到 %s 的输入声明,已保守删除这些节点",
+            template_id, sorted(result.unknown_classes))
+    logger.info(
+        "comfy_bridge: template=%s 未传 %s → 剪掉节点 %s,摘掉输入 %s",
+        template_id, sorted(omitted[n] for n in present), sorted(result.removed),
+        list(result.dropped_inputs))
+    return result.graph
 
 
 @register("comfyui_workflow")
@@ -175,6 +216,8 @@ class ComfyUIWorkflowNode:
         # 无音轨视频补静音轨:VHS_LoadVideo 的 audio 输出接了下游时,无音轨输入会让 VHS
         # 懒提取音频失败、整条渲染挂掉(见 comfy/video_audio.py)。
         decoded = await _with_audio_tracks(decoded)
+        omitted = _omitted_nodes(exposed_params, data)
+        omitted_keys = set(omitted.values())
 
         for m in exposed_params:
             key = m["key"]
@@ -202,6 +245,8 @@ class ComfyUIWorkflowNode:
             # input type instead of "no override".
             if value is None:
                 continue
+            if key in omitted_keys:
+                continue  # 空串也算没传;整条支路稍后剪掉,不往要删的节点里写值
 
             node = graph.get(node_id)
             if node is not None:
@@ -215,6 +260,11 @@ class ComfyUIWorkflowNode:
                     "但该节点不在当前 graph 中(工作流重新上传后映射未更新?),已跳过该参数",
                     template_id, key, node_id,
                 )
+
+        # 标了 omit_when_empty 且没传的文件参数:剪掉它的 LoadImage 与只为它服务的支路,
+        # 不让模板里烤死的占位图喂进模型(见 docs/comfy-bridge-notes.md)。
+        if omitted:
+            graph = await _prune_omitted(graph, omitted, template_id)
 
         # 渲染期间的取消探测(2026-09-03 事故):`/interrupt` 只在 ComfyUI 的节点边界
         # 生效,卡在某个节点内部(比如等一个连接已 CLOSE_WAIT 的 HF 下载)时救不回来,

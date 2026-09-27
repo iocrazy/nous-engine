@@ -19,6 +19,9 @@ export interface ComfyExposedParam {
   options_depends_on?: string | null
   /** 去哪儿取那份清单。目前只有 `comfy_styles`(ComfyUI-Easy-Use 风格清单)。 */
   options_source?: 'comfy_styles' | null
+  /** 文件类可选参数:调用方没传时,桥把它的 LoadImage 连同只为它服务的下游支路从图里剪掉
+   *  (而不是把模板里的占位图喂进模型)。只对文件类、非必填字段有效,后端校验。 */
+  omit_when_empty?: boolean
   comfy_node_id: string
   comfy_input: string
 }
