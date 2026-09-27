@@ -51,7 +51,7 @@
       "comfy_node_id": "8",
       "comfy_input": "tile_size",
       "required": false,
-      "default": 0,
+      "default": 512,
       "min": 0,
       "max": 4096,
       "step": 64
@@ -75,7 +75,7 @@
       "comfy_node_id": "8",
       "comfy_input": "vae_tile_size",
       "required": false,
-      "default": 0,
+      "default": 1024,
       "min": 0,
       "max": 8192,
       "step": 64
