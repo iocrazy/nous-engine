@@ -61,6 +61,30 @@ def _is_empty_input(user_input: str | list[dict[str, Any]]) -> bool:
     return len(user_input) == 0
 
 
+# 预览只放行文本与图片两类 content part;其余(video_url / audio_url / 无 type …)
+# 一律 422,不透传给上游 —— 这些类型绕过图片 URL 的 SSRF 校验。
+_ALLOWED_PART_TYPES = ("text", "image_url")
+
+
+def _validate_content_parts(parts: list[dict[str, Any]]) -> None:
+    for i, part in enumerate(parts):
+        if not isinstance(part, dict):
+            raise _bad_part(f"input[{i}] 不是对象")
+        ptype = part.get("type")
+        if ptype not in _ALLOWED_PART_TYPES:
+            raise _bad_part(f"input[{i}] 的 type={ptype!r} 不受支持(只收 text / image_url)")
+        if ptype == "text" and not isinstance(part.get("text"), str):
+            raise _bad_part(f"input[{i}] 的 text part 缺少字符串 text")
+        if ptype == "image_url":
+            image_url = part.get("image_url")
+            if not isinstance(image_url, dict) or not isinstance(image_url.get("url"), str):
+                raise _bad_part(f"input[{i}] 的 image_url 必须是含字符串 url 的对象")
+
+
+def _bad_part(message: str) -> UnprocessableError:
+    return UnprocessableError(message, code="invalid_input_part", param="input")
+
+
 def build_chat_body(
     skill: ParsedSkill,
     user_input: str | list[dict[str, Any]],
@@ -72,6 +96,8 @@ def build_chat_body(
     """Skill 指令 = system,调用方输入 = user(字符串或 OpenAI content parts,原样)。"""
     if _is_empty_input(user_input):
         raise UnprocessableError("input 为空", code="empty_input", param="input")
+    if isinstance(user_input, list):
+        _validate_content_parts(user_input)
     body: dict[str, Any] = {
         "model": "",  # vLLM 用自己的模型路径(同 /v1/chat/completions)
         "messages": [
@@ -93,13 +119,21 @@ def extract_final_text(data: dict[str, Any]) -> tuple[str, str | None]:
     except (KeyError, IndexError, TypeError) as e:
         raise BadGatewayError(
             "上游响应缺少 choices", code="skill_bad_upstream_response") from e
+    if not isinstance(choice, dict):
+        raise BadGatewayError("上游 choice 不是对象", code="skill_bad_upstream_response")
+    message = choice.get("message")
+    if message is not None and not isinstance(message, dict):
+        raise BadGatewayError("上游 message 不是对象", code="skill_bad_upstream_response")
+    content = (message or {}).get("content")
+    if content is not None and not isinstance(content, str):
+        raise BadGatewayError("上游 content 不是字符串", code="skill_bad_upstream_response")
     finish_reason = choice.get("finish_reason")
     if finish_reason == "length":
         raise BadGatewayError(
             "Skill 输出被 max_tokens 截断;调大 options.max_tokens 或关闭 thinking",
             code="skill_output_truncated",
         )
-    text = ((choice.get("message") or {}).get("content") or "").strip()
+    text = (content or "").strip()
     if not text:
         raise BadGatewayError("Skill 输出为空", code="skill_empty_output")
     return text, finish_reason

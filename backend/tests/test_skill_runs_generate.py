@@ -116,6 +116,15 @@ async def test_generate_empty_text(db_client, db_session, captured_runs):
 
 
 @pytest.mark.asyncio
+async def test_generate_text_size_cap(db_client, db_session, captured_runs):
+    await _service(db_session)
+    r = await db_client.post("/v1/skill-runs/generate", json=_req(text="x" * 100_001))
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "validation_error"
+    assert captured_runs == []
+
+
+@pytest.mark.asyncio
 async def test_generate_other_inputs_still_schema_validated(db_client, db_session, captured_runs):
     await _service(db_session)
     r = await db_client.post("/v1/skill-runs/generate", json=_req(input={"steps": "many"}))

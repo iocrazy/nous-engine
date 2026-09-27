@@ -90,6 +90,29 @@ async def test_preview_rejects_private_image_url(api_client, bearer_headers, fak
 
 
 @pytest.mark.asyncio
+async def test_preview_rejects_unsupported_content_part(api_client, bearer_headers, fake_vllm):
+    parts = [{"type": "text", "text": "看这段视频"},
+             {"type": "video_url", "video_url": {"url": "http://example.com/v.mp4"}}]
+    r = await api_client.post("/v1/skill-runs/preview", json=_req(input=parts), headers=bearer_headers)
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "invalid_input_part"
+    assert fake_vllm["bodies"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("big_input", [
+    "猫" * 100_001,                                      # 字符串超 100k 字符
+    [{"type": "text", "text": "x"}] * 33,                # 超 32 个 part
+], ids=["str_over_100k", "parts_over_32"])
+async def test_preview_input_size_caps(api_client, bearer_headers, fake_vllm, big_input):
+    r = await api_client.post("/v1/skill-runs/preview", json=_req(input=big_input),
+                              headers=bearer_headers)
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "validation_error"
+    assert fake_vllm["bodies"] == []
+
+
+@pytest.mark.asyncio
 async def test_preview_admin_session_without_bearer(api_client, fake_vllm):
     r = await api_client.post("/v1/skill-runs/preview", json=_req())
     assert r.status_code == 200, r.text
@@ -142,6 +165,7 @@ async def test_preview_unusable_output_is_502(api_client, bearer_headers, fake_v
     r = await api_client.post("/v1/skill-runs/preview", json=_req(), headers=bearer_headers)
     assert r.status_code == 502, r.text
     assert r.json()["error"]["code"] == code
+    assert len(fake_vllm["usage"]) == 1              # 上游已生成 token:502 也照记用量
 
 
 @pytest.mark.asyncio

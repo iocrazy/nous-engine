@@ -101,6 +101,24 @@ def test_build_chat_body_empty_input_is_422(empty):
     assert ei.value.code == "empty_input"
 
 
+@pytest.mark.parametrize(("parts", "hint"), [
+    ([{"type": "video_url", "video_url": {"url": "http://example.com/v.mp4"}}], "video_url"),
+    ([{"type": "audio_url", "audio_url": {"url": "http://example.com/a.wav"}}], "audio_url"),
+    ([{"image_url": "http://example.com/x.png"}], "None"),               # 缺 type
+    (["just a string"], "[0]"),                                          # 非 dict
+    ([{"type": "image_url", "image_url": "http://example.com/x.png"}], "image_url"),  # 裸字符串
+    ([{"type": "image_url", "image_url": {"url": 123}}], "image_url"),   # url 非 str
+    ([{"type": "text", "text": "ok"}, {"type": "text", "text": 42}], "[1]"),  # text 非 str
+    ([{"type": "text"}], "text"),                                        # 缺 text
+])
+def test_build_chat_body_rejects_bad_content_part(parts, hint):
+    with pytest.raises(UnprocessableError) as ei:
+        build_chat_body(_SKILL, parts, temperature=None, max_tokens=None, thinking="auto")
+    assert ei.value.code == "invalid_input_part"
+    assert ei.value.param == "input"
+    assert hint in str(ei.value)
+
+
 # ---------- extract_final_text ----------
 
 def _reply(content, finish="stop"):
@@ -123,6 +141,18 @@ def test_extract_final_text_empty_is_502(content):
     with pytest.raises(BadGatewayError) as ei:
         extract_final_text(_reply(content))
     assert ei.value.code == "skill_empty_output"
+
+
+@pytest.mark.parametrize("data", [
+    {"choices": ["x"]},                                                  # choice 非 dict
+    {"choices": [{"message": "hi", "finish_reason": "stop"}]},           # message 非 dict
+    {"choices": [{"message": {"content": [{"type": "text", "text": "a"}]},
+                  "finish_reason": "stop"}]},                            # content 非 str
+])
+def test_extract_final_text_malformed_choice_shape_is_502(data):
+    with pytest.raises(BadGatewayError) as ei:
+        extract_final_text(data)
+    assert ei.value.code == "skill_bad_upstream_response"
 
 
 def test_extract_final_text_malformed_upstream_is_502():

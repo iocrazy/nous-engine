@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, Field
@@ -51,17 +51,26 @@ class PreviewOptions(BaseModel):
     thinking: Literal["enabled", "disabled", "auto"] = "disabled"
 
 
+# 输入上限:防一个请求把超大文本/海量 part 塞给上游(超限走 400 validation_error)。
+MAX_INPUT_CHARS = 100_000
+MAX_INPUT_PARTS = 32
+
+
 class PreviewRequest(BaseModel):
     model: str
     skill: SkillSpec
-    input: str | list[dict[str, Any]]
+    # part 的 type / 字段形状由 build_chat_body 白名单校验(422 invalid_input_part)
+    input: (
+        Annotated[str, Field(max_length=MAX_INPUT_CHARS)]
+        | Annotated[list[dict[str, Any]], Field(max_length=MAX_INPUT_PARTS)]
+    )
     options: PreviewOptions = Field(default_factory=PreviewOptions)
 
 
 class GenerateRequest(BaseModel):
     service: str
     prompt_field: str
-    text: str
+    text: str = Field(..., max_length=MAX_INPUT_CHARS)
     input: dict[str, Any] = Field(default_factory=dict)
     webhook: str | None = None
     webhook_events_filter: list[str] | None = None
