@@ -13,7 +13,6 @@ stable envelope. `video_output` is the terminal sink node mirroring
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import os
 import secrets
@@ -31,8 +30,9 @@ from src.models.execution_task import ExecutionTask
 from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
-from src.services.comfy.outputs import collect_outputs
+from src.services.comfy.outputs import collect_outputs, history_error
 from src.services.comfy.thumbnail import extract_first_frame
+from src.services.comfy.upload_inputs import check_plain_filename, decode_data_uri
 from src.services.image_output_storage import write_image as _write_media_sync
 from src.services.nodes.registry import register
 
@@ -109,14 +109,6 @@ async def load_template(template_id) -> tuple[dict, list[dict]]:
         return dict(tpl.workflow_json or {}), exposed
 
 
-def _decode_data_uri(value: str) -> tuple[bytes, str, str]:
-    """`data:image/png;base64,...` → (raw bytes, ext, mime)。"""
-    header, _, b64data = value.partition(",")
-    mime = header[len("data:"):].split(";")[0] or "image/png"
-    ext = mime.rsplit("/", 1)[-1] or "png"
-    return base64.b64decode(b64data), ext, mime
-
-
 # C2/I1 fix:mapping type 词汇统一——ComfyTemplateEditor.tsx 的 TYPE_OPTIONS 现在能选
 # "image"(SchemaDrivenForm.classifyField 认的 file|image|audio|video|binary 集合之一,
 # 让 Playground 渲染文件选择器),旧代码这里只认字面量 "media" 一种,导致编辑器选出来的
@@ -147,10 +139,16 @@ class ComfyUIWorkflowNode:
             node_id = str(m.get("comfy_node_id"))
             input_name = m.get("comfy_input")
 
-            if m.get("type") in _UPLOAD_TYPES and isinstance(value, str) and value.startswith("data:"):
-                raw, ext, mime = _decode_data_uri(value)
-                filename = f"{secrets.token_hex(8)}.{ext}"
-                value = await client.upload_image(filename, raw, mime)
+            if m.get("type") in _UPLOAD_TYPES and isinstance(value, str):
+                if value.startswith("data:"):
+                    raw, ext, mime = decode_data_uri(key, m.get("type"), value)
+                    filename = f"{secrets.token_hex(8)}.{ext}"
+                    value = await client.upload_image(filename, raw, mime)
+                elif key in data:
+                    # 调用方给的非 data URI 值:只放行 sidecar 上已有的裸文件名,URL / 路径 /
+                    # `[output]` 注解一律拒(见 comfy/upload_inputs.py)。mapping 的 default 是
+                    # 管理员写的,不在此列。
+                    value = check_plain_filename(key, value)
 
             if m.get("random") and (value is None or value == ""):
                 value = secrets.randbelow(2 ** 32)
@@ -210,6 +208,13 @@ class ComfyUIWorkflowNode:
                 _running_task_id = None
                 _running_since = None
 
+        # history 出现 ≠ 渲染成功:节点抛异常时 status_str=="error",outputs 可能空也可能是
+        # 半截产物。把 ComfyUI 的错误原文带出去落 failed,别包装成成功(也别只剩一句含糊的
+        # 「未产出任何产物」)。
+        failure = history_error(history)
+        if failure is not None:
+            raise ComfyError(failure)
+
         outputs = collect_outputs(history, graph)
         items: list[dict] = []
         video_url: str | None = None
@@ -246,7 +251,28 @@ class ComfyUIWorkflowNode:
             # (除非 DB 已经是 cancelled,那种情况上面的 except 分支会 honor 取消)。
             raise ComfyError("ComfyUI 未产出任何产物(可能被中断)")
 
-        return {"items": items, "video_url": video_url, "thumbnails": thumbnails, "seed": seed}
+        return _envelope(items, video_url, thumbnails, seed)
+
+
+def _envelope(items: list[dict], video_url: str | None, thumbnails: list[str], seed) -> dict:
+    """桥节点的返回信封 —— 按**实际产物**区分图片/视频,一份实现服务所有模板。
+
+    - 有视频产物 → 视频形:`video_url` = 第一个视频(与历来一致,老视频模板零变化)。
+    - 没有视频、有图片 → 图片形:多一个 `image_url` = 第一张主图(`collect_outputs`
+      已在有主图时滤掉预览/对比图)。`video_url` 键保留为 None —— 形状向后兼容,
+      但绝不拿图片地址冒充视频地址。
+
+    `image_url` **只在图片形里出现**:`execution_task_serialize._detect_image_meta` 按
+    这个键是否存在判任务类型,视频结果里带个 `image_url: None` 就会被误标成 image 任务。
+    发布契约(`exposed_outputs`)按模板的输出类型指向 `video_url` 或 `image_url`,
+    见 `comfy_templates._bridge_exposed_outputs`。
+    """
+    env: dict = {"items": items, "video_url": video_url, "thumbnails": thumbnails, "seed": seed}
+    if video_url is None:
+        image_url = next((i["url"] for i in items if i.get("kind") == "image"), None)
+        if image_url is not None:
+            env["image_url"] = image_url
+    return env
 
 
 @register("video_output")
@@ -254,4 +280,11 @@ class VideoOutputNode:
     """Terminal sink — 原样透传上游产物(image_output 的 video 对应版)。"""
 
     async def invoke(self, data: dict, inputs: dict) -> dict:
-        return inputs.get("outputs") or inputs
+        outs = inputs.get("outputs")
+        if isinstance(outs, dict) and outs:
+            return outs
+        # 桥快照的边 sourceHandle="outputs" 不是桥信封里的键 → 执行器走 spread 兜底,把
+        # 信封各键平铺进 inputs;信封里有 `image_url` 时执行器还会顺手把它按 targetHandle
+        # 落一份,即 inputs["outputs"] = 图片 URL 字符串(workflow_executor._get_inputs 的
+        # 图像多路输入逻辑)。那个字符串不是信封,摘掉,返回平铺的信封本身。
+        return {k: v for k, v in inputs.items() if k != "outputs"}

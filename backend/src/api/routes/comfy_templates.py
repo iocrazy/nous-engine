@@ -63,6 +63,37 @@ def _bridge_snapshot(template_id: int) -> dict:
 # 文件类输入 = 上传文件,不是从清单里选(见 _numeric_constraints / service_schema)。
 _FILE_IN_TYPES = {"image", "file", "audio", "video", "binary", "media"}
 
+OutputKind = Literal["image", "video"]
+# 靠输出节点的 class_type 判模板产出图片还是视频。只列「落盘的产物节点」:PreviewImage /
+# 对比器之类不算(桥的 collect_outputs 在有主图时也会滤掉它们)。都不认识 → 视频,
+# 即本修复之前所有模板的默认,老模板行为不变。
+_VIDEO_OUTPUT_CLASSES = frozenset({"VHS_VideoCombine", "SaveVideo", "SaveWEBM"})
+_IMAGE_OUTPUT_CLASSES = frozenset({"SaveImage", "Image Save", "SaveImageWebsocket"})
+
+
+def _infer_output_kind(workflow: dict[str, Any]) -> OutputKind:
+    classes = {str((n or {}).get("class_type") or "") for n in workflow.values()
+               if isinstance(n, dict)}
+    if classes & _VIDEO_OUTPUT_CLASSES:
+        return "video"
+    if classes & _IMAGE_OUTPUT_CLASSES:
+        return "image"
+    return "video"
+
+
+def _bridge_exposed_outputs(kind: OutputKind) -> list[dict]:
+    """发布契约的输出声明,按模板产物类型指向桥信封里的 `video_url` 或 `image_url`。
+
+    `node_id="out"` 是桥快照的终端 `video_output` 节点(原样透传桥节点信封,见
+    comfy_bridge.py 的 `_envelope`);SchemaDrivenOutput.pluck() 按 (node_id, input_name)
+    取值,`/v1/services/{name}/schema` 的 output_schema 也由它生成。
+    """
+    if kind == "image":
+        return [{"key": "image_url", "node_id": "out", "input_name": "image_url",
+                 "type": "image", "label": "图片"}]
+    return [{"key": "video_url", "node_id": "out", "input_name": "video_url",
+             "type": "video", "label": "视频"}]
+
 
 # ---------- Pydantic shapes ----------
 
@@ -70,6 +101,8 @@ _FILE_IN_TYPES = {"image", "file", "audio", "video", "binary", "media"}
 class CreateTemplateBody(BaseModel):
     name: str
     workflow: dict[str, Any]
+    # 模板产出图片还是视频;不给就按 workflow 的输出节点推断(_infer_output_kind)。
+    output_kind: OutputKind | None = None
 
     @field_validator("name")
     @classmethod
@@ -318,6 +351,7 @@ async def create_template(
     if existing_svc is not None:
         raise HTTPException(409, detail=f"service name '{body.name}' already exists")
 
+    output_kind = body.output_kind or _infer_output_kind(body.workflow)
     tpl = ComfyTemplate(name=body.name, workflow_json=body.workflow)
     session.add(tpl)
     await session.flush()
@@ -334,15 +368,10 @@ async def create_template(
         exposed_inputs=[],
         # I1 fix:不种 exposed_outputs,`/v1/services/{name}/schema` 的 output_schema
         # 就是空 {}——SchemaDrivenOutput 在 Playground 里没有任何 declared output 可渲染,
-        # 只能整坨 dump 原始 JSON,video player 出不来。桥快照(_bridge_snapshot)固定的
-        # 终端节点是 id="out" 的 video_output,它把桥节点输出原样透传(见 comfy_bridge.py
-        # VideoOutputNode),桥节点的返回形状固定是 {items,video_url,thumbnails,seed}——
-        # 这里种的 node_id/input_name 必须精确对上那个形状,SchemaDrivenOutput.pluck()
-        # 才能按 (node_id, input_name) 取到 video_url。
-        exposed_outputs=[{
-            "key": "video_url", "node_id": "out", "input_name": "video_url",
-            "type": "video", "label": "视频",
-        }],
+        # 只能整坨 dump 原始 JSON。桥快照(_bridge_snapshot)固定的终端节点是 id="out"
+        # 的 video_output,它把桥节点信封原样透传(见 comfy_bridge.py `_envelope`)。
+        # 图片模板曾经也被写死成 video_url(永远是 null)—— 现在按模板产物类型声明。
+        exposed_outputs=_bridge_exposed_outputs(output_kind),
     )
     session.add(svc)
     # round4-style TOCTOU guard (see services.py quick_provision): the precheck
@@ -361,6 +390,7 @@ async def create_template(
         "name": tpl.name,
         "service_name": svc.name,
         "node_count": len(body.workflow),
+        "output_kind": output_kind,
     }
 
 
