@@ -44,6 +44,19 @@ def test_ensure_vllm_base_url_is_gone():
     assert not hasattr(ve, "ensure_vllm_base_url")
 
 
+# spec 2026-09-26 skill-runs:preview 走共用的 chat_invoke,同样对放置只读。
+SKILL_RUNS_DATA_PLANE = ("src.api.chat_invoke", "src.api.routes.skill_runs")
+
+
+def test_skill_runs_path_has_no_load_capability():
+    import importlib
+    for name in SKILL_RUNS_DATA_PLANE:
+        src = inspect.getsource(importlib.import_module(name))
+        for bad in ("ensure_vllm_base_url", ".load_model(", ".get_loaded_adapter(", "get_or_load"):
+            assert bad not in src, f"{name} 引用 {bad} —— 数据面不得改变放置"
+    assert "get_vllm_base_url" in inspect.getsource(importlib.import_module("src.api.chat_invoke"))
+
+
 def _hash(t: str) -> str:
     return bcrypt.hashpw(t.encode(), bcrypt.gensalt()).decode()
 
