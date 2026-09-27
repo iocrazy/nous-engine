@@ -178,8 +178,11 @@ def test_route_wired_and_run_deleted():
     pred = (_SRC / "api/routes/predictions.py").read_text()
     assert '"/services/{name}/predictions"' in pred
     assert '"/predictions/{prediction_id}"' in pred
-    assert "apply_inputs_to_snapshot(" in pred
-    assert "validate_service_input(" in pred  # 接进 PR-1 校验
+    # 提交核心 2026-09-26 搬到 src/api/prediction_submit.py(与 /v1/skill-runs/generate 共用)。
+    assert "submit_prediction(" in pred
+    submit = (_SRC / "api/prediction_submit.py").read_text()
+    assert "apply_inputs_to_snapshot(" in submit
+    assert "validate_service_input(" in submit  # 接进 PR-1 校验
     # 旧 /run 已删(clean cut);legacy rip 进一步删掉整个 instance_service.py(/synthesize)。
     assert not (_SRC / "api/routes/instance_service.py").exists()
     # router 注册

@@ -21,60 +21,23 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps_auth import enforce_instance_rate_limit, verify_bearer_token_any
+from src.api.deps_auth import verify_bearer_token_any
+from src.api.prediction_submit import parse_prefer, submit_prediction
+from src.api.service_access import (
+    auth_bearer_or_admin_session as _auth_predictions,
+    resolve_service_for_call as _resolve_service,
+)
 from src.models.database import get_async_session
 from src.models.execution_task import ExecutionTask
 from src.models.instance_api_key import InstanceApiKey
 from src.models.service_instance import ServiceInstance
-from src.services.model_resolver import ModelNotFound, resolve_target_service
-from src.services.prediction_service import (
-    apply_inputs_to_snapshot,
-    snapshot_to_executor_form,
-    task_to_prediction,
-)
-from src.services.comfy.style_options import resolve_dynamic_enums
-from src.services.service_schema import build_service_io_schema, validate_service_input
+from src.services.prediction_service import task_to_prediction
+
+_parse_prefer = parse_prefer  # 旧 import 路径兼容(tests/test_prediction_service_pr2.py)
 
 # /v1/* = 对外 bearer-authed 端点(AdminSessionGate 只拦 /api/*,这里用各自的 bearer 校验)。
 # 放 /api/v1 会被 admin cookie 门拦死 bearer 客户端(真机 smoke 逮到)。
 router = APIRouter(prefix="/v1", tags=["predictions"])
-
-
-async def _auth_predictions(
-    request: Request,
-    authorization: str | None = Header(default=None),
-    session: AsyncSession = Depends(get_async_session),
-) -> tuple[ServiceInstance | None, InstanceApiKey | None]:
-    """Bearer-token auth,带 admin-session 旁路(Task 10:Playground 异步运行态)。
-
-    镜像 `apps.py::_auth_apps_run`:外部 Bearer 客户端走完整 key 校验(优先);Playground
-    对 `comfy_template` 服务走 respond-async 提交/轮询/取消时用的是 admin session cookie,
-    不是 Bearer key —— 原先三端点的 `Authorization: Header(...)` 是必填,FastAPI 会在
-    header 校验阶段就以「Field required」拒绝,同 apps.py 改前的坑。返回 `(None, None)`
-    让下游(`_resolve_service` / get_prediction / cancel_prediction)按 admin 路径跳过
-    grant/限流/IDOR owner 校验(单管理员部署里 admin 隐式对所有 prediction 有权限)。
-
-    I5 fix:`Authorization` header 存在但不是任何已注册 `InstanceApiKey`(典型场景——
-    CLI `ADMIN_TOKEN` bearer,它根本不是 M:N key)时,`verify_bearer_token_any` 会抛
-    401。旧代码在这里直接把异常甩出去,`ADMIN_TOKEN` 永远够不到 predictions 端点。
-    现在 bearer 校验失败就退回 `request_is_authed`(它自己会看 `Authorization` header
-    里的 `ADMIN_TOKEN` bearer,见 admin_session.py::admin_token_matches),校验通过
-    仍走 `(None, None)` admin 旁路——IDOR 语义不变。
-    """
-    from src.api.admin_session import request_is_authed  # noqa: PLC0415
-    if authorization:
-        try:
-            return await verify_bearer_token_any(authorization, session)
-        except HTTPException:
-            if request_is_authed(request):
-                return None, None
-            raise
-    if request_is_authed(request):
-        return None, None
-    raise HTTPException(401, detail="Missing API key or admin session")
-
-# 同步默认上限(秒):无 Prefer 时阻塞,但封顶避免无限挂(长任务用 respond-async)。
-_SYNC_CAP_SECONDS = 600.0
 
 
 class PredictionRequest(BaseModel):
@@ -83,55 +46,6 @@ class PredictionRequest(BaseModel):
     # webhook_events_filter=["start","completed",...] 过滤,省略=全发。
     webhook: str | None = None
     webhook_events_filter: list[str] | None = None
-
-
-def _parse_prefer(prefer: str | None) -> tuple[bool, float | None]:
-    """Prefer 头 → (async_mode, wait_seconds)。respond-async → 异步;wait=N → 阻塞 N 秒;否则同步。"""
-    p = (prefer or "").lower().replace(" ", "")
-    if "respond-async" in p:
-        return True, None
-    if "wait=" in p:
-        try:
-            return False, float(p.split("wait=", 1)[1].split(",")[0])
-        except (ValueError, IndexError):
-            return False, None
-    return False, None
-
-
-async def _resolve_service(
-    session, auth, name: str,
-) -> tuple[ServiceInstance, InstanceApiKey | None]:
-    """bearer key(或 admin session)→ 目标服务(URL 的 {name}),校验 active + 加载 deferred 列。
-
-    admin 路径(`api_key is None`,Task 10 旁路)跳过 grant/限流 —— 与 `apps.py`
-    的 `admin_run` 分支一致:单管理员部署里 admin 隐式对所有服务有权限。
-    """
-    instance, api_key = auth
-    if api_key is None:  # admin session 旁路:直接按 name 查活跃服务,不涉及任何 key
-        stmt = select(ServiceInstance).where(ServiceInstance.name == name)
-        instance = (await session.execute(stmt)).scalar_one_or_none()
-        if instance is None:
-            raise HTTPException(404, detail="service not found")
-        if instance.status != "active":
-            raise HTTPException(403, detail="service is inactive")
-    elif instance is None:  # M:N key:按 URL name 解析授权 + 限流(verify 没做)
-        try:
-            instance = await resolve_target_service(session, api_key=api_key, requested_model=name)
-        except ModelNotFound as e:
-            raise HTTPException(404, detail=str(e)) from e
-        if instance.name != name:
-            raise HTTPException(403, detail="API key not authorized for this service")
-        if instance.status != "active":
-            raise HTTPException(403, detail="service is inactive")
-        await enforce_instance_rate_limit(instance)
-    else:  # legacy 1:1 key:verify_bearer_token_any 已解析 + 限流过,只补 name 校验
-        if instance.name != name:
-            raise HTTPException(403, detail="API key not authorized for this service")
-        if instance.status != "active":
-            raise HTTPException(403, detail="service is inactive")
-    await session.refresh(
-        instance, attribute_names=["workflow_snapshot", "exposed_inputs", "exposed_outputs"])
-    return instance, api_key
 
 
 @router.get("/services/{name}/schema")
@@ -189,81 +103,13 @@ async def create_prediction(
     node_id 注入,天然兼容,不需要专门分支。
     """
     instance, api_key = await _resolve_service(session, auth, name)
-    if instance.source_type == "model":
-        raise HTTPException(400, detail="model(LLM)服务请用 /v1/chat/completions")
-    if instance.source_type not in ("workflow", "comfy_template"):
-        raise HTTPException(400, detail=f"source_type {instance.source_type!r} 暂不支持 predictions")
-
-    snapshot = instance.workflow_snapshot or {}
-    if not (snapshot.get("nodes")):
-        raise HTTPException(400, detail="service workflow has no nodes")
-
-    # 类型校验(PR-1):按 per-service input schema 校验请求 input。
-    inputs = body.input or {}
-    schema = build_service_io_schema(
-        instance.exposed_inputs, instance.exposed_outputs, snapshot)
-    # 选项依赖(x-options-source):某些字段的合法值域取决于**另一个入参的当前值**
-    # (krea2:`styles` 的清单随 `style_pack` 变),运行期去 sidecar 取(带 10 分钟
-    # 进程内缓存)。在这里**预取**再传给同步的 validate_service_input —— 校验函数本身
-    # 保持无 I/O、可单测(理由详见 style_options.resolve_dynamic_enums)。没有字段声明
-    # 依赖时这是一次纯字典遍历,不产生任何网络往返。
-    dynamic_enums = await resolve_dynamic_enums(schema["input_schema"], inputs)
-    errors = validate_service_input(
-        schema["input_schema"], inputs, dynamic_enums=dynamic_enums)
-    if errors:
-        raise HTTPException(422, detail={"message": "input validation failed", "errors": errors})
-
-    # 注入 inputs 到快照副本(PR-2 补:旧 /run 丢弃 inputs)→ 再转 executor 吃的编辑形
-    # (发布存 api-shape dict-of-nodes,executor 要 list,旧 /run 没转直接崩,无消费者没暴露)。
-    patched = apply_inputs_to_snapshot(snapshot, instance.exposed_inputs, inputs)
-    patched = snapshot_to_executor_form(patched)
-
-    task = ExecutionTask(
-        workflow_id=instance.source_id,
-        # 归属:by-id 端点据此校验 owner(IDOR 防护)。admin session 旁路(Task 10)无
-        # key 可归属 —— NULL,与 apps.py 的 admin_run 一致(admin 隐式对所有 prediction 有权限,
-        # get/cancel_prediction 对 api_key is None 的调用方跳过 owner 校验)。
-        api_key_id=api_key.id if api_key is not None else None,
-        workflow_name=instance.name,
-        status="queued",
-        nodes_total=len(patched.get("nodes") or []),
-        input_json=inputs,
-        webhook_url=body.webhook,
-        webhook_events=body.webhook_events_filter,
+    result = await submit_prediction(
+        session, app_state=request.app.state, instance=instance, api_key=api_key,
+        inputs=body.input or {}, prefer=prefer,
+        webhook=body.webhook, webhook_events_filter=body.webhook_events_filter,
     )
-    session.add(task)
-    await session.commit()
-    await session.refresh(task)
-
-    if api_key is not None:
-        # 用量计数(原子自增)。完整配额消费收敛到 PR-5。admin 路径无 key 可计,跳过
-        # (镜像 apps.py::execute_service 的 admin_run 分支:admin 不耗配额)。
-        await session.execute(
-            update(InstanceApiKey).where(InstanceApiKey.id == api_key.id)
-            .values(usage_calls=InstanceApiKey.usage_calls + 1))
-        await session.commit()
-
-    from src.services.workflow_runner import run_workflow_task  # noqa: PLC0415
-    runner_client = getattr(request.app.state, "runner_client", None)
-    runner_clients = getattr(request.app.state, "runner_clients", None)
-    exec_coro = run_workflow_task(
-        task.id, patched, runner_client=runner_client,
-        runner_clients=runner_clients, channel_id=str(instance.id))
-    exec_task = asyncio.create_task(exec_coro)
-
-    async_mode, wait_seconds = _parse_prefer(prefer)
-    if async_mode:
-        response.status_code = 202
-    else:
-        # 同步 / wait=N:shield 防超时取消执行;超时则返当前态(任务后台继续)。
-        timeout = wait_seconds if wait_seconds is not None else _SYNC_CAP_SECONDS
-        try:
-            await asyncio.wait_for(asyncio.shield(exec_task), timeout=timeout)
-        except asyncio.TimeoutError:
-            pass
-        await session.refresh(task)
-
-    return task_to_prediction(task, service=instance.name, input_values=inputs)
+    response.status_code = result.status_code
+    return result.prediction
 
 
 @router.get("/predictions/{prediction_id}")
