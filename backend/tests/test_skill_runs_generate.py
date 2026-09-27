@@ -167,3 +167,39 @@ async def test_generate_bearer_key_needs_grant(db_client, db_session, captured_r
     denied = await db_client.post("/v1/skill-runs/generate",
                                   json=_req(service="not-granted"), headers=headers)
     assert denied.status_code == 404, denied.text
+
+
+@pytest.mark.asyncio
+async def test_generate_instance_bound_key_without_grant_is_404(db_client, db_session, captured_runs):
+    """legacy 1:1 绑定已删:instance_id 有值但没有 grant 的 key 不获得任何访问。"""
+    svc = await _service(db_session)
+    raw = "sk-legacy12345678"
+    db_session.add(InstanceApiKey(instance_id=svc.id, label="legacy", is_active=True,
+                                  key_prefix=raw[:10],
+                                  key_hash=bcrypt.hashpw(raw.encode(), bcrypt.gensalt()).decode()))
+    await db_session.commit()
+    r = await db_client.post("/v1/skill-runs/generate", json=_req(),
+                             headers={"Authorization": f"Bearer {raw}"})
+    assert r.status_code == 404, r.text
+    assert captured_runs == []
+
+
+@pytest.mark.asyncio
+async def test_generate_passes_webhook_through(db_client, db_session, captured_runs):
+    await _service(db_session)
+    r = await db_client.post("/v1/skill-runs/generate", json=_req(
+        webhook="https://hooks.example.com/done", webhook_events_filter=["completed"]))
+    assert r.status_code == 200, r.text
+    task = await db_session.get(ExecutionTask, int(r.json()["id"]))
+    assert task.webhook_url == "https://hooks.example.com/done"
+    assert task.webhook_events == ["completed"]
+
+
+@pytest.mark.asyncio
+async def test_generate_error_bodies_use_envelope(db_client, db_session, captured_runs):
+    await _service(db_session, name="some-llm", source_type="model")
+    r400 = await db_client.post("/v1/skill-runs/generate", json=_req(service="some-llm"))
+    r404 = await db_client.post("/v1/skill-runs/generate", json=_req(service="nope"))
+    for r, status in ((r400, 400), (r404, 404)):
+        assert r.status_code == status, r.text
+        assert "message" in r.json()["error"]

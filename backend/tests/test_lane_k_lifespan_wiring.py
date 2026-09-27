@@ -191,4 +191,4 @@ async def test_routes_read_runner_clients_by_group(monkeypatch, tmp_path):
     assert "runner_clients" in src1, \
         "execute_workflow_direct should read app.state.runner_clients (dict) post-Lane K"
     assert "runner_clients" in src2, \
-        "create_prediction should read app.state.runner_clients (dict) post-Lane K"
+        "prediction_submit.submit_prediction should read app.state.runner_clients (dict) post-Lane K"

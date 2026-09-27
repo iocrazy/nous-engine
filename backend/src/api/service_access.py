@@ -28,7 +28,7 @@ async def auth_bearer_or_admin_session(
     对 `comfy_template` 服务走 respond-async 提交/轮询/取消时用的是 admin session cookie,
     不是 Bearer key —— 原先三端点的 `Authorization: Header(...)` 是必填,FastAPI 会在
     header 校验阶段就以「Field required」拒绝,同 apps.py 改前的坑。返回 `(None, None)`
-    让下游(`_resolve_service` / get_prediction / cancel_prediction)按 admin 路径跳过
+    让下游(`resolve_service_for_call` / get_prediction / cancel_prediction)按 admin 路径跳过
     grant/限流/IDOR owner 校验(单管理员部署里 admin 隐式对所有 prediction 有权限)。
 
     I5 fix:`Authorization` header 存在但不是任何已注册 `InstanceApiKey`(典型场景——
@@ -58,30 +58,27 @@ async def resolve_service_for_call(
 
     admin 路径(`api_key is None`,Task 10 旁路)跳过 grant/限流 —— 与 `apps.py`
     的 `admin_run` 分支一致:单管理员部署里 admin 隐式对所有服务有权限。
+    其余一律按 M:N grant 解析:legacy 1:1 绑定 key 已随 legacy rip 删除,
+    `verify_bearer_token_any` 恒返回 `(None, key)`(`InstanceApiKey.instance_id` 仅为
+    schema 稳定保留,不再授予任何访问)。
     """
-    instance, api_key = auth
+    _, api_key = auth
     if api_key is None:  # admin session 旁路:直接按 name 查活跃服务,不涉及任何 key
         stmt = select(ServiceInstance).where(ServiceInstance.name == name)
         instance = (await session.execute(stmt)).scalar_one_or_none()
         if instance is None:
             raise HTTPException(404, detail="service not found")
-        if instance.status != "active":
-            raise HTTPException(403, detail="service is inactive")
-    elif instance is None:  # M:N key:按 URL name 解析授权 + 限流(verify 没做)
+    else:  # M:N key:按 URL name 解析授权 + 限流(verify 没做)
         try:
             instance = await resolve_target_service(session, api_key=api_key, requested_model=name)
         except ModelNotFound as e:
             raise HTTPException(404, detail=str(e)) from e
         if instance.name != name:
             raise HTTPException(403, detail="API key not authorized for this service")
-        if instance.status != "active":
-            raise HTTPException(403, detail="service is inactive")
+    if instance.status != "active":
+        raise HTTPException(403, detail="service is inactive")
+    if api_key is not None:
         await enforce_instance_rate_limit(instance)
-    else:  # legacy 1:1 key:verify_bearer_token_any 已解析 + 限流过,只补 name 校验
-        if instance.name != name:
-            raise HTTPException(403, detail="API key not authorized for this service")
-        if instance.status != "active":
-            raise HTTPException(403, detail="service is inactive")
     await session.refresh(
         instance, attribute_names=["workflow_snapshot", "exposed_inputs", "exposed_outputs"])
     return instance, api_key

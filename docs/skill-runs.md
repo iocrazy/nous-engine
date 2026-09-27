@@ -66,6 +66,7 @@
 | (默认) | 404 | 服务不存在,或 M:N key 对该服务没有 grant |
 | (默认) | 403 | 服务未激活(inactive) |
 | (默认) | 402 | 该 key 的配额已耗尽 |
+| (默认) | 429 | 该服务的限流(RPM/TPM)已满,稍后重试 |
 | `model_not_ready` | 503 | Chat 模型未加载(引擎不会在请求路径上加载;见 `GET /v1/models`) |
 | `not_a_chat_model` | 400 | preview 的 `model` 不是 Chat 模型服务 |
 | `unsafe_image_url` | 400 | `image_url` 指向私网/回环/非 https |
