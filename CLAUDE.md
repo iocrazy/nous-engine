@@ -1,7 +1,8 @@
 # nous-engine — Claude / AI agent notes
 
 Single-admin inference infra (推理算力层). Repo/product renamed **nous-center →
-nous-engine** (裸 `nous-` 前缀让给上层平台;systemd 单元全套 `nous-engine-*`,CLI
+nous-engine** (裸 `nous-` 前缀在**仓库/单元命名**上让给上层平台;对外**服务名**反而强制
+`nous-` 开头,见「API endpoint vs UI route」下的服务名规则;systemd 单元全套 `nous-engine-*`,CLI
 `enginectl`). Production deploy = `backend serve frontend/dist` on `:8000`, reachable **only
 on this host / LAN / Tailscale (tailnet 名 `heygo-ubuntu`;地址见 `infra/network.env`)** — the Cloudflare tunnel (`api.iocrazy.com`,
 `nous-engine-cloudflared`) was **retired 2026-09-06 by the user's decision**: 不要再给
@@ -17,6 +18,11 @@ nous-engine 加任何对外暴露的入口(隧道/反代/端口映射),上层平
 
 The UI route `/api-keys` is the React Router path users see; the backend endpoint is
 `/api/v1/keys` with no `api-` prefix. Calling `/api/v1/api-keys` returns 404.
+
+**服务名(= 对外 model 路由键)必须以 `nous-` 开头**(2026-09-27 用户决定,让调用方精确定位本引擎的模型;
+真改名、不兼容旧名)。唯一实现:后端 `services/workflow_snapshot.py` 的 `NAME_RE`、前端
+`api/services.ts` 的 `NAME_RE`(两处逐字一致),只校验写路径(新建/发布/导入/改名)。服务名不写死在代码里,
+但 ComfyUI Prompt-Assistant 配置与工作流里烤了模型名,改名要同步那边。
 
 ## Operational
 
