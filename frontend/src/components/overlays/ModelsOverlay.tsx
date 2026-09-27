@@ -966,11 +966,6 @@ function ModelCard({
           {TYPE_LABELS[model.type]?.split(' ')[0] ?? model.type}
         </Tag>
         {model.model_size && <Tag icon="📦">{model.model_size}</Tag>}
-        {/* image engines: surface LoRA count so operator can verify the
-         scanner is finding their files without leaving the page. */}
-        {model.type === 'image' && model.lora_count !== null && (
-          <Tag color="var(--info)">{model.lora_count} LoRA</Tag>
-        )}
         {model.frameworks?.map((f) => (
           <Tag key={f} icon="⚙">{f}</Tag>
         ))}

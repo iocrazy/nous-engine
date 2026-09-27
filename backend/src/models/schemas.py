@@ -119,12 +119,6 @@ class EngineInfo(BaseModel):
     # 注意 `in_use`(正在推理)是第三种「暂时走不了」的状态,与 resident / held_by 并列
     # ——它不落在本字段里,由 unload 的 409 `engine_in_use` 表达(2026-09-05 复审)。
     held_by: list[str] = []
-    # Image adapters expose how many LoRA weights they recognize for the
-    # active load. Surfaced in /api/v1/engines so the frontend EngineCard
-    # can show "12 LoRA" without an extra round-trip to /api/v1/loras.
-    # None for non-image engines and for image engines that haven't
-    # exposed lora_paths yet.
-    lora_count: int | None = None
     # 单文件组件(kind=component/lora)的 L1 cache 身份串(file|device|dtype|loras)。已加载组件
     # 才有(来自 loaded_components 快照),供前端常驻 toggle 按它精确匹配(避 device='auto' 错配)。
     # 组件 L1 PR-3a。非组件 / 未加载 → None。

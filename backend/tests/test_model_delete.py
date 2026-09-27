@@ -378,6 +378,30 @@ def test_delete_models_d_yaml_rejects_key_with_path_separator(tmp_path):
     assert victim.exists()
 
 
+# ── 缓存失效 ──────────────────────────────────────────────────────────────
+
+
+def test_invalidate_all_caches_hits_scanners_and_response_cache(monkeypatch):
+    """删完必须把 3 层缓存全清,否则引擎库 30s 内还显示已删的模型。"""
+    called = []
+
+    import src.api.response_cache as rc
+    import src.services.model_metadata_service as mms
+    import src.services.model_scanner as ms
+
+    monkeypatch.setattr(ms, "invalidate_scan_cache", lambda: called.append("scan"))
+    monkeypatch.setattr(
+        mms, "invalidate_local_scan_cache", lambda: called.append("local_scan")
+    )
+    monkeypatch.setattr(rc, "invalidate", lambda prefix: called.append(f"rc:{prefix}"))
+
+    from src.services.model_deleter import invalidate_all_caches
+
+    invalidate_all_caches()
+
+    assert set(called) == {"scan", "local_scan", "rc:engines"}
+
+
 # ── 注册表清理:DB 行 ──────────────────────────────────────────────────────
 
 
