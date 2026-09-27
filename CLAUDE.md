@@ -26,12 +26,20 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
 
 ## Operational
 
-- **合并 + 上线一条命令**(2026-09-09):在 Mac 上 `./infra/ship.sh <PR号>` —— 等 CI 全绿 →
-  squash 合并 → ssh 到生产机跑闸门(`infra/autodeploy-guard.sh`:开关关着 / ComfyUI 渲染
-  进行中 → **只合并不上线**,exit 5)→ `deploy.sh` → 校验生产 HEAD 含本次 merge commit。
-  被闸门拒过之后 `./infra/ship.sh --deploy-only` 重试;`enginectl autodeploy off|on` 是开关。
-  仓库是 public,**不挂 self-hosted runner、不轮询**:扳机就是合并本身,Mac 经 Tailscale
-  ssh 过去。不经 ship 的合并(网页/dependabot)不会自动上线,下次 ship 一并带上。
+- **自动上线(2026-09-27 起主路径)**:PR 合进 master → CI(`ci.yml`)在 master 上跑绿 →
+  `.github/workflows/deploy.yml` 在**生产机本机的 self-hosted runner**(label `nous-engine-prod`,
+  服务 `actions.runner.iocrazy-nous-engine.*`,目录 `/media/heygo/program/datahub/nous/data/runner-engine`)
+  上跑闸门 `infra/autodeploy-guard.sh`(开关关着 / ComfyUI 渲染进行中 → job 标红、不上线)→
+  `deploy.sh` → 校验生产 HEAD 含该提交。被闸门拒过之后 `gh workflow run deploy.yml` 重试;
+  `enginectl autodeploy off|on` 是开关。仓库是 **public**:安全靠两道闸 —— GitHub fork PR 审批
+  `all_external_contributors`(软)+ runner 本机 job-started hook `infra/runner/job-started-guard.sh`
+  (硬,装在仓库之外,只放行 `deploy.yml@refs/heads/master` + `workflow_run`/`workflow_dispatch`)。
+  **绝不给本仓库加任何 `runs-on: [self-hosted, …]` 且吃 `pull_request` 的 workflow**;要加别的
+  self-hosted workflow,先把它写进 runner `.env` 的 `RUNNER_GUARD_ALLOWED_WORKFLOWS`,否则 hook 会拒。
+  重启用的 sudo 只放行一条命令(`/etc/sudoers.d/nous-engine-deploy`)。装机/重装:
+  `infra/runner/install-prod-runner.sh`。
+- **手动兜底**:Mac 上 `./infra/ship.sh <PR号>`(经 Tailscale ssh 到生产机跑同一套闸门 + deploy.sh),
+  或生产机上直接 `./infra/deploy.sh`。
 - **Python 3.13.14**(`.python-version`,2026-09-09 起;CI/生产/开发机统一)。生产 `.venv` 只装
   `--extra inference`(出图走 ComfyUI 桥,仓库已无 diffusers 依赖)。
   **uv 的 venv 目录绝不能 `mv` 改名**:`bin/*` 入口脚本是绝对路径 shebang,改名后 `bin/uvicorn`
