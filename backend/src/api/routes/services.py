@@ -526,8 +526,9 @@ async def autostart_preview(
 ):
     """开机启动确认框的数据源:开了之后开机会加载哪些模型。
 
-    只列 registry engine —— 图像类服务引用的是组件文件(dtype/device/lora 才定 combo),
-    开机不预加载它们,所以也不在这里承诺。清单可能为空(那就是「开了也不会加载什么」)。
+    只列 registry engine —— 工作流动态组装出的 combo adapter(靠请求期参数才定出 hash id,
+    不对应固定 model_id)开机不预加载,所以也不在这里承诺(此前的例子是图像类服务,自建
+    图像引擎删除后暂无这类服务,排除逻辑原样保留)。清单可能为空(那就是「开了也不会加载什么」)。
     """
     svc = await _load_svc_with_snapshot(session, service_id)
     return AutostartPreviewOut(

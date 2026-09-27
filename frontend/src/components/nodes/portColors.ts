@@ -16,8 +16,9 @@ export const PORT_TYPE_COLORS: Record<string, string> = {
   VAE: 'rgba(239,68,68,0.85)', // red
   CONDITIONING: 'rgba(251,146,60,0.9)', // orange
   LATENT: 'rgba(168,85,247,0.85)', // purple
-  // 留噪 latent 接力(PR-B2):VAE Decode(output_mode=latent)→ KSampler init_latent。区别于
-  // LATENT(采样计划描述符)—— LATENT_REF 是落盘的真 latent 张量引用,用更亮的靛蓝区分。
+  // 留噪 latent 接力(PR-B2):曾用于 flux2-components 细粒度图节点间传落盘的真 latent 张量
+  // 引用,区别于 LATENT(采样计划描述符)。产出/消费它的节点已随自建图像引擎删除,映射原样
+  // 保留(不影响功能,只影响旧快照渲染配色),用更亮的靛蓝区分。
   LATENT_REF: 'rgba(129,140,248,0.9)', // indigo
   // LCS 采样期干预描述符(锐化/保色,接 KSampler interventions 端口):琥珀色。
   intervene: 'rgba(245,158,11,0.9)', // amber
