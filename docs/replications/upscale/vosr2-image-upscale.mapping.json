@@ -1,0 +1,110 @@
+{
+  "exposed_params": [
+    {
+      "key": "image",
+      "label": "输入图片(data URI)",
+      "type": "image",
+      "comfy_node_id": "3",
+      "comfy_input": "image",
+      "required": true
+    },
+    {
+      "key": "upscale",
+      "label": "放大倍数",
+      "type": "int",
+      "comfy_node_id": "1",
+      "comfy_input": "upscale",
+      "required": false,
+      "default": 4,
+      "min": 1,
+      "max": 8
+    },
+    {
+      "key": "seed",
+      "label": "随机种子",
+      "type": "int",
+      "comfy_node_id": "1",
+      "comfy_input": "seed",
+      "required": false,
+      "default": 42,
+      "min": 0,
+      "max": 9007199254740991
+    },
+    {
+      "key": "color_alignment",
+      "label": "颜色对齐",
+      "type": "string",
+      "comfy_node_id": "1",
+      "comfy_input": "color_alignment",
+      "required": false,
+      "default": "wavelet",
+      "options": [
+        "wavelet",
+        "adain",
+        "none"
+      ]
+    },
+    {
+      "key": "tile_size",
+      "label": "DiT 分块尺寸(0=不分块)",
+      "type": "int",
+      "comfy_node_id": "1",
+      "comfy_input": "tile_size",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 4096,
+      "step": 64
+    },
+    {
+      "key": "tile_overlap",
+      "label": "DiT 分块重叠",
+      "type": "int",
+      "comfy_node_id": "1",
+      "comfy_input": "tile_overlap",
+      "required": false,
+      "default": 32,
+      "min": 0,
+      "max": 512,
+      "step": 8
+    },
+    {
+      "key": "vae_tile_size",
+      "label": "VAE 分块尺寸(0=不分块)",
+      "type": "int",
+      "comfy_node_id": "1",
+      "comfy_input": "vae_tile_size",
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 8192,
+      "step": 64
+    },
+    {
+      "key": "vae_tile_overlap",
+      "label": "VAE 分块重叠",
+      "type": "int",
+      "comfy_node_id": "1",
+      "comfy_input": "vae_tile_overlap",
+      "required": false,
+      "default": 32,
+      "min": 0,
+      "max": 512,
+      "step": 8
+    },
+    {
+      "key": "dtype",
+      "label": "计算精度",
+      "type": "string",
+      "comfy_node_id": "2",
+      "comfy_input": "dtype",
+      "required": false,
+      "default": "default",
+      "options": [
+        "default",
+        "fp16",
+        "bf16"
+      ]
+    }
+  ]
+}
