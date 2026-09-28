@@ -252,6 +252,19 @@ def substitute_model_dir(argv: list[str], model_dir: str) -> list[str]:
     return [tok.replace(MODEL_DIR_PLACEHOLDER, model_dir) for tok in argv]
 
 
+#: 同上,展开成仓库里的 `backend/configs` 绝对路径 —— 给「模型自带文件不能用、要用仓库里维护的
+#: 那份」的参数用(Qwen3-VL-Reranker 的 score 模板,见 configs/chat_templates/)。
+CONFIGS_DIR_PLACEHOLDER = "{configs_dir}"
+
+
+def substitute_configs_dir(argv: list[str]) -> list[str]:
+    """把 argv 里的 `{configs_dir}` 换成仓库 backend/configs 的绝对路径。没有占位符则原样返回。"""
+    if not any(CONFIGS_DIR_PLACEHOLDER in tok for tok in argv):
+        return argv
+    from src.config import CONFIGS_DIR  # noqa: PLC0415
+    return [tok.replace(CONFIGS_DIR_PLACEHOLDER, str(CONFIGS_DIR)) for tok in argv]
+
+
 def merge_vllm_args(cmd: list[str], extra: list[str], *, label: str = "vLLM") -> list[str]:
     """把 vllm_args 渲染出的 `extra` 并进适配器拼好的 `cmd`。
 
@@ -629,7 +642,9 @@ class VLLMAdapter(InferenceAdapter):
         # 落卡不受影响 —— --model/--port/--device 在 __init__ 的 render 阶段就被拒了。
         # `{model_dir}` 在这里才展开:构造期还不知道 model_path 最终解析成哪个绝对路径。
         cmd = merge_vllm_args(
-            cmd, substitute_model_dir(self._vllm_extra_argv, model_path), label="vLLM",
+            cmd,
+            substitute_configs_dir(substitute_model_dir(self._vllm_extra_argv, model_path)),
+            label="vLLM",
         )
 
         # Set cache directories to persistent storage (avoid re-compilation)

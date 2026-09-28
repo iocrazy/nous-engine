@@ -2,7 +2,8 @@
 
 Cohere/Jina 兼容形(= vLLM 原生 /v1/rerank):
     {"model": <rerank 服务名>, "query": <str | {"content": [...]}>,
-     "documents": [<str | {"content": [...]}>, ...], "top_n"?: int, "return_documents"?: bool}
+     "documents": [<str | {"content": [...]}>, ...], "top_n"?: int, "return_documents"?: bool,
+     "instruction"?: str, "chat_template_kwargs"?: {"instruction": str}}
 → {"id", "model", "usage", "results": [{"index", "relevance_score", "document"?}, ...]}(按分数降序)。
 
 `content` 只收 text / image_url 两类 part(与 skill-runs preview 同一白名单 + 尺寸上限),
@@ -14,7 +15,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.chat_invoke import (
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/v1", tags=["rerank"])
 RERANK_CATEGORY = "rerank"
 MAX_DOCUMENTS = 256
 MAX_CONTENT_PARTS = 32
+MAX_INSTRUCTION_CHARS = 4096
 
 Text = Annotated[str, Field(min_length=1, max_length=MAX_TEXT_PART_CHARS)]
 
@@ -50,6 +52,35 @@ class RerankRequest(BaseModel):
     documents: list[RerankInput] = Field(..., min_length=1, max_length=MAX_DOCUMENTS)
     top_n: int | None = Field(default=None, gt=0)
     return_documents: bool | None = None
+    # 任务指令,经 score 模板的 `instruction` 变量进 <Instruct>(vLLM 同名字段的两种写法都收)。
+    # chat_template_kwargs 只放行 instruction —— 其余键会直接喂进 jinja 渲染,没有用途就不开口子。
+    instruction: str | None = Field(default=None, min_length=1, max_length=MAX_INSTRUCTION_CHARS)
+    chat_template_kwargs: dict[str, str] | None = None
+
+    @model_validator(mode="after")
+    def _fold_instruction(self) -> RerankRequest:
+        kwargs = self.chat_template_kwargs
+        if kwargs is not None:
+            extra = set(kwargs) - {"instruction"}
+            if extra:
+                raise ValueError(f"chat_template_kwargs 只支持 instruction,不支持 {sorted(extra)}")
+            inner = kwargs.get("instruction")
+            if inner is not None:
+                if not 0 < len(inner) <= MAX_INSTRUCTION_CHARS:
+                    raise ValueError(f"instruction 长度须在 1..{MAX_INSTRUCTION_CHARS}")
+                if self.instruction is not None and self.instruction != inner:
+                    raise ValueError("instruction 与 chat_template_kwargs.instruction 不一致")
+                self.instruction = inner
+        self.chat_template_kwargs = None
+        return self
+
+    def upstream_body(self) -> dict[str, Any]:
+        """转发给 vLLM 的 body:instruction 统一放进 chat_template_kwargs,model 置空。"""
+        body = self.model_dump(mode="json", exclude_none=True, exclude={"instruction"})
+        if self.instruction is not None:
+            body["chat_template_kwargs"] = {"instruction": self.instruction}
+        body["model"] = ""  # vLLM 用自己的 served 模型(同 chat / embeddings)
+        return body
 
 
 def _content_items(body: RerankRequest) -> list[ContentInput]:
@@ -86,12 +117,8 @@ async def rerank(
         session, model_mgr=model_mgr, instance=instance, api_key=api_key,
         requested_model=body.model,
     )
-    upstream = {
-        **body.model_dump(mode="json", exclude_none=True),
-        "model": "",  # vLLM 用自己的 served 模型(同 chat / embeddings)
-    }
     result = await invoke_chat_nonstream(
-        model_mgr=model_mgr, endpoint=endpoint, body=upstream,
+        model_mgr=model_mgr, endpoint=endpoint, body=body.upstream_body(),
         instance=instance, api_key=api_key, path="/v1/rerank",
     )
     if result.data is None:  # 上游非 200:原样透出(同 chat)

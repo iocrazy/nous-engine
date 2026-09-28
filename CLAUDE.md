@@ -284,8 +284,14 @@ The UI route `/api-keys` is the React Router path users see; the backend endpoin
   `not_a_rerank_model`)。content part 白名单与 skill-runs preview 共用 `skill_run.validate_content_parts`。
 - Qwen3-VL-Reranker 在 vLLM 0.28 靠 `vllm_runner: pooling` + `hf-overrides`
   (`Qwen3VLForSequenceClassification` / `classifier_from_token: [no, yes]` /
-  `is_original_qwen3_reranker`)+ `chat-template {model_dir}/additional_chat_templates/reranker.jinja`
+  `is_original_qwen3_reranker`)+ `chat-template {configs_dir}/chat_templates/qwen3_vl_reranker.jinja`
   起,**三样缺一不可**(缺模板分数无意义、缺 overrides 按生成模型起 /v1/rerank 404)。
+  ⚠️ 模板**必须是仓库里那份**(vLLM 上游 examples 副本),**不是**模型自带的
+  `additional_chat_templates/reranker.jinja`:后者不读 `instruction`、score 路径下不输出
+  `<|im_start|>assistant`,返回 200 但分数被压缩且指令无效(2026-09-27 nous-app 557 对实测踩到,
+  `tests/test_rerank_template.py` 锁住)。`{configs_dir}` 是 vllm_args 的第二个占位符(同 `{model_dir}`)。
+- 网关的 `instruction` / `chat_template_kwargs.instruction` 统一折成 `chat_template_kwargs:
+  {"instruction": ...}` 转给 vLLM;`chat_template_kwargs` 只放行这一个键(其余会进 jinja 渲染)。
 - 2B 与 8B 分数尺度不同(8B 整体偏低),调用方别拿一个阈值套两档。
 - 改这两份 yaml 或升 vLLM 后跑 `uv run python tests/manual/verify_rerank.py`(真模型,非 CI)。
 
