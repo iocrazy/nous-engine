@@ -89,6 +89,32 @@ async def test_rerank_forwards_to_vllm_rerank(api_client, bearer_headers, fake_v
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [
+    {"instruction": "判断画面是否符合描述"},
+    {"chat_template_kwargs": {"instruction": "判断画面是否符合描述"}},
+])
+async def test_rerank_forwards_instruction(api_client, bearer_headers, fake_vllm, rr_service, extra):
+    """instruction / chat_template_kwargs.instruction 必须到达 vLLM(此前被 pydantic 静默丢弃)。"""
+    r = await api_client.post("/v1/rerank", json=_req(**extra), headers=bearer_headers)
+    assert r.status_code == 200, r.text
+    sent = fake_vllm["calls"][0][1]
+    assert sent["chat_template_kwargs"] == {"instruction": "判断画面是否符合描述"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [
+    {"chat_template_kwargs": {"tools": "x"}},                     # 只放行 instruction
+    {"instruction": ""},
+    {"instruction": "x" * 4097},
+    {"instruction": "a", "chat_template_kwargs": {"instruction": "b"}},   # 两处给了不同值
+])
+async def test_rerank_rejects_bad_instruction(api_client, bearer_headers, fake_vllm, rr_service, extra):
+    r = await api_client.post("/v1/rerank", json=_req(**extra), headers=bearer_headers)
+    assert r.status_code in (400, 422), r.text
+    assert fake_vllm["calls"] == []
+
+
+@pytest.mark.asyncio
 async def test_rerank_multimodal_documents_pass_through(api_client, bearer_headers, fake_vllm, rr_service):
     img = {"content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}]}
     r = await api_client.post("/v1/rerank", headers=bearer_headers,

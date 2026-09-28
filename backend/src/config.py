@@ -87,7 +87,8 @@ def _resolve_path(relative: str) -> Path:
 
 # 路径收口(spec 2026-06-19):MODELS_ROOT/REPOS_ROOT 下的相对子根。
 # fail-soft —— 文件缺失/坏时退回内置默认(与 model_roots.yaml 同值),绝不让缺配置崩启动。
-MODEL_ROOTS_YAML_PATH = _BACKEND_DIR / "configs" / "model_roots.yaml"
+CONFIGS_DIR = _BACKEND_DIR / "configs"
+MODEL_ROOTS_YAML_PATH = CONFIGS_DIR / "model_roots.yaml"
 _MODEL_ROOTS_DEFAULT = {
     "models": {"local": "nous", "outputs": "nous/outputs"},
     "repos": {"cosyvoice": "CosyVoice", "indextts": "index-tts"},

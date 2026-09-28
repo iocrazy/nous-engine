@@ -28,5 +28,11 @@ params:
       architectures: ["Qwen3VLForSequenceClassification"]
       classifier_from_token: ["no", "yes"]
       is_original_qwen3_reranker: true
-    chat-template: "{model_dir}/additional_chat_templates/reranker.jinja"
+    # score 模板用仓库里的副本(= vLLM 上游 examples/pooling/score/template/qwen3_vl_reranker.jinja,
+    # 取自 commit 70c00163f「Add instruction support for score/rerank chat templates」)。
+    # **别换回模型自带的 additional_chat_templates/reranker.jinja**(2026-09-27 nous-app 557 对实测):
+    # 它只从 system 消息取指令、不读 vLLM 传入的 `instruction` 变量(请求带 instruction 被静默忽略),
+    # 且 `<|im_start|>assistant` 只在 add_generation_prompt 时才加、而 vLLM score 路径不传它 →
+    # yes/no logit 取错位置,分数整体被压缩。tests/test_rerank_template.py 锁住。
+    chat-template: "{configs_dir}/chat_templates/qwen3_vl_reranker.jinja"
     limit-mm-per-prompt: {"image": 1, "video": 0}

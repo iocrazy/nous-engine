@@ -16,6 +16,7 @@ from src.services.inference.llm_vllm import (
     merge_vllm_args,
     normalize_vllm_flag,
     render_vllm_args,
+    substitute_configs_dir,
     substitute_model_dir,
 )
 
@@ -345,6 +346,16 @@ def test_substitute_model_dir_leaves_other_tokens_alone():
     """零回归:没写占位符的 argv 一个字节都不变(含 JSON 串里的花括号)。"""
     argv = ["--speculative-config", '{"method":"mtp"}', "--enforce-eager"]
     assert substitute_model_dir(argv, "/models/x") == argv
+
+
+def test_substitute_configs_dir_points_at_repo_configs():
+    """`{configs_dir}` = 仓库里的 backend/configs(放仓库自带的 chat 模板,如 Qwen3-VL-Reranker)。"""
+    argv = ["--chat-template", "{configs_dir}/chat_templates/qwen3_vl_reranker.jinja"]
+    assert substitute_configs_dir(argv) == [
+        "--chat-template", str(CONFIGS / "chat_templates" / "qwen3_vl_reranker.jinja"),
+    ]
+    plain = ["--speculative-config", '{"method":"mtp"}']
+    assert substitute_configs_dir(plain) == plain
 
 
 async def test_launch_argv_expands_model_dir_placeholder(tmp_path):
