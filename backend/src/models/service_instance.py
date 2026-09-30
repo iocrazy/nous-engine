@@ -52,6 +52,10 @@ class ServiceInstance(Base):
     autostart = Column(
         Boolean, nullable=False, default=False, server_default=sa_text("false"),
     )
+    # 服务发现元数据 {operation, display_name, lora_slots}(可空 = 不进公开目录)。
+    # 调用方据此在不认服务名的前提下区分文生图/图像编辑/图片放大;校验与公开视图的唯一
+    # 实现在 src/services/service_discovery.py。随 comfy 模板的 `PUT /{id}/mapping` 写入。
+    discovery = Column(JSON(none_as_null=True), nullable=True)
 
     # ---- v3 publish contract --------------------------------------
     # FK to the source workflow (auto-generated trivial workflow for

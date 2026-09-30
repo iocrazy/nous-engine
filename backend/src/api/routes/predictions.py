@@ -60,6 +60,7 @@ async def get_service_schema(
     """
     from sqlalchemy.orm import undefer  # noqa: PLC0415
 
+    from src.services.service_discovery import discovery_view  # noqa: PLC0415
     from src.services.service_schema import build_service_io_schema  # noqa: PLC0415
     stmt = (
         select(ServiceInstance)
@@ -81,6 +82,10 @@ async def get_service_schema(
         "source_type": svc.source_type,
         "input_schema": schema["input_schema"],
         "output_schema": schema["output_schema"],
+        # 服务发现元数据(operation / display_name / LoRA 槽 / 媒体输入 / Skill 可写字段),
+        # 没声明的服务为 null。见 src/services/service_discovery.py。
+        "discovery": discovery_view(
+            svc.discovery, svc.exposed_inputs, schema["input_schema"]),
     }
 
 

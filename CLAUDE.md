@@ -330,6 +330,11 @@ respond-async`。
 style-image 代理为什么只收文件路径(2026-09-03 审查)等一整套不变式,每一条都是
 真机踩出来的,凭直觉重写必然重蹈。
 
+**服务发现**:comfy 模板 mapping 顶层可带 `discovery = {operation, display_name, lora_slots}`
+(存 `service_instances.discovery`),公开给 `GET /v1/services` 目录与 schema 的 `discovery` 块,
+让调用方不认服务名也能分文生图/图像编辑/图片放大。省略 = 保留已存值,显式 null = 清除。
+契约与第一阶段四个原子服务见 [`docs/service-discovery.md`](docs/service-discovery.md)。
+
 ## Memory
 
 User's persistent memory lives in `~/.claude/projects/.../memory/MEMORY.md`. Index

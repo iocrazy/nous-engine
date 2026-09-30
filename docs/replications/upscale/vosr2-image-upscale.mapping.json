@@ -1,4 +1,9 @@
 {
+  "discovery": {
+    "operation": "image_upscale",
+    "display_name": "VOSR2",
+    "lora_slots": 0
+  },
   "exposed_params": [
     {
       "key": "image",
