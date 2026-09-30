@@ -36,6 +36,7 @@ from src.models.service_instance import ServiceInstance
 from src.models.workflow import Workflow
 from src.services.model_capabilities import capabilities_for_service
 from src.services.service_autostart import preload_model_infos
+from src.services.service_discovery import check_discovery, flatten_stored_input
 from src.services.service_models import extract_service_models
 from src.services.workflow_snapshot import (
     _IMAGE_NODE_TYPES,
@@ -481,7 +482,16 @@ async def patch_service(
             body.exposed_outputs,
         )
         if body.exposed_inputs is not None:
-            svc.exposed_inputs = [p.model_dump(exclude_none=True) for p in body.exposed_inputs]
+            new_inputs = [p.model_dump(exclude_none=True) for p in body.exposed_inputs]
+            if svc.discovery:
+                # 已声明服务发现的服务:新 exposed_inputs 必须仍与 discovery 自洽
+                # (同 comfy_templates.update_mapping 的「省略 discovery」分支)。
+                try:
+                    check_discovery(svc.discovery, [flatten_stored_input(i) for i in new_inputs])
+                except ValueError as e:
+                    raise HTTPException(
+                        400, detail=f"新 exposed_inputs 与该服务的 discovery 不一致:{e}") from e
+            svc.exposed_inputs = new_inputs
         if body.exposed_outputs is not None:
             svc.exposed_outputs = [p.model_dump(exclude_none=True) for p in body.exposed_outputs]
     try:

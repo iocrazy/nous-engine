@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +33,7 @@ from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
 from src.services.comfy.upload_inputs import UPLOAD_TYPES
+from src.services.service_discovery import MAX_LORA_SLOTS, Operation, check_discovery
 from src.services.workflow_snapshot import NAME_RE, NAME_RULE_MSG
 
 router = APIRouter(prefix="/api/v1/comfy-templates", tags=["comfy-templates"])
@@ -139,8 +140,27 @@ class ExposedParamMapping(BaseModel):
     comfy_input: str
 
 
+class ServiceDiscovery(BaseModel):
+    """服务发现元数据(见 src/services/service_discovery.py)。"""
+
+    operation: Operation
+    display_name: str = Field(max_length=64)
+    lora_slots: int = Field(default=0, ge=0, le=MAX_LORA_SLOTS)
+
+    @field_validator("display_name")
+    @classmethod
+    def _check_display_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("discovery.display_name 不能为空")
+        return v
+
+
 class MappingBody(BaseModel):
     exposed_params: list[ExposedParamMapping]
+    # 省略 = 保留服务已存的 discovery(管理后台编辑器只发 exposed_params);
+    # 显式 null = 清除(该服务退出公开目录)。见 update_mapping。
+    discovery: ServiceDiscovery | None = None
 
     @model_validator(mode="after")
     def _check_options_depends_on(self) -> MappingBody:
@@ -193,6 +213,9 @@ class MappingBody(BaseModel):
                 raise ValueError(
                     f"exposed_param {p.key!r}: 声明了 options_depends_on 就必须同时给 "
                     "options_source(否则运行期不知道去哪儿取清单)")
+        if self.discovery is not None:
+            check_discovery(
+                self.discovery.model_dump(), [p.model_dump() for p in self.exposed_params])
         return self
 
 
@@ -453,6 +476,7 @@ async def get_template(
         "service_name": svc.name,
         "workflow_json": tpl.workflow_json,
         "exposed_params": [_exposed_input_to_param(i) for i in (svc.exposed_inputs or [])],
+        "discovery": svc.discovery,
     }
 
 
@@ -463,6 +487,17 @@ async def update_mapping(
     session: AsyncSession = Depends(get_async_session),
 ):
     _tpl, svc = await _get_template_and_service(session, template_id)
+    if "discovery" in body.model_fields_set:
+        svc.discovery = body.discovery.model_dump() if body.discovery is not None else None
+    elif svc.discovery:
+        # 没带 discovery:保留已存的,但它得和新 mapping 仍然自洽(比如删了 LoRA 槽
+        # 却还声明 lora_slots=8,公开目录就在撒谎)。
+        try:
+            check_discovery(svc.discovery, [p.model_dump() for p in body.exposed_params])
+        except ValueError as e:
+            raise HTTPException(
+                400, detail=f"已存的 discovery 与新 mapping 不一致:{e}"
+                "(把 discovery 一起提交,或显式传 null 清除)") from e
     svc.exposed_inputs = [_mapping_to_exposed_input(m) for m in body.exposed_params]
     await session.commit()
     invalidate("services")

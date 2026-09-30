@@ -38,16 +38,28 @@ sync_existing() {
   # 后端回读时把没写的字段补成 null/false(random、multiple、options_source…),所以比较前两边
   # 都去掉 null/false/空值;真改动(如 required true→false)在一边留键一边没有,照样判为不同。
   local norm='map(with_entries(select(.value != null and .value != false and .value != [] and .value != {})))'
+  # discovery(服务发现元数据)一并比较;视频放大的 mapping 没有它,两边都是 null。
   if (( changed )) || ! jq -e --slurpfile m "$DIR/$artifact.mapping.json" \
-      "(.exposed_params | $norm) == (\$m[0].exposed_params | $norm)" <<<"$cur" >/dev/null; then
+      "(.exposed_params | $norm) == (\$m[0].exposed_params | $norm) and .discovery == \$m[0].discovery" \
+      <<<"$cur" >/dev/null; then
     curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid/mapping" \
       --data-binary "@$DIR/$artifact.mapping.json" >/dev/null
     echo "  $name:mapping 已同步($(jq '.exposed_params | length' "$DIR/$artifact.mapping.json") 个参数)"
     changed=1
   fi
   (( changed )) || echo "  $name:已是最新,未改动"
+  discovery_landed "$artifact" "$tid" || { echo "ERROR $name:$DISCOVERY_ERR" >&2; exit 1; }
   echo "synced $name → template_id=$tid"
 }
+
+# 回读核对 discovery 真的落库了 —— 老后端的 MappingBody 不认这个键,会静默丢掉。
+# 返回非零由调用方决定怎么收场(新建路径要回滚,同步路径直接报错退出)。
+discovery_landed() {
+  local artifact="$1" tid="$2" got
+  got="$(curl -sS --fail-with-body "${AUTH[@]}" "$BASE/api/v1/comfy-templates/$tid")"
+  jq -e --slurpfile m "$DIR/$artifact.mapping.json" '.discovery == $m[0].discovery' <<<"$got" >/dev/null
+}
+DISCOVERY_ERR="回读的 discovery 与仓库不一致(后端是否已上线带 discovery 的代码?)"
 
 existing="$(curl -sS --fail-with-body "${AUTH[@]}" "$BASE/api/v1/comfy-templates")"
 for row in "${SERVICES[@]}"; do
@@ -76,6 +88,7 @@ for row in "${SERVICES[@]}"; do
   curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid/mapping" \
     --data-binary "@$DIR/$artifact.mapping.json" >/dev/null || rollback "PUT mapping 失败"
   echo "  mapping ok($(jq '.exposed_params | length' "$DIR/$artifact.mapping.json") 个参数)"
+  discovery_landed "$artifact" "$tid" || rollback "$DISCOVERY_ERR"
 done
 
 # 必做:修复前建的图片模板(krea2 / qwen21-*)输出契约 video_url → image_url(幂等)。

@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import understand, generate, tts, engines, audio, voices, openai_compat, ollama_compat, api_gateway as api_gateway_routes, settings, workflows, agents, skills, monitor, node_packages, execution_tasks, apps, logs, context_cache as context_cache_routes, files as files_routes, services as services_routes, workflow_publish as workflow_publish_routes, usage as usage_routes, dashboard as dashboard_routes, api_keys as api_keys_routes, anthropic_compat, observability, image_files as image_files_routes, models as models_routes, predictions as predictions_routes, comfy_templates as comfy_templates_routes, skill_runs as skill_runs_routes, rerank as rerank_routes
+from src.api.routes import understand, generate, tts, engines, audio, voices, openai_compat, ollama_compat, api_gateway as api_gateway_routes, settings, workflows, agents, skills, monitor, node_packages, execution_tasks, apps, logs, context_cache as context_cache_routes, files as files_routes, services as services_routes, workflow_publish as workflow_publish_routes, usage as usage_routes, dashboard as dashboard_routes, api_keys as api_keys_routes, anthropic_compat, observability, image_files as image_files_routes, models as models_routes, predictions as predictions_routes, comfy_templates as comfy_templates_routes, skill_runs as skill_runs_routes, rerank as rerank_routes, service_catalog as service_catalog_routes
 from src.api.ws_tts import handle_tts_websocket
 from src.services.gpu_monitor import memory_guard_loop
 # WS 广播基础设施已下沉到 services/ws_hub(打破 services→api 反向依赖)。
@@ -66,6 +66,8 @@ _MICRO_MIGRATIONS: tuple[str, ...] = (
     # (c5d2e9b74a10),但生产启动仍走 create_all —— create_all 不给**已存在**的表加列,
     # 没这条的话线上重启后 service_instances 查询全炸 UndefinedColumn。幂等,可共存。
     "ALTER TABLE service_instances ADD COLUMN IF NOT EXISTS autostart BOOLEAN NOT NULL DEFAULT false",
+    # 服务发现元数据(2026-09-29)。alembic 有对应迁移(b6e2d9a41c07),理由同上。
+    "ALTER TABLE service_instances ADD COLUMN IF NOT EXISTS discovery JSON",
     # 模型级 GPU 组 / 张量并行(2026-09-03)。alembic 有对应迁移(d7a4b1e6c093),
     # 但生产启动仍走 create_all —— create_all 不给**已存在**的表加列,没这条的话
     # 线上重启后 model_runtime_overrides 查询全炸 UndefinedColumn。幂等,可共存。
@@ -979,6 +981,7 @@ def create_app() -> FastAPI:
     # legacy /api/v1/instances 已删(双轨收敛 #3):读走 v3 /services,建模型服务走
     # /services/register-model。
     app.include_router(predictions_routes.router)
+    app.include_router(service_catalog_routes.router)
     app.include_router(skill_runs_routes.router)
     app.include_router(rerank_routes.router)
     app.include_router(workflows.router)

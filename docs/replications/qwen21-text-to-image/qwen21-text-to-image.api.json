@@ -1,0 +1,206 @@
+{
+  "508": {
+    "inputs": {
+      "filename_prefix": "QW21-20260926064822",
+      "images": [
+        "520",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "512": {
+    "inputs": {
+      "aspect_ratio": "9:16 (Portrait Widescreen)",
+      "megapixels": 1.5,
+      "multiple": 32
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector"
+    }
+  },
+  "514": {
+    "inputs": {
+      "width": [
+        "512",
+        0
+      ],
+      "height": [
+        "512",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "515": {
+    "inputs": {
+      "seed": [
+        "524",
+        0
+      ],
+      "steps": 30,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "701",
+        0
+      ],
+      "positive": [
+        "522",
+        0
+      ],
+      "negative": [
+        "522",
+        1
+      ],
+      "latent_image": [
+        "514",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "517": {
+    "inputs": {
+      "value": "一位年轻亚洲少女身着精致繁复的古典汉服，真丝交领上襦绣着淡粉樱花纹样，肩披银线织就的云纹霞帔，胸前悬挂和田玉璎珞项圈，些许发丝随风飞散，她抬起手轻抚鬓角的发丝，露出甜美的笑容，侧面肖像，白皙的皮肤，真实的皮肤质感，毛孔可见，柔和的阳光，背光"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "提示词"
+    }
+  },
+  "518": {
+    "inputs": {
+      "clip_name": "qwen3vl_8b_bf16.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "519": {
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "520": {
+    "inputs": {
+      "samples": [
+        "515",
+        0
+      ],
+      "vae": [
+        "519",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "522": {
+    "inputs": {
+      "prompt": [
+        "517",
+        0
+      ],
+      "negative_prompt": "",
+      "resolution": 0,
+      "clip": [
+        "701",
+        1
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21",
+    "_meta": {
+      "title": "Text Encode Qwen Image 2.1"
+    }
+  },
+  "523": {
+    "inputs": {
+      "unet_name": "Qwen/qwen_image_2.1_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "524": {
+    "inputs": {
+      "seed": -1
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed (rgthree)"
+    }
+  },
+  "700": {
+    "class_type": "Lora Loader Stack (rgthree)",
+    "_meta": {
+      "title": "Lora Loader Stack (rgthree)"
+    },
+    "inputs": {
+      "model": [
+        "523",
+        0
+      ],
+      "clip": [
+        "518",
+        0
+      ],
+      "lora_01": "None",
+      "strength_01": 1,
+      "lora_02": "None",
+      "strength_02": 1,
+      "lora_03": "None",
+      "strength_03": 1,
+      "lora_04": "None",
+      "strength_04": 1
+    }
+  },
+  "701": {
+    "class_type": "Lora Loader Stack (rgthree)",
+    "_meta": {
+      "title": "Lora Loader Stack (rgthree)"
+    },
+    "inputs": {
+      "model": [
+        "700",
+        0
+      ],
+      "clip": [
+        "700",
+        1
+      ],
+      "lora_01": "None",
+      "strength_01": 1,
+      "lora_02": "None",
+      "strength_02": 1,
+      "lora_03": "None",
+      "strength_03": 1,
+      "lora_04": "None",
+      "strength_04": 1
+    }
+  }
+}
