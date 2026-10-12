@@ -1,0 +1,1 @@
+heygo ALL=(root) NOPASSWD: /usr/local/lib/nous-engine/strata-control *

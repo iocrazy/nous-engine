@@ -79,6 +79,9 @@ def _mm_image_limit(args: dict[str, Any]) -> bool:
 
 
 def _vision(cfg: dict, args: dict[str, Any]) -> bool:
+    explicit = (cfg.get("params") or {}).get("vision")
+    if isinstance(explicit, bool):
+        return explicit
     model_type = (cfg.get("type") or "").lower()
     if model_type in _CONFIG_JSON_VISION_TYPES:
         return _config_json_vision(cfg)

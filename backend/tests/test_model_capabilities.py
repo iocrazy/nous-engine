@@ -81,6 +81,12 @@ def test_nothing_derivable_is_none_false():
     }
 
 
+def test_explicit_vision_capability_for_non_hf_runtime():
+    cfg = _llm_cfg(vision=True, max_model_len=131072)
+    cfg["paths"] = {"main": "llm/qwen3.8-flash-next/IQ3_S"}
+    assert derive_capabilities(cfg)["vision"] is True
+
+
 @pytest.mark.parametrize("config, expected", [
     ({"architectures": ["Qwen3_5ForConditionalGeneration"], "vision_config": {"depth": 27}}, True),
     ({"architectures": ["Qwen2_5_VLForConditionalGeneration"]}, True),

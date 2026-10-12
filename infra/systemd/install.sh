@@ -23,9 +23,9 @@ PRIV_LIBDIR=/usr/local/lib/nous-engine
 SERVICES=(nous-engine-backend.service nous-engine-status.service)
 TIMERS=(nous-engine-healthprobe.timer nous-engine-dbbackup.timer)
 TARGETS=(nous-engine.target)
-SUDOERS=(nous-engine-deploy)
+SUDOERS=(nous-engine-deploy nous-engine-strata)
 # 全部拷进 /etc/systemd/system(含 oneshot probe/dbbackup、target、comfyui)。
-UNIT_FILES=(nous-engine-backend.service nous-engine-status.service \
+UNIT_FILES=(nous-engine-backend.service nous-engine-status.service nous-engine-strata@.service \
             nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine-netprobe.service nous-engine.target)
 
 LOCAL_URL="${NOUS_LOCAL_URL:-http://127.0.0.1:8000}"
@@ -137,6 +137,10 @@ case "${1:-install}" in
     # ── 4. enginectl + sudoers ────────────────────────────────────────────
     step "安装 enginectl + sudoers drop-ins"
     install -m 0755 "$SCRIPT_DIR/enginectl" "$ENGINECTL_DST"; ok "enginectl → $ENGINECTL_DST"
+    install -d -m 0755 -o root -g root "$PRIV_LIBDIR"
+    install -m 0755 -o root -g root "$SCRIPT_DIR/strata-control" "$PRIV_LIBDIR/strata-control"
+    install -d -m 0755 -o root -g root /etc/nous-engine/strata
+    ok "strata-control → $PRIV_LIBDIR/strata-control(root:root)"
     # 内网地址单一真相源:给它一个**稳定路径**,内容仍是仓库那份(软链,不是拷贝)——
     # 拷贝会分叉,软链让 git pull 改了 network.env 立刻生效。enginectl 装到
     # /usr/local/bin/ 后按自身位置推不出仓库路径,就靠这个固定位置找到它。
@@ -191,6 +195,8 @@ case "${1:-install}" in
     for tmr in "${TIMERS[@]}"; do systemctl disable --now "$tmr" 2>/dev/null || true; rm -f "$TARGET/$tmr"; ok "移除 $tmr"; done
     for svc in "${SERVICES[@]}"; do systemctl disable --now "$svc" 2>/dev/null || true; rm -f "$TARGET/$svc"; ok "移除 $svc"; done
     systemctl disable --now nous-engine-netprobe.service 2>/dev/null || true; rm -f "$TARGET/nous-engine-netprobe.service"; ok "移除 nous-engine-netprobe.service"
+    systemctl stop 'nous-engine-strata@*.service' 2>/dev/null || true
+    rm -f "$TARGET/nous-engine-strata@.service"; ok "移除 nous-engine-strata@.service"
     rm -rf "$PRIV_LIBDIR"; ok "移除 $PRIV_LIBDIR(root 属主的采集器副本)"
     rm -f "$TARGET/nous-engine-healthprobe.service" "$TARGET/nous-engine-dbbackup.service"
     rm -f "$ENGINECTL_DST"

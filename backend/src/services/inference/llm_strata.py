@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import re
+import subprocess
 import time
 import urllib.parse
 from collections.abc import AsyncIterator
@@ -220,3 +222,114 @@ class StrataAdapter(InferenceAdapter):
                 )
                 return
         yield StreamEvent(type="done", payload={"usage": last_usage or {}})
+
+
+_STRATA_INSTANCE_RE = re.compile(r"[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?")
+_STRATA_CONTROL_HELPER = "/usr/local/lib/nous-engine/strata-control"
+
+
+class StrataSystemdController:
+    """Call the root-owned, argument-validating Strata service helper."""
+
+    def __init__(
+        self,
+        instance: str,
+        *,
+        command_timeout: float = 120,
+        _run: Any = subprocess.run,
+    ) -> None:
+        if _STRATA_INSTANCE_RE.fullmatch(instance) is None:
+            raise ValueError(
+                "strata_instance 只允许小写字母、数字、下划线和连字符，长度 1-64"
+            )
+        self.instance = instance
+        self.command_timeout = command_timeout
+        self._run = _run
+
+    def _invoke(self, action: str) -> None:
+        try:
+            result = self._run(
+                ["sudo", "-n", _STRATA_CONTROL_HELPER, action, self.instance],
+                capture_output=True,
+                text=True,
+                timeout=self.command_timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(f"Strata systemd {action} 调用失败: {exc}") from exc
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "无输出").strip()[-500:]
+            raise RuntimeError(
+                f"Strata systemd {action} 失败(退出码 {result.returncode}): {detail}"
+            )
+
+    def start(self) -> None:
+        self._invoke("start")
+
+    def stop(self) -> None:
+        self._invoke("stop")
+
+
+class ManagedStrataAdapter(StrataAdapter):
+    """Manage a dedicated Strata systemd instance and proxy its local API."""
+
+    def __init__(
+        self,
+        paths: dict[str, str],
+        device: str = "cuda",
+        *,
+        strata_base_url: str,
+        strata_instance: str,
+        startup_timeout: float = 900,
+        startup_poll_interval: float = 2,
+        shutdown_timeout: float = 120,
+        _controller: StrataSystemdController | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            paths=paths,
+            device=device,
+            strata_base_url=strata_base_url,
+            **kwargs,
+        )
+        if startup_timeout <= 0 or startup_poll_interval <= 0 or shutdown_timeout <= 0:
+            raise ValueError("Strata 启停超时和轮询间隔必须大于 0")
+        self._startup_timeout = startup_timeout
+        self._startup_poll_interval = startup_poll_interval
+        self._controller = _controller or StrataSystemdController(
+            strata_instance,
+            command_timeout=shutdown_timeout,
+        )
+
+    async def load(self, device: str | None = None) -> None:
+        try:
+            await asyncio.to_thread(self._controller.start)
+        except Exception:
+            await self._require_client().aclose()
+            self._client = None
+            raise
+        deadline = time.monotonic() + self._startup_timeout
+        last_error = "服务尚未就绪"
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    await super().load(device)
+                    return
+                except RuntimeError as exc:
+                    last_error = str(exc)
+                await asyncio.sleep(self._startup_poll_interval)
+            raise RuntimeError(
+                f"Strata 在 {self._startup_timeout:g}s 内未就绪: {last_error}"
+            )
+        except BaseException:
+            try:
+                await asyncio.to_thread(self._controller.stop)
+            except Exception:
+                pass
+            await self._require_client().aclose()
+            self._client = None
+            raise
+
+    def unload(self) -> None:
+        self._controller.stop()
+        super().unload()
