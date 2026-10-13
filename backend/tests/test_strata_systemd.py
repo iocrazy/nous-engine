@@ -14,6 +14,10 @@ _MODEL = (
     _REPO
     / "backend/configs/models.d/qwen3_8_flash_next_abliterated_iq3s_strata.yaml"
 )
+_IQ4_MODEL = (
+    _REPO
+    / "backend/configs/models.d/qwen3_8_flash_next_uncensored_iq4xs_strata.yaml"
+)
 _STRATA_CONFIGS = _REPO / "infra/strata"
 
 
@@ -125,3 +129,41 @@ def test_qwen38_context_configs_have_matching_engine_flags():
         for index in range(0, len(required), 2):
             flag, value = required[index:index + 2]
             assert args[args.index(flag) + 1] == value
+
+
+def test_qwen38_iq4xs_model_is_separate_managed_strata_engine():
+    cfg = yaml.safe_load(_IQ4_MODEL.read_text(encoding="utf-8"))
+
+    assert cfg["id"] == "qwen3_8_flash_next_uncensored_iq4xs_strata"
+    assert cfg["adapter"] == "src.services.inference.llm_strata.ManagedStrataAdapter"
+    assert cfg["paths"]["main"] == "llm/qwen3.8-flash-next/Uncensored-IQ4_XS"
+    assert cfg["resident"] is False
+    assert cfg["gpu"] == 1
+    assert cfg["vram_mb"] == 90000
+    assert cfg["params"]["strata_instance"] == "qwen38-iq4xs"
+    assert cfg["params"]["strata_context_presets"] == {
+        8192: "qwen38-iq4xs",
+        262144: "qwen38-iq4xs-256k",
+        524288: "qwen38-iq4xs-512k",
+    }
+
+
+def test_qwen38_iq4xs_context_configs_use_uncensored_pack_and_mmproj():
+    expected = {
+        "qwen38-iq4xs-8k.json": (8192, False),
+        "qwen38-iq4xs-256k.json": (262144, False),
+        "qwen38-iq4xs-512k.json": (524288, True),
+    }
+    for filename, (context, yarn) in expected.items():
+        cfg = json.loads((_STRATA_CONFIGS / filename).read_text(encoding="utf-8"))
+        args = cfg["args"]
+        assert args[args.index("--max-context") + 1] == str(context)
+        assert args[args.index("--pack") + 1].endswith("/packs/orca-iq4_xs")
+        assert args[args.index("--native") + 1].endswith(
+            "/Qwen3.8-Flash-Next-Uncensored.IQ4_XS.gguf"
+        )
+        assert args[args.index("--ple-io") + 1] == "mmap"
+        assert cfg["vision"]["mmproj"].endswith(
+            "/Qwen3.8-Flash-Next-Uncensored.mmproj-f16.gguf"
+        )
+        assert ("--rope-scaling" in args) is yarn

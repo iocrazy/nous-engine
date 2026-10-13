@@ -1,0 +1,42 @@
+{
+  "exe": "/media/heygo/program/projects-code/github-repos/Strata/engine/strata",
+  "args": [
+    "--pack", "/media/heygo/program/models/nous/runtime/strata-data/packs/orca-iq4_xs",
+    "--native", "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/Uncensored-IQ4_XS/Qwen3.8-Flash-Next-Uncensored.IQ4_XS.gguf",
+    "--ple-gguf", "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/Uncensored-IQ4_XS/Qwen3.8-Flash-Next-Uncensored.IQ4_XS.gguf",
+    "--ple-io", "mmap",
+    "--expert-profile", "/media/heygo/program/projects-code/github-repos/Strata/data/expert-profile.bin",
+    "--expert-cache", "auto",
+    "--prefill", "auto",
+    "--spec", "4",
+    "--spec-min-p", "0.5",
+    "--mtp", "/media/heygo/program/models/nous/runtime/strata-data/mtp/rt",
+    "--max-context", "524288",
+    "--kv", "int8",
+    "--rope-scaling", "yarn",
+    "--rope-scale", "2",
+    "--vision",
+    "--vram-reserve-mib", "5000"
+  ],
+  "cwd": "/media/heygo/program/projects-code/github-repos/Strata",
+  "tokenizer": "/media/heygo/program/models/nous/runtime/strata-data/packs/orca-iq4_xs/tokenizer",
+  "model_name": "qwen3.8-flash-next-uncensored-iq4_xs-512k",
+  "log": "/media/heygo/program/projects-code/github-repos/Strata/strata-iq4_xs-512k.log",
+  "lib_dirs": [
+    "/media/heygo/program/projects-code/github-repos/Strata/.venv/lib/python3.12/site-packages/nvidia/cu13/bin",
+    "/media/heygo/program/projects-code/github-repos/Strata/.venv/lib/python3.12/site-packages/nvidia/cu13/lib64"
+  ],
+  "port": 18080,
+  "gpu": 1,
+  "gpus_asked": true,
+  "host": "127.0.0.1",
+  "open_browser": false,
+  "vision": {
+    "exe": "/media/heygo/program/projects-code/github-repos/Strata/engine/strata-vision",
+    "mmproj": "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/Uncensored-IQ4_XS/Qwen3.8-Flash-Next-Uncensored.mmproj-f16.gguf",
+    "model": "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/Uncensored-IQ4_XS/Qwen3.8-Flash-Next-Uncensored.IQ4_XS.gguf",
+    "gpu": false,
+    "max_tokens": 300,
+    "threads": 24
+  }
+}
