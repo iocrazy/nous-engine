@@ -126,3 +126,28 @@ STRATA_PORT=18080
 
 生成的 Strata 配置必须保持 `gpu: 1`，且 `--vram-reserve-mib` 不得低于 5000。
 GPU 1 同时承载生产 ComfyUI；加载该模型只能在明确维护窗口内进行，并确保没有 ComfyUI 工作流运行。
+
+## 本机 Uncensored IQ4_XS 实例
+
+`qwen3_8_flash_next_uncensored_iq4xs_strata` 是独立于 IQ3_S 的按需模型，使用
+`Uncensored-IQ4_XS/Qwen3.8-Flash-Next-Uncensored.IQ4_XS.gguf`、`orca-iq4_xs`
+pack 和该模型自己的 mmproj。它与 IQ3_S 共用 GPU 1 和 18080 端口，不能同时加载。
+
+部署前由维护人员创建三个环境文件：
+
+```text
+# /etc/nous-engine/strata/qwen38-iq4xs.env
+STRATA_CONFIG=/media/heygo/program/projects-code/repos/nous-engine/infra/strata/qwen38-iq4xs-8k.json
+STRATA_PORT=18080
+
+# /etc/nous-engine/strata/qwen38-iq4xs-256k.env
+STRATA_CONFIG=/media/heygo/program/projects-code/repos/nous-engine/infra/strata/qwen38-iq4xs-256k.json
+STRATA_PORT=18080
+
+# /etc/nous-engine/strata/qwen38-iq4xs-512k.env
+STRATA_CONFIG=/media/heygo/program/projects-code/repos/nous-engine/infra/strata/qwen38-iq4xs-512k.json
+STRATA_PORT=18080
+```
+
+8K 用于首次真机验收；256K 使用原生上下文与 INT8 KV；512K 使用 YaRN 2 倍扩展，
+在长提示词质量、峰值显存和 RAM 验收通过前保持实验用途。

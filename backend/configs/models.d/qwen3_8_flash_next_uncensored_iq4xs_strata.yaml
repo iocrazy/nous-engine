@@ -1,0 +1,19 @@
+adapter: src.services.inference.llm_strata.ManagedStrataAdapter
+id: qwen3_8_flash_next_uncensored_iq4xs_strata
+source: local/Qwen3.8-Flash-Next-Uncensored-IQ4_XS
+paths:
+  main: llm/qwen3.8-flash-next/Uncensored-IQ4_XS
+resident: false
+ttl_seconds: 3600
+type: llm
+vram_mb: 90000
+gpu: 1
+params:
+  strata_base_url: http://127.0.0.1:18080
+  strata_instance: qwen38-iq4xs
+  max_model_len: 8192
+  strata_context_presets:
+    8192: qwen38-iq4xs
+    262144: qwen38-iq4xs-256k
+    524288: qwen38-iq4xs-512k
+  vision: true
