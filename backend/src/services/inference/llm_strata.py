@@ -228,6 +228,10 @@ _STRATA_INSTANCE_RE = re.compile(r"[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?")
 _STRATA_CONTROL_HELPER = "/usr/local/lib/nous-engine/strata-control"
 
 
+class StrataConfigurationError(RuntimeError):
+    pass
+
+
 class StrataSystemdController:
     """Call the root-owned, argument-validating Strata service helper."""
 
@@ -280,18 +284,44 @@ class ManagedStrataAdapter(StrataAdapter):
         *,
         strata_base_url: str,
         strata_instance: str,
+        max_model_len: int | None = None,
+        strata_context_presets: dict[str | int, str] | None = None,
         startup_timeout: float = 900,
         startup_poll_interval: float = 2,
         shutdown_timeout: float = 120,
         _controller: StrataSystemdController | None = None,
         **kwargs: Any,
     ) -> None:
+        presets: dict[int, str] = {}
+        for raw_context, instance in (strata_context_presets or {}).items():
+            try:
+                context = int(raw_context)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Strata 上下文档位非法: {raw_context!r}") from exc
+            if context <= 0 or isinstance(raw_context, bool):
+                raise ValueError(f"Strata 上下文档位必须是正整数: {raw_context!r}")
+            if not isinstance(instance, str):
+                raise ValueError(f"Strata 实例名必须是字符串: {instance!r}")
+            presets[context] = instance
+
+        if max_model_len is not None:
+            if isinstance(max_model_len, bool) or max_model_len <= 0:
+                raise ValueError("max_model_len 必须是正整数")
+            if presets and max_model_len not in presets:
+                raise ValueError(
+                    f"Strata 不支持 {max_model_len} token 上下文;可选: {sorted(presets)}"
+                )
+            strata_instance = presets.get(max_model_len, strata_instance)
+
         super().__init__(
             paths=paths,
             device=device,
             strata_base_url=strata_base_url,
             **kwargs,
         )
+        self._expected_max_model_len = max_model_len
+        if max_model_len is not None:
+            self.max_model_len = max_model_len
         if startup_timeout <= 0 or startup_poll_interval <= 0 or shutdown_timeout <= 0:
             raise ValueError("Strata 启停超时和轮询间隔必须大于 0")
         self._startup_timeout = startup_timeout
@@ -314,7 +344,17 @@ class ManagedStrataAdapter(StrataAdapter):
             while time.monotonic() < deadline:
                 try:
                     await super().load(device)
+                    if (
+                        self._expected_max_model_len is not None
+                        and self.max_model_len != self._expected_max_model_len
+                    ):
+                        raise StrataConfigurationError(
+                            "Strata 实例上下文与所选档位不一致:"
+                            f"期望 {self._expected_max_model_len},实际 {self.max_model_len}"
+                        )
                     return
+                except StrataConfigurationError:
+                    raise
                 except RuntimeError as exc:
                     last_error = str(exc)
                 await asyncio.sleep(self._startup_poll_interval)
@@ -322,6 +362,7 @@ class ManagedStrataAdapter(StrataAdapter):
                 f"Strata 在 {self._startup_timeout:g}s 内未就绪: {last_error}"
             )
         except BaseException:
+            self._model = None
             try:
                 await asyncio.to_thread(self._controller.stop)
             except Exception:

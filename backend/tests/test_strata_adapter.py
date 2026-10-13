@@ -178,6 +178,30 @@ def test_systemd_controller_surfaces_bounded_failure():
         ctl.start()
 
 
+def test_managed_adapter_selects_context_instance():
+    adapter = ManagedStrataAdapter(
+        paths={},
+        strata_base_url="http://127.0.0.1:18080",
+        strata_instance="iq3s",
+        max_model_len=262144,
+        strata_context_presets={8192: "iq3s", 262144: "iq3s-256k"},
+        _transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+    )
+    assert adapter._controller.instance == "iq3s-256k"
+    assert adapter.max_model_len == 262144
+
+
+def test_managed_adapter_rejects_unconfigured_context():
+    with pytest.raises(ValueError, match=r"可选: \[8192, 262144\]"):
+        ManagedStrataAdapter(
+            paths={},
+            strata_base_url="http://127.0.0.1:18080",
+            strata_instance="iq3s",
+            max_model_len=524288,
+            strata_context_presets={8192: "iq3s", 262144: "iq3s-256k"},
+        )
+
+
 @pytest.mark.asyncio
 async def test_managed_adapter_starts_unit_then_waits_until_loaded():
     controller = _FakeController()
@@ -256,6 +280,34 @@ async def test_managed_adapter_start_failure_closes_client():
     with pytest.raises(RuntimeError, match="start denied"):
         await adapter.load()
     assert adapter._client is None
+
+
+@pytest.mark.asyncio
+async def test_managed_adapter_rejects_health_context_mismatch():
+    controller = _FakeController()
+
+    async def handler(_request: httpx.Request):
+        return httpx.Response(
+            200,
+            json={"service": "strata", "loaded": True, "max_context": 8192},
+        )
+
+    adapter = ManagedStrataAdapter(
+        paths={},
+        strata_base_url="http://127.0.0.1:18080",
+        strata_instance="iq3s-256k",
+        max_model_len=262144,
+        startup_timeout=1,
+        startup_poll_interval=0.001,
+        _controller=controller,
+        _transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RuntimeError, match="期望 262144,实际 8192"):
+        await adapter.load()
+
+    assert controller.stopped == 1
+    assert adapter._client is None
+    assert not adapter.is_loaded
 
 
 @pytest.mark.asyncio

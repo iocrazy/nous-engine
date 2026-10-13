@@ -128,3 +128,14 @@ async def test_get_launch_params_defaults_are_yaml_values_under_override(db_sess
         assert body["defaults"]["max_model_len"] == yaml_len
     finally:
         await runtime_override_store.set_override(db_session, name, "params", {})
+
+
+@pytest.mark.asyncio
+async def test_get_strata_launch_params_returns_context_presets(db_client):
+    name = "qwen3_8_flash_next_abliterated_iq3s_strata"
+    r = await db_client.get(f"/api/v1/engines/{name}/launch-params")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["editable"] == ["max_model_len"]
+    assert body["choices"] == {"max_model_len": [8192, 262144, 524288]}
+    assert body["reload_on_change"] is True

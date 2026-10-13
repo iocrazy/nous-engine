@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,7 @@ _MODEL = (
     _REPO
     / "backend/configs/models.d/qwen3_8_flash_next_abliterated_iq3s_strata.yaml"
 )
+_STRATA_CONFIGS = _REPO / "infra/strata"
 
 
 def test_control_helper_rejects_unsafe_instance_before_systemctl():
@@ -95,5 +97,31 @@ def test_qwen38_iq3s_model_uses_managed_strata_on_gpu1():
         "strata_base_url": "http://127.0.0.1:18080",
         "strata_instance": "qwen38-iq3s",
         "max_model_len": 8192,
+        "strata_context_presets": {
+            8192: "qwen38-iq3s",
+            262144: "qwen38-iq3s-256k",
+            524288: "qwen38-iq3s-512k",
+        },
         "vision": True,
     }
+
+
+def test_qwen38_context_configs_have_matching_engine_flags():
+    expected = {
+        "qwen38-iq3s-8k.json": (8192, []),
+        "qwen38-iq3s-256k.json": (262144, ["--kv", "int8"]),
+        "qwen38-iq3s-512k.json": (
+            524288,
+            ["--kv", "int8", "--rope-scaling", "yarn", "--rope-scale", "2"],
+        ),
+    }
+    for filename, (context, required) in expected.items():
+        cfg = json.loads((_STRATA_CONFIGS / filename).read_text(encoding="utf-8"))
+        args = cfg["args"]
+        assert args[args.index("--max-context") + 1] == str(context)
+        assert cfg["port"] == 18080
+        assert cfg["gpu"] == 1
+        assert "--vision" in args
+        for index in range(0, len(required), 2):
+            flag, value = required[index:index + 2]
+            assert args[args.index(flag) + 1] == value

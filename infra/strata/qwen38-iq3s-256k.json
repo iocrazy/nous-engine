@@ -1,0 +1,39 @@
+{
+  "exe": "/media/heygo/program/projects-code/github-repos/Strata/engine/strata",
+  "args": [
+    "--pack", "/media/heygo/program/models/nous/runtime/strata-data/packs/iq3_s",
+    "--native", "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S-00001-of-00002.gguf",
+    "--ple-gguf", "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S-00002-of-00002.gguf",
+    "--expert-profile", "/media/heygo/program/projects-code/github-repos/Strata/data/expert-profile.bin",
+    "--expert-cache", "auto",
+    "--prefill", "auto",
+    "--spec", "4",
+    "--spec-min-p", "0.5",
+    "--mtp", "/media/heygo/program/models/nous/runtime/strata-data/mtp/rt",
+    "--max-context", "262144",
+    "--kv", "int8",
+    "--vision",
+    "--vram-reserve-mib", "5000"
+  ],
+  "cwd": "/media/heygo/program/projects-code/github-repos/Strata",
+  "tokenizer": "/media/heygo/program/models/nous/runtime/strata-data/packs/iq3_s/tokenizer",
+  "model_name": "qwen3.8-flash-next-iq3_s-256k",
+  "log": "/media/heygo/program/projects-code/github-repos/Strata/strata-iq3_s-256k.log",
+  "lib_dirs": [
+    "/media/heygo/program/projects-code/github-repos/Strata/.venv/lib/python3.12/site-packages/nvidia/cu13/bin",
+    "/media/heygo/program/projects-code/github-repos/Strata/.venv/lib/python3.12/site-packages/nvidia/cu13/lib64"
+  ],
+  "port": 18080,
+  "gpu": 1,
+  "gpus_asked": true,
+  "host": "127.0.0.1",
+  "open_browser": false,
+  "vision": {
+    "exe": "/media/heygo/program/projects-code/github-repos/Strata/engine/strata-vision",
+    "mmproj": "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/IQ3_S/mmproj-Qwen3.8-Flash-Next-BF16.gguf",
+    "model": "/media/heygo/program/models/nous/llm/qwen3.8-flash-next/IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S-00001-of-00002.gguf",
+    "gpu": false,
+    "max_tokens": 300,
+    "threads": 24
+  }
+}

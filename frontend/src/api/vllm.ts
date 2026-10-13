@@ -68,6 +68,8 @@ export interface LaunchParamsInfo {
    * 参数写得进库、GET 也报「已覆盖」,引擎行为却纹丝不动。空数组 = 没有可调项。
    */
   editable: string[]
+  choices?: Record<string, number[]>
+  reload_on_change?: boolean
   hint: string
 }
 
@@ -82,9 +84,9 @@ export function useLaunchParams(name: string | null) {
 export function useUpdateLaunchParams() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (params: { name: string; body: LaunchParamsBody }) =>
+    mutationFn: (params: { name: string; body: LaunchParamsBody; reload?: boolean }) =>
       apiFetch<{ name: string; params: object; applied: boolean; hint: string }>(
-        `/api/v1/engines/${encodeURIComponent(params.name)}/launch-params`,
+        `/api/v1/engines/${encodeURIComponent(params.name)}/launch-params${params.reload ? '?reload=true' : ''}`,
         { method: 'PATCH', body: JSON.stringify(params.body) },
       ),
     onSuccess: () => {

@@ -643,6 +643,8 @@ function LaunchParamsModal({ engine, onClose }: { engine: EngineInfo; onClose: (
               current={data.effective}
               editable={data.editable}
               overridden={data.overridden}
+              choices={data.choices}
+              reloadOnChange={data.reload_on_change}
             />
           </>
         )}

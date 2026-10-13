@@ -9,7 +9,7 @@
 - 后端 `nous-engine-backend.service`(:8000),serve `frontend/dist/`
 - ComfyUI sidecar `nous-engine-comfyui.service`(:8888,钉 Pro 6000,地址见 `infra/network.env`)
 
-维护与上线由 Claude Code 会话负责,走 PR → CI → 合并 → `infra/deploy.sh`。
+维护与上线由 Claude Code/Codex 会话负责,走 PR → CI → 合并 → `infra/deploy.sh`。
 
 ## 禁止
 
@@ -33,7 +33,8 @@ git -C /media/heygo/program/projects-code/repos/nous-engine worktree add \
 
 ## 需要重启 / 部署 / 换常驻模型 / 改 ComfyUI 配置
 
-**停下来告诉用户。** 没有 sudo 不是改用 kill 的理由。
+**执行前停下来告诉用户；得到明确授权后，Codex 可按规定部署流程操作。**
+没有 sudo 不是改用 kill 的理由，也不得绕过 `infra/deploy.sh` 直接操作 systemd。
 
 ## 为什么有这份文件
 

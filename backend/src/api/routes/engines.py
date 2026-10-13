@@ -641,11 +641,27 @@ def _validate_launch_param_values(body: dict) -> None:
             )
 
 
+def _launch_param_choices(cfg: dict) -> dict[str, list[int]]:
+    raw = (cfg.get("params") or {}).get("strata_context_presets")
+    if not isinstance(raw, dict):
+        return {}
+    choices: list[int] = []
+    for value in raw:
+        try:
+            context = int(value)
+        except (TypeError, ValueError):
+            continue
+        if context > 0 and not isinstance(value, bool):
+            choices.append(context)
+    return {"max_model_len": sorted(set(choices))} if choices else {}
+
+
 @router.patch("/{name}/launch-params", dependencies=[Depends(require_admin)])
 async def set_launch_params(
     name: str,
     body: dict,
     request: Request,
+    reload: bool = False,
     session: AsyncSession = Depends(get_async_session),
 ):
     """覆盖模型的启动参数,持久到 DB 的 model_runtime_overrides.params。
@@ -655,7 +671,8 @@ async def set_launch_params(
 
     值为 `null` 的键 = **清除该覆盖**(回退 models.d 的 yaml 值)。
     其余值过 `_LAUNCH_PARAM_VALIDATORS` 的值域校验(数字键必须 > 0)。
-    改动只在**下次 load** 时读到,所以 `applied` 恒为 false。
+    `reload=true` 且模型已加载时会安全卸载并在后台重新加载;正在推理时拒绝切换。
+    模型未加载时只保存覆盖,由下次 load 读取。
 
     白名单之外还有第二道:该引擎的**适配器**接不接受这个键(`_editable_launch_params`)。
     不接受就 400,不是静静存起来 —— 存了也到不了引擎。
@@ -703,16 +720,48 @@ async def set_launch_params(
 
     _validate_launch_param_values(body)
 
+    choices = _launch_param_choices(cfg)
+    selected_context = body.get("max_model_len")
+    if selected_context is not None and choices and selected_context not in choices["max_model_len"]:
+        raise HTTPException(
+            400,
+            detail=(
+                f"引擎 {name} 只支持这些上下文档位: {choices['max_model_len']};"
+                "Strata 每个档位需要预先配置对应实例"
+            ),
+        )
+
+    model_mgr = _get_model_manager(request)
+    was_loaded = bool(reload and model_mgr is not None and model_mgr.is_loaded(name))
+    if was_loaded:
+        if model_mgr.is_in_use(name):
+            raise ConflictError(
+                f"Engine {name} is in use; context preset was not changed.",
+                code="engine_in_use",
+                fix="wait for in-flight requests to finish, then retry",
+            )
+        ok = await model_mgr.unload_model(name, force=True)
+        if ok is False and model_mgr.is_loaded(name):
+            raise ConflictError(
+                f"Engine {name} refused context-preset reload.",
+                code="engine_unload_refused",
+                fix="check backend logs and retry",
+            )
+
     await runtime_override_store.set_override(session, name, "params", body)
 
     # services 列表带 capabilities.context(= max_model_len),同样要失效。
     invalidate("engines", "services")
     merged = runtime_override_store.get_overrides().get(name, {}).get("params", {})
+    if was_loaded:
+        _loading_states[name] = {"status": "loading", "detail": "Applying launch parameters..."}
+        _spawn_bg(_load_in_background(name, model_mgr))
+
     return {
         "name": name,
         "params": merged,
-        "applied": False,
-        "hint": "需重新加载模型生效(unload + load)",
+        "applied": was_loaded,
+        "hint": "正在重新加载模型" if was_loaded else "模型未加载;下次加载时生效",
     }
 
 
@@ -760,13 +809,19 @@ async def get_launch_params(name: str):
     defaults = _launch_params_view(raw.get("params") or {})
     ov_params = runtime_override_store.get_overrides().get(name, {}).get("params") or {}
     overridden = sorted(k for k in ov_params if k in _LAUNCH_PARAM_WHITELIST)
+    choices = _launch_param_choices(cfg)
     return {
         "name": name,
         "effective": effective,
         "defaults": defaults,
         "overridden": overridden,
         "editable": sorted(_editable_launch_params(cfg)),
-        "hint": "改动需重新加载模型生效(unload + load)",
+        "choices": choices,
+        "reload_on_change": bool(choices),
+        "hint": (
+            "选择档位后自动重新加载已加载的模型"
+            if choices else "改动需重新加载模型生效(unload + load)"
+        ),
     }
 
 

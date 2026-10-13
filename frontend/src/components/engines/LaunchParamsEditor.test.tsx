@@ -163,4 +163,27 @@ describe('LaunchParamsEditor', () => {
     fireEvent.click(screen.getByText('保存'))
     expect(mutate).toHaveBeenCalledWith({ name: 'm', body: { max_num_seqs: 4 } })
   })
+
+  it('Strata 只显示已配置档位,切换时请求自动重载', () => {
+    render(
+      <LaunchParamsEditor
+        engineName="strata"
+        current={{ max_model_len: 8192 }}
+        editable={['max_model_len']}
+        overridden={[]}
+        choices={{ max_model_len: [8192, 262144, 524288] }}
+        reloadOnChange
+      />,
+    )
+
+    expect(screen.queryByLabelText('max_model_len')).toBeNull()
+    expect(screen.getByText('8K')).toBeInTheDocument()
+    expect(screen.getByText('512K')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('256K'))
+    expect(mutate).toHaveBeenCalledWith({
+      name: 'strata',
+      body: { max_model_len: 262144 },
+      reload: true,
+    })
+  })
 })

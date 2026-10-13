@@ -44,6 +44,8 @@ export function LaunchParamsEditor({
   current,
   editable,
   overridden,
+  choices = {},
+  reloadOnChange = false,
 }: {
   engineName: string
   current: Record<string, unknown>
@@ -55,20 +57,26 @@ export function LaunchParamsEditor({
   editable: string[]
   /** 哪几个键当前被运行时覆盖 —— 只有它们需要「恢复默认」。 */
   overridden: string[]
+  choices?: Record<string, number[]>
+  reloadOnChange?: boolean
 }) {
   const update = useUpdateLaunchParams()
   const [draft, setDraft] = useState<LaunchParamsBody>({})
 
-  const save = (patch: LaunchParamsBody) =>
-    update.mutate({ name: engineName, body: patch })
+  const save = (patch: LaunchParamsBody, reload = false) =>
+    update.mutate({
+      name: engineName,
+      body: patch,
+      ...(reload ? { reload: true } : {}),
+    })
 
   /**
    * 即时保存(预设按钮 / 复选框)之后必须把对应的键从 draft 里**删掉**,回落到刷新后的
    * `current`。否则:用户在输入框敲了个值(进 draft)→ 点 256K 预设(发请求,draft 里
    * 还是旧值)→ 点"保存"(把 draft 的旧值发出去)→ 刚存的 256K 被悄悄覆盖。
    */
-  const saveAndDropDraft = (patch: LaunchParamsBody) => {
-    save(patch)
+  const saveAndDropDraft = (patch: LaunchParamsBody, reload = false) => {
+    save(patch, reload)
     setDraft((d) => {
       const next = { ...d }
       for (const k of Object.keys(patch) as (keyof LaunchParamsBody)[]) delete next[k]
@@ -91,12 +99,20 @@ export function LaunchParamsEditor({
   const can = (k: keyof LaunchParamsBody) => editable.includes(k)
 
   const onReset = (k: keyof LaunchParamsBody) =>
-    saveAndDropDraft({ [k]: null } as LaunchParamsBody)
+    saveAndDropDraft(
+      { [k]: null } as LaunchParamsBody,
+      k === 'max_model_len' && reloadOnChange,
+    )
   // 四个 ResetButton 的公共入参,免得每处重复三行。
   const resetProps = { overridden, disabled: update.isPending, onReset }
 
   const payload = sanitizeLaunchParams(draft)
   const canSave = Object.keys(payload).length > 0
+  const contextPresets = choices.max_model_len?.map((value) => ({
+    label: value === 524288 ? '512K' : value === 262144 ? '256K' : value === 8192 ? '8K' : `${value}`,
+    value,
+  })) ?? CTX_PRESETS
+  const fixedContextPresets = Boolean(choices.max_model_len?.length)
 
   return (
     <div style={{ display: 'grid', gap: 10, fontSize: 12 }}>
@@ -106,19 +122,22 @@ export function LaunchParamsEditor({
           上下文长度 (max_model_len)
         </label>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <input
+          {!fixedContextPresets && <input
             type="number"
             aria-label="max_model_len"
             value={num('max_model_len')}
             onChange={(e) => onNumChange('max_model_len')(e.target.value)}
             style={{ width: 110 }}
-          />
-          {CTX_PRESETS.map((p) => (
+          />}
+          {contextPresets.map((p) => (
             <button
               key={p.value}
               type="button"
               disabled={update.isPending}
-              onClick={() => saveAndDropDraft({ max_model_len: p.value })}
+              onClick={() => saveAndDropDraft(
+                { max_model_len: p.value },
+                reloadOnChange,
+              )}
             >
               {p.label}
             </button>
@@ -126,8 +145,10 @@ export function LaunchParamsEditor({
           <ResetButton k="max_model_len" {...resetProps} />
         </div>
         <p style={{ color: 'var(--muted)', marginTop: 4 }}>
-          上下文与并发此消彼长:同样的 KV 池,长度减半则并发翻倍。
-          调大可能因 KV 装不下而<strong>起不来</strong>(vLLM 启动时会拒绝),失败原因会显示在本窗口顶部。
+          {fixedContextPresets
+            ? '切换 Strata 档位会在模型已加载时自动卸载并重新加载;有推理请求时会拒绝切换。'
+            : <>上下文与并发此消彼长:同样的 KV 池,长度减半则并发翻倍。
+              调大可能因 KV 装不下而<strong>起不来</strong>(vLLM 启动时会拒绝),失败原因会显示在本窗口顶部。</>}
         </p>
       </div>
       )}

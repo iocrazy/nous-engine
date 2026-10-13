@@ -12,4 +12,8 @@ params:
   strata_base_url: http://127.0.0.1:18080
   strata_instance: qwen38-iq3s
   max_model_len: 8192
+  strata_context_presets:
+    8192: qwen38-iq3s
+    262144: qwen38-iq3s-256k
+    524288: qwen38-iq3s-512k
   vision: true
