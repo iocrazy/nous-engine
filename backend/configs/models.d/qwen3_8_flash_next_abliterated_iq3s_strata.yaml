@@ -2,7 +2,7 @@ adapter: src.services.inference.llm_strata.ManagedStrataAdapter
 id: qwen3_8_flash_next_abliterated_iq3s_strata
 source: local/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S
 paths:
-  main: llm/qwen3.8-flash-next/IQ3_S
+  main: llm/qwen3.8-flash-next
 resident: false
 ttl_seconds: 3600
 type: llm
