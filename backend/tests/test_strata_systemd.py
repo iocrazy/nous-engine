@@ -87,7 +87,7 @@ def test_qwen38_iq3s_model_uses_managed_strata_on_gpu1():
     cfg = yaml.safe_load(_MODEL.read_text(encoding="utf-8"))
 
     assert cfg["adapter"] == "src.services.inference.llm_strata.ManagedStrataAdapter"
-    assert cfg["paths"]["main"] == "llm/qwen3.8-flash-next/IQ3_S"
+    assert cfg["paths"]["main"] == "llm/qwen3.8-flash-next"
     assert cfg["resident"] is False
     assert cfg["gpu"] == 1
     assert cfg["vram_mb"] == 90000
