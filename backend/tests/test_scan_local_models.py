@@ -42,6 +42,26 @@ def test_scan_local_models_skips_files(tmp_path, monkeypatch):
     assert found == set()  # only dirs count
 
 
+def test_scan_local_models_includes_configured_nested_dir(tmp_path, monkeypatch):
+    base = tmp_path / "models"
+    nested = "llm/qwen3.8-flash-next/Uncensored-IQ4_XS"
+    (base / nested).mkdir(parents=True)
+
+    from src.services import model_metadata_service as svc
+
+    settings = MagicMock()
+    settings.LOCAL_MODELS_PATH = str(base)
+    monkeypatch.setattr(svc, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        svc,
+        "load_model_configs",
+        lambda **kwargs: {"iq4": {"local_path": nested}},
+    )
+
+    found = svc._scan_local_models_uncached()
+    assert nested in found
+
+
 def test_models_yaml_has_no_image_entries():
     """图像模型不在 registry 登记(出图只走 ComfyUI 桥)。"""
     from src.config import load_model_configs

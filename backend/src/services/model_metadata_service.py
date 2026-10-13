@@ -231,6 +231,8 @@ def _scan_local_models_uncached() -> set[str]:
       embedding/<MODEL>                    — depth 2(2026-09-11 从
                                              text/embedding/ 提成顶层桶)
 
+    Explicitly configured paths may be deeper than the auto-scan layout.
+
     media/ 的 depth-3 特例随自建图像引擎删除(2026-09-26)。
     """
     settings = get_settings()
@@ -244,4 +246,8 @@ def _scan_local_models_uncached() -> set[str]:
         for model_dir in type_dir.iterdir():
             if model_dir.is_dir():
                 found.add(f"{type_dir.name}/{model_dir.name}")
+    for cfg in load_model_configs(apply_overrides=False).values():
+        local_path = cfg.get("local_path")
+        if local_path and (base / local_path).is_dir():
+            found.add(local_path)
     return found
