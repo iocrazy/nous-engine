@@ -80,9 +80,17 @@ gpu: <dedicated-gpu-index>
 params:
   strata_base_url: http://127.0.0.1:18080
   strata_instance: qwen38-iq3s
-  max_model_len: 131072
+  max_model_len: 8192
+  strata_context_presets:
+    8192: qwen38-iq3s
+    262144: qwen38-iq3s-256k
+    524288: qwen38-iq3s-512k
   vision: true
 ```
+
+配置 `strata_context_presets` 后，引擎页只显示已配置的上下文档位。模型已加载时，选择档位会
+停止当前实例并后台启动目标实例；模型未加载时只保存选择。正在推理的模型不会被切换。
+适配器会核对 `/health.max_context`，避免实例环境文件指错配置后以错误档位提供服务。
 
 `resident: true` 让后端异常重启后重新连接仍在运行的专用 unit；正常关闭时
 `ModelManager` 会依次卸载模型并停止 unit。`gpu`、`vram_mb` 和 Strata 配置里的设备必须一致。
@@ -97,12 +105,24 @@ server 的 `vision` 段，以及引擎参数中的 `--vision`。
 `qwen3_8_flash_next_abliterated_iq3s_strata` 已按 GPU 1 的按需模型登记，配置为 8K 上下文、
 CPU 视觉编码器和 90,000 MiB 显存预算。它不会随后端启动自动加载。
 
-部署前由维护人员创建 `/etc/nous-engine/strata/qwen38-iq3s.env`：
+部署前由维护人员创建三个环境文件，全部复用 18080 端口，因为同一模型任一时刻只运行一个实例：
 
 ```text
-STRATA_CONFIG=/media/heygo/program/projects-code/github-repos/Strata/strata-iq3_s.json
+# /etc/nous-engine/strata/qwen38-iq3s.env
+STRATA_CONFIG=/media/heygo/program/projects-code/repos/nous-engine/infra/strata/qwen38-iq3s-8k.json
+STRATA_PORT=18080
+
+# /etc/nous-engine/strata/qwen38-iq3s-256k.env
+STRATA_CONFIG=/media/heygo/program/projects-code/repos/nous-engine/infra/strata/qwen38-iq3s-256k.json
+STRATA_PORT=18080
+
+# /etc/nous-engine/strata/qwen38-iq3s-512k.env
+STRATA_CONFIG=/media/heygo/program/projects-code/repos/nous-engine/infra/strata/qwen38-iq3s-512k.json
 STRATA_PORT=18080
 ```
+
+256K 使用模型原生上下文和 INT8 KV；512K 使用 YaRN 2 倍扩展，属于实验档位，需分别做
+长提示词质量、峰值显存和峰值 RAM 验收后再开放给长期任务。
 
 生成的 Strata 配置必须保持 `gpu: 1`，且 `--vram-reserve-mib` 不得低于 5000。
 GPU 1 同时承载生产 ComfyUI；加载该模型只能在明确维护窗口内进行，并确保没有 ComfyUI 工作流运行。

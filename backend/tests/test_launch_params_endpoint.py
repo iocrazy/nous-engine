@@ -199,6 +199,56 @@ def test_editable_launch_params_by_adapter_signature():
     assert _editable_launch_params({}) == frozenset()          # 没有 adapter
     assert _editable_launch_params({"adapter": "nodots"}) == frozenset()
 
+    strata = _editable_launch_params(
+        {"adapter": "src.services.inference.llm_strata.ManagedStrataAdapter"})
+    assert strata == frozenset({"max_model_len"})
+
+
+@pytest.mark.asyncio
+async def test_patch_strata_rejects_context_without_instance(db_client):
+    name = "qwen3_8_flash_next_abliterated_iq3s_strata"
+    r = await db_client.patch(
+        f"/api/v1/engines/{name}/launch-params",
+        json={"max_model_len": 65536},
+    )
+    assert r.status_code == 400, r.text
+    assert "8192" in r.text
+    assert "262144" in r.text
+    assert "524288" in r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_strata_context_reloads_loaded_model(db_client, db_session, monkeypatch):
+    from src.api.routes import engines
+    from src.services import runtime_override_store
+
+    name = "qwen3_8_flash_next_abliterated_iq3s_strata"
+    manager = db_client._transport.app.state.model_manager
+    manager.is_loaded.return_value = True
+    spawned = []
+
+    def capture(coro):
+        spawned.append(coro)
+        coro.close()
+
+    monkeypatch.setattr(engines, "_spawn_bg", capture)
+    try:
+        r = await db_client.patch(
+            f"/api/v1/engines/{name}/launch-params?reload=true",
+            json={"max_model_len": 262144},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["applied"] is True
+        manager.unload_model.assert_called_once_with(name, force=True)
+        assert len(spawned) == 1
+    finally:
+        await runtime_override_store.set_override(
+            db_session,
+            name,
+            "params",
+            {"max_model_len": None},
+        )
+
 
 def test_editable_launch_params_fails_open_when_signature_unavailable():
     """取不到签名就别拦:拦错了用户连改都改不了,比多给一个无效按钮更糟。"""
