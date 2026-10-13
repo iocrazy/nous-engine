@@ -1,0 +1,23 @@
+[Unit]
+Description=nous-engine managed Strata instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=heygo
+Group=heygo
+EnvironmentFile=/etc/nous-engine/strata/%i.env
+WorkingDirectory=/media/heygo/program/models/nous/runtime/strata
+ExecStart=/media/heygo/program/models/nous/runtime/strata/.venv/bin/python -m serve.server --engine strata --config ${STRATA_CONFIG} --host 127.0.0.1 --port ${STRATA_PORT}
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=90
+LimitMEMLOCK=infinity
+MemoryHigh=68G
+MemoryMax=72G
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:-}"
+instance="${2:-}"
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: strata-control start|stop INSTANCE" >&2
+  exit 64
+fi
+
+if [[ ! "$instance" =~ ^[a-z0-9]([a-z0-9_-]{0,62}[a-z0-9])?$ ]]; then
+  echo "invalid Strata instance" >&2
+  exit 64
+fi
+
+unit="nous-engine-strata@${instance}.service"
+case "$action" in
+  start)
+    exec /usr/bin/systemctl --no-block start "$unit"
+    ;;
+  stop)
+    exec /usr/bin/systemctl stop "$unit"
+    ;;
+  *)
+    echo "usage: strata-control start|stop INSTANCE" >&2
+    exit 64
+    ;;
+esac

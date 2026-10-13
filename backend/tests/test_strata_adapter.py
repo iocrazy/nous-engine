@@ -1,10 +1,16 @@
+import asyncio
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from src.services.inference.base import Message, TextRequest
-from src.services.inference.llm_strata import StrataAdapter
+from src.services.inference.llm_strata import (
+    ManagedStrataAdapter,
+    StrataAdapter,
+    StrataSystemdController,
+)
 
 
 def _adapter(handler) -> StrataAdapter:
@@ -125,3 +131,155 @@ async def test_infer_stream_yields_delta_and_usage():
         ("done", {"usage": {"prompt_tokens": 3, "completion_tokens": 1}}),
     ]
     adapter.unload()
+
+
+class _FakeController:
+    def __init__(self):
+        self.started = 0
+        self.stopped = 0
+
+    def start(self):
+        self.started += 1
+
+    def stop(self):
+        self.stopped += 1
+
+
+def test_systemd_controller_uses_fixed_helper_argv():
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    ctl = StrataSystemdController("iq3s", _run=run)
+    ctl.start()
+    ctl.stop()
+
+    assert [call[0] for call in calls] == [
+        ["sudo", "-n", "/usr/local/lib/nous-engine/strata-control", "start", "iq3s"],
+        ["sudo", "-n", "/usr/local/lib/nous-engine/strata-control", "stop", "iq3s"],
+    ]
+    assert all(call[1]["check"] is False for call in calls)
+
+
+@pytest.mark.parametrize("instance", ["", "IQ3S", "../x", "x.service", "x y", "-x"])
+def test_systemd_controller_rejects_unsafe_instance(instance):
+    with pytest.raises(ValueError, match="strata_instance"):
+        StrataSystemdController(instance)
+
+
+def test_systemd_controller_surfaces_bounded_failure():
+    def run(*_args, **_kwargs):
+        return SimpleNamespace(returncode=5, stdout="", stderr="denied")
+
+    ctl = StrataSystemdController("iq3s", _run=run)
+    with pytest.raises(RuntimeError, match=r"退出码 5.*denied"):
+        ctl.start()
+
+
+@pytest.mark.asyncio
+async def test_managed_adapter_starts_unit_then_waits_until_loaded():
+    controller = _FakeController()
+    checks = 0
+
+    async def handler(_request: httpx.Request):
+        nonlocal checks
+        checks += 1
+        return httpx.Response(
+            200,
+            json={
+                "service": "strata",
+                "loaded": checks >= 2,
+                "max_context": 131072,
+            },
+        )
+
+    adapter = ManagedStrataAdapter(
+        paths={},
+        strata_base_url="http://127.0.0.1:18080",
+        strata_instance="iq3s",
+        startup_timeout=1,
+        startup_poll_interval=0.001,
+        _controller=controller,
+        _transport=httpx.MockTransport(handler),
+    )
+    await adapter.load("cuda:1")
+
+    assert controller.started == 1
+    assert checks == 2
+    assert adapter.is_loaded
+    assert adapter.max_model_len == 131072
+
+    adapter.unload()
+    assert controller.stopped == 1
+    assert not adapter.is_loaded
+
+
+@pytest.mark.asyncio
+async def test_managed_adapter_timeout_stops_unit_and_closes_client():
+    controller = _FakeController()
+
+    async def handler(_request: httpx.Request):
+        return httpx.Response(200, json={"service": "strata", "loaded": False})
+
+    adapter = ManagedStrataAdapter(
+        paths={},
+        strata_base_url="http://127.0.0.1:18080",
+        strata_instance="iq3s",
+        startup_timeout=0.01,
+        startup_poll_interval=0.001,
+        _controller=controller,
+        _transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RuntimeError, match="未就绪"):
+        await adapter.load()
+
+    assert controller.started == 1
+    assert controller.stopped == 1
+    assert adapter._client is None
+
+
+@pytest.mark.asyncio
+async def test_managed_adapter_start_failure_closes_client():
+    class FailedController(_FakeController):
+        def start(self):
+            raise RuntimeError("start denied")
+
+    adapter = ManagedStrataAdapter(
+        paths={},
+        strata_base_url="http://127.0.0.1:18080",
+        strata_instance="iq3s",
+        _controller=FailedController(),
+        _transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+    )
+    with pytest.raises(RuntimeError, match="start denied"):
+        await adapter.load()
+    assert adapter._client is None
+
+
+@pytest.mark.asyncio
+async def test_managed_adapter_cancel_stops_unit_and_closes_client():
+    controller = _FakeController()
+
+    async def handler(_request: httpx.Request):
+        return httpx.Response(200, json={"service": "strata", "loaded": False})
+
+    adapter = ManagedStrataAdapter(
+        paths={},
+        strata_base_url="http://127.0.0.1:18080",
+        strata_instance="iq3s",
+        startup_timeout=10,
+        startup_poll_interval=1,
+        _controller=controller,
+        _transport=httpx.MockTransport(handler),
+    )
+    task = asyncio.create_task(adapter.load())
+    while controller.started == 0:
+        await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert controller.stopped == 1
+    assert adapter._client is None
