@@ -1,0 +1,15 @@
+adapter: src.services.inference.llm_strata.ManagedStrataAdapter
+id: qwen3_8_flash_next_abliterated_iq3s_strata
+source: local/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_S
+paths:
+  main: llm/qwen3.8-flash-next/IQ3_S
+resident: false
+ttl_seconds: 3600
+type: llm
+vram_mb: 90000
+gpu: 1
+params:
+  strata_base_url: http://127.0.0.1:18080
+  strata_instance: qwen38-iq3s
+  max_model_len: 8192
+  vision: true

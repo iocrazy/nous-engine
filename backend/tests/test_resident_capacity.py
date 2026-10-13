@@ -84,8 +84,8 @@ def test_qwen3_6_is_retired():
     assert "qwen3_6_35b_a3b_fp8" not in catalog, "spec §10:3.6 退役"
     llms = sorted(k for k, v in catalog.items() if v.get("type") == "llm")
     assert llms, "目录里至少要有一个 LLM"
-    strays = [k for k in llms if not k.startswith("qwen3_8_27b")]
-    assert not strays, f"目录里的 LLM 只能是 3.8 系(qwen3_8_27b*),多出来的:{strays}"
+    strays = [k for k in llms if not k.startswith("qwen3_8_")]
+    assert not strays, f"目录里的 LLM 只能是 3.8 系(qwen3_8_*),多出来的:{strays}"
 
 
 def test_at_most_one_resident_llm():
