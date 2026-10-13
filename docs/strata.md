@@ -54,13 +54,14 @@ Strata 安装、pack 和 MTP 准备仍是一次性 provisioning，不在模型�
 推荐目录：
 
 - 原始 GGUF：`/media/heygo/program/models/nous/llm/<model>/`
-- pack、MTP、配置：`/media/heygo/program/models/nous/strata/<model>/`
-- Strata checkout 和 venv：`/media/heygo/program/models/nous/runtime/strata/`
+- pack、MTP：`/media/heygo/program/models/nous/runtime/strata-data/`
+- Strata 配置：`/media/heygo/program/projects-code/github-repos/Strata/strata-<model>.json`
+- Strata checkout 和 venv：`/media/heygo/program/projects-code/github-repos/Strata/`
 
 每个实例需要 root 创建 `/etc/nous-engine/strata/<instance>.env`，例如：
 
 ```text
-STRATA_CONFIG=/media/heygo/program/models/nous/strata/qwen3.8-flash-next/IQ3_S/strata-iq3_s.json
+STRATA_CONFIG=/media/heygo/program/projects-code/github-repos/Strata/strata-iq3_s.json
 STRATA_PORT=18080
 ```
 
@@ -90,3 +91,18 @@ params:
 模板 unit 默认 `MemoryHigh=68G`、`MemoryMax=72G`，且不会被安装脚本自动启用或启动。
 实际启用前必须根据目标模型的峰值 RAM 调整并完成真机验收。视觉配置需要同时包含 mmproj、
 server 的 `vision` 段，以及引擎参数中的 `--vision`。
+
+## 本机 IQ3_S 实例
+
+`qwen3_8_flash_next_abliterated_iq3s_strata` 已按 GPU 1 的按需模型登记，配置为 8K 上下文、
+CPU 视觉编码器和 90,000 MiB 显存预算。它不会随后端启动自动加载。
+
+部署前由维护人员创建 `/etc/nous-engine/strata/qwen38-iq3s.env`：
+
+```text
+STRATA_CONFIG=/media/heygo/program/projects-code/github-repos/Strata/strata-iq3_s.json
+STRATA_PORT=18080
+```
+
+生成的 Strata 配置必须保持 `gpu: 1`，且 `--vram-reserve-mib` 不得低于 5000。
+GPU 1 同时承载生产 ComfyUI；加载该模型只能在明确维护窗口内进行，并确保没有 ComfyUI 工作流运行。
