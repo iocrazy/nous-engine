@@ -17,15 +17,15 @@
 - `systemctl restart|stop|start|edit` 任何 `nous-engine-*` 单元;`enginectl`;`daemon-reload`
 - 改 `/etc/systemd/system/nous-engine-*.service`
 - 自己另起一个 ComfyUI 去占 8888
-- **直接改本目录里的任何文件**(包括新建)
+- **直接改生产工作树里的任何文件**(包括新建);仅允许通过 `git worktree add`
+  在已忽略的 `.worktrees/` 下创建独立工作树
 
 ## 要改代码
 
 ```bash
-git -C /media/heygo/program/projects-code/repos/nous-engine fetch origin
-git -C /media/heygo/program/projects-code/repos/nous-engine worktree add \
-    ../nous-engine-<topic> -b <branch> origin/master
-# 在 ../nous-engine-<topic> 里改、跑测试,然后 push 分支、开 PR
+git fetch origin
+git worktree add .worktrees/<topic> -b <branch> origin/master
+# 在 .worktrees/<topic> 里改、跑测试,然后 push 分支、开 PR
 ```
 
 测试约定见 `CLAUDE.md` 的 Testing 一节:只跑 PostgreSQL、`uv run pytest tests -n 8`、
