@@ -4,6 +4,7 @@
 服务/不碰 GPU),锁 `_asr_moss_transcribe` 的 verbose_json 解析 + 503 语义,以及端点的
 segments 门控与秒数计量。真机 e2e 见 spec §4 PR-2 验收。
 """
+import asyncio
 import io
 import wave
 
@@ -15,9 +16,11 @@ from fastapi import HTTPException
 from src.api.routes.openai_compat import (
     _MOSS_DEFAULT_PROMPT,
     _asr_moss_transcribe,
+    _asr_moss_transcribe_chunk,
     _asr_verbose_json,
     _detect_language,
     _merge_segments,
+    _moss_wav_chunks,
     _punctuation_density,
     _resolve_moss_base_url,
     _restore_punctuation,
@@ -72,7 +75,7 @@ async def test_moss_transcribe_multi_speaker():
         ],
     }
     client = _FakeClient(resp=_FakeResp(200, body))
-    text, language, segments = await _asr_moss_transcribe(client, b"wav", None, 6, _BASE)
+    text, language, segments = await _asr_moss_transcribe_chunk(client, b"wav", None, 6, _BASE)
     assert text == "你好。再见。"
     assert language == "zh"
     assert segments == [
@@ -86,7 +89,7 @@ async def test_moss_transcribe_missing_speaker_prefix():
     # ④ 防御:段缺 [Sxx] 前缀 → speaker=None,文本原样;顶层无 language → None(不假设有)。
     body = {"segments": [{"start": 0.0, "end": 2.0, "text": "没有前缀的文本"}]}
     client = _FakeClient(resp=_FakeResp(200, body))
-    text, language, segments = await _asr_moss_transcribe(client, b"wav", None, 2, _BASE)
+    text, language, segments = await _asr_moss_transcribe_chunk(client, b"wav", None, 2, _BASE)
     assert language is None
     assert segments == [
         {"start": 0.0, "end": 2.0, "speaker": None, "text": "没有前缀的文本"},
@@ -96,9 +99,8 @@ async def test_moss_transcribe_missing_speaker_prefix():
 
 @pytest.mark.asyncio
 async def test_moss_transcribe_request_shape():
-    # multipart 固定项 + max_new_tokens 按时长动态(min(65536,max(5120,secs*32+512)))。
     client = _FakeClient(resp=_FakeResp(200, {"segments": []}))
-    await _asr_moss_transcribe(client, b"wavbytes", None, 6, _BASE)
+    await _asr_moss_transcribe_chunk(client, b"wavbytes", None, 6, _BASE)
     url, kwargs = client.last_call
     assert url.endswith("/v1/audio/transcriptions")
     assert kwargs["data"]["model"] == "moss-transcribe-diarize"
@@ -106,9 +108,8 @@ async def test_moss_transcribe_request_shape():
     assert kwargs["files"]["file"][1] == b"wavbytes"
     # 6s → max(5120, 6*32+512=704) = 5120(下限保短音频)
     assert kwargs["data"]["max_new_tokens"] == "5120"
-    # 中等时长走公式;长音频封顶 65536
-    for secs, expected in [(460, 460 * 32 + 512), (3000, 65536)]:
-        await _asr_moss_transcribe(client, b"w", None, secs, _BASE)
+    for secs, expected in [(460, 460 * 32 + 512), (600, 600 * 32 + 512)]:
+        await _asr_moss_transcribe_chunk(client, b"w", None, secs, _BASE)
         assert client.last_call[1]["data"]["max_new_tokens"] == str(expected)
 
 
@@ -119,7 +120,7 @@ async def test_moss_transcribe_request_shape():
 async def test_moss_transcribe_context_appends_hotword_prompt():
     # context 非空:multipart 含 prompt,以默认转写指令开头、以热词后缀结尾(保输出契约 + 生效热词)。
     client = _FakeClient(resp=_FakeResp(200, {"segments": []}))
-    await _asr_moss_transcribe(client, b"wav", "  瑞幸咖啡  ", 4, _BASE)
+    await _asr_moss_transcribe_chunk(client, b"wav", "  瑞幸咖啡  ", 4, _BASE)
     prompt = client.last_call[1]["data"]["prompt"]
     assert prompt.startswith(_MOSS_DEFAULT_PROMPT)
     assert prompt.endswith("热词提示:瑞幸咖啡")  # context 两端空白已 strip
@@ -131,7 +132,7 @@ async def test_moss_transcribe_no_context_sends_default_prompt():
     # 省略即丢快语速标点),且无热词后缀。
     for ctx in (None, "", "   "):
         client = _FakeClient(resp=_FakeResp(200, {"segments": []}))
-        await _asr_moss_transcribe(client, b"wav", ctx, 4, _BASE)
+        await _asr_moss_transcribe_chunk(client, b"wav", ctx, 4, _BASE)
         assert client.last_call[1]["data"]["prompt"] == _MOSS_DEFAULT_PROMPT
 
 
@@ -143,7 +144,7 @@ async def test_moss_transcribe_unreachable_503():
     # ③ 连接失败 → HTTPException 503。
     client = _FakeClient(exc=httpx.ConnectError("connection refused"))
     with pytest.raises(HTTPException) as ei:
-        await _asr_moss_transcribe(client, b"wav", None, 4, _BASE)
+        await _asr_moss_transcribe_chunk(client, b"wav", None, 4, _BASE)
     assert ei.value.status_code == 503
 
 
@@ -152,7 +153,7 @@ async def test_moss_transcribe_non_200_503():
     # 非 200 → 503(不把上游错误当结果)。
     client = _FakeClient(resp=_FakeResp(500, {}, "internal error"))
     with pytest.raises(HTTPException) as ei:
-        await _asr_moss_transcribe(client, b"wav", None, 4, _BASE)
+        await _asr_moss_transcribe_chunk(client, b"wav", None, 4, _BASE)
     assert ei.value.status_code == 503
 
 
@@ -167,6 +168,136 @@ def _make_wav16k(seconds: float) -> bytes:
         w.setframerate(16000)
         w.writeframes(b"\x00\x00" * int(16000 * seconds))
     return buf.getvalue()
+
+
+@pytest.mark.parametrize("duration,expected", [(1200, [600, 600]), (1320.25, [600, 600, 120.25])])
+def test_moss_chunks_preserve_all_pcm_frames(duration, expected):
+    wav = _make_wav16k(duration)
+    chunks = list(_moss_wav_chunks(wav))
+    assert [seconds for _, seconds, _ in chunks] == expected
+    assert [offset for offset, _, _ in chunks] == [600 * i for i in range(len(expected))]
+    frames = []
+    for _, _, chunk in chunks:
+        with wave.open(io.BytesIO(chunk), "rb") as audio:
+            assert (audio.getframerate(), audio.getnchannels(), audio.getsampwidth()) == (16000, 1, 2)
+            frames.append(audio.readframes(audio.getnframes()))
+    with wave.open(io.BytesIO(wav), "rb") as audio:
+        assert b"".join(frames) == audio.readframes(audio.getnframes())
+
+
+class _ChunkClient:
+    def __init__(self, fail_at=None, failure=None):
+        self.calls = []
+        self.fail_at = fail_at
+        self.failure = failure
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    async def post(self, url, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) == self.fail_at:
+            if self.failure:
+                raise self.failure
+            return _FakeResp(500, text="Request requires more tokens than the thinker KV cache can hold")
+        return _FakeResp(200, {"language": "en", "segments": [
+            {"start": 0.25, "end": 1.0, "text": f"[S01]Part {len(self.calls)}"},
+            {"start": 1.0, "end": 1.5, "text": "[S01] continued."},
+            {"start": 1.5, "end": 2.0, "text": "No label."},
+        ]})
+
+
+@pytest.mark.parametrize("duration,expected_calls", [(6, 1), (600, 1), (600.25, 2)])
+async def test_moss_chunk_boundary_uses_frames_not_rounded_metering(duration, expected_calls):
+    wav = _make_wav16k(duration)
+    client = _ChunkClient()
+    await _asr_moss_transcribe(client, wav, None, round(duration), _BASE)
+    assert len(client.calls) == expected_calls
+    if expected_calls == 1:
+        assert client.calls[0]["files"]["file"][1] is wav
+
+
+async def test_moss_long_audio_bounded_requests_global_timestamps_and_speakers():
+    client = _ChunkClient()
+    text, language, segments = await _asr_moss_transcribe(
+        client, _make_wav16k(1320.25), "Test Context", 1320, _BASE,
+    )
+    assert len(client.calls) == 3
+    assert [call["data"]["max_new_tokens"] for call in client.calls] == ["19712", "19712", "5120"]
+    assert all(call["data"]["prompt"].endswith("热词提示:Test Context") for call in client.calls)
+    assert [seg["start"] for seg in segments[::3]] == [0.25, 600.25, 1200.25]
+    assert [seg["end"] for seg in segments[::3]] == [1.0, 601.0, 1201.0]
+    assert [seg["speaker"] for seg in segments] == ["S01", "S01", None, "S02", "S02", None, "S03", "S03", None]
+    assert text == "Part 1continued.No label.Part 2continued.No label.Part 3continued.No label."
+    assert language == "en"
+    assert len(_asr_verbose_json(text, language, segments, 1320)["segments"]) == 9
+
+
+@pytest.mark.parametrize("failure", [None, httpx.ConnectError("unreachable"), asyncio.CancelledError()])
+async def test_moss_chunk_failure_stops_without_partial_success_or_retry(failure):
+    client = _ChunkClient(fail_at=2, failure=failure)
+    error = asyncio.CancelledError if isinstance(failure, asyncio.CancelledError) else HTTPException
+    with pytest.raises(error) as exc:
+        await _asr_moss_transcribe(client, _make_wav16k(1320), None, 1320, _BASE)
+    assert len(client.calls) == 2
+    if error is HTTPException:
+        assert exc.value.status_code == 503
+        assert "chunk 2 failed" in exc.value.detail
+
+
+@pytest.mark.parametrize("response_format", ["json", "text", "verbose_json"])
+@pytest.mark.parametrize("fail_at", [None, 2])
+async def test_long_audio_endpoint_uses_one_task_and_original_duration(
+    api_client, bearer_headers, mock_vllm, monkeypatch, response_format, fail_at,
+):
+    from sqlalchemy import select
+    from src.api.routes import openai_compat as oc
+    from src.models.execution_task import ExecutionTask
+
+    client = _ChunkClient(fail_at=fail_at)
+    wav = _make_wav16k(1321)
+
+    async def normalize(raw):
+        return wav
+
+    monkeypatch.setenv("NOUS_MOSS_ASR_URL", _BASE)
+    monkeypatch.setattr(oc, "_ffmpeg_to_wav16k", normalize)
+    monkeypatch.setattr(oc.httpx, "AsyncClient", lambda **kwargs: client)
+    response = await api_client.post(
+        "/v1/audio/transcriptions", headers=bearer_headers,
+        files={"file": ("long.wav", b"test", "audio/wav")},
+        data={"model": "qwen3.5", "response_format": response_format, "punctuate": "false"},
+    )
+    async with api_client.app.state.async_session_factory() as session:
+        tasks = (await session.execute(select(ExecutionTask))).scalars().all()
+    assert len(tasks) == 1
+    assert tasks[0].input_json["audio_seconds"] == 1321
+    if fail_at:
+        assert response.status_code == 503
+        assert len(client.calls) == 2
+        assert "Part 1" not in response.text
+        assert tasks[0].status == "failed"
+        assert tasks[0].result is None
+        assert "chunk 2 failed" in tasks[0].error
+        return
+    assert response.status_code == 200
+    assert len(client.calls) == 3
+    if response_format == "text":
+        assert "Part 3" in response.text
+    else:
+        result = response.json()
+        assert "Part 3" in result["text"]
+        if response_format == "json":
+            assert result["usage"]["seconds"] == 1321
+            assert "segments" not in result
+        else:
+            assert result["duration"] == 1321
+            assert result["segments"][-1]["end"] == 1202
+            assert [s["id"] for s in result["segments"]] == list(range(9))
+    assert tasks[0].status == "completed"
 
 
 @pytest.mark.asyncio
