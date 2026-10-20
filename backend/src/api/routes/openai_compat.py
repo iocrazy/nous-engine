@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import os
 import re
 import tempfile
@@ -674,7 +675,62 @@ def _resolve_moss_base_url(model_mgr, engine_name: str) -> str:
     return get_vllm_base_url(model_mgr, engine_name).rstrip("/")
 
 
+_MOSS_CHUNK_SECONDS = 600
+
+
+def _moss_wav_chunks(wav: bytes):
+    with wave.open(io.BytesIO(wav), "rb") as audio:
+        rate = audio.getframerate()
+        frame_size = audio.getnchannels() * audio.getsampwidth()
+        for offset in range(0, audio.getnframes(), rate * _MOSS_CHUNK_SECONDS):
+            frames = audio.readframes(rate * _MOSS_CHUNK_SECONDS)
+            output = io.BytesIO()
+            with wave.open(output, "wb") as chunk:
+                chunk.setnchannels(audio.getnchannels())
+                chunk.setsampwidth(audio.getsampwidth())
+                chunk.setframerate(rate)
+                chunk.writeframes(frames)
+            yield offset / rate, len(frames) / frame_size / rate, output.getvalue()
+
+
 async def _asr_moss_transcribe(
+    client: httpx.AsyncClient, wav: bytes, context: str | None, audio_seconds: int,
+    base_url: str,
+) -> tuple[str, str | None, list[dict]]:
+    with wave.open(io.BytesIO(wav), "rb") as audio:
+        is_short = audio.getnframes() <= audio.getframerate() * _MOSS_CHUNK_SECONDS
+    if is_short:
+        return await _asr_moss_transcribe_chunk(client, wav, context, audio_seconds, base_url)
+    text = ""
+    language = None
+    segments: list[dict] = []
+    speaker_count = 0
+    for index, (offset, duration, chunk) in enumerate(_moss_wav_chunks(wav), 1):
+        try:
+            chunk_text, chunk_language, chunk_segments = await _asr_moss_transcribe_chunk(
+                client, chunk, context, math.ceil(duration), base_url,
+            )
+        except HTTPException as exc:
+            raise HTTPException(exc.status_code, detail=f"MOSS ASR chunk {index} failed: {exc.detail}") from exc
+        text = _merge_concat_text(text, chunk_text)
+        language = language or chunk_language
+        # Speaker labels are only comparable within a single inference request.
+        speakers: dict[str, str] = {}
+        for segment in chunk_segments:
+            speaker = segment["speaker"]
+            if speaker is not None and speaker not in speakers:
+                speaker_count += 1
+                speakers[speaker] = f"S{speaker_count:02d}"
+            segments.append({
+                **segment,
+                "start": offset + segment["start"] if segment["start"] is not None else None,
+                "end": offset + segment["end"] if segment["end"] is not None else None,
+                "speaker": speakers.get(speaker),
+            })
+    return text, language, segments
+
+
+async def _asr_moss_transcribe_chunk(
     client: httpx.AsyncClient, wav: bytes, context: str | None, audio_seconds: int,
     base_url: str,
 ) -> tuple[str, str | None, list[dict]]:
@@ -692,12 +748,11 @@ async def _asr_moss_transcribe(
 
     context(领域/热词偏置)非空时:下传 `prompt = 默认指令 + 热词提示:{context}`(热词后缀
     = MOSS 模型卡 README 官方配方,transformers 真机 smoke 验过 steer 生效且不幻觉;见
-    `_MOSS_DEFAULT_PROMPT` 处注释)。context 为空:不传 `prompt`,吃服务端默认指令。
+    `_MOSS_DEFAULT_PROMPT` 处注释)。context 为空时仅发送默认转写指令。
     """
     base = base_url
-    # max_new_tokens 按时长动态:0.9B 输出 ≈12.5 audio-token/s + 文本,盈余给标点/说话人标记;
-    # 下限 5120 保短音频,上限 65536 防长音频失控。
-    max_new_tokens = min(65536, max(5120, int(audio_seconds * 32) + 512))
+    # Each request covers at most one chunk; reserve output tokens for text and speaker markers.
+    max_new_tokens = max(5120, int(audio_seconds * 32) + 512)
     # 超时按时长给:长音频转写慢,至少 300s。
     timeout = max(300, audio_seconds * 2)
     files = {"file": ("audio.wav", wav, "audio/wav")}
