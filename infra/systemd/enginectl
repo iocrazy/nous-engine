@@ -100,6 +100,41 @@ _status_units() {
   done
 }
 
+# ComfyUI /queue 探不通时,**回去问 systemd 要真实状态再照实说**。一次 curl 的空响应
+# 根本区分不了「没 enable」「没启动」「active 但还在冷启动」「卡死但端口还占着」「4s 超时」,
+# 旧版却一律断言「单元未启用或未启动」—— 2026-09-13 用户 `enginectl restart` 完立刻看
+# status 就中了这个:comfyui 自始至终 active + enabled,只是在扫自定义节点 / LoRA-Manager
+# 全目录扫描 / ComfyUI-Manager 拉远程缓存(冷启动 60s 以上),提示却把人引去查 enable。
+# 结果经全局变量回传(同 _wait_backend_ready 的写法):COMFY_OFF_MARK = 带色状态词,
+# COMFY_OFF_NOTE = 暗色原因 + 下一步。
+_comfy_offline_reason() {
+  local act ena
+  act="$(_unit_active nous-engine-comfyui.service)"; act="${act:-unknown}"
+  ena="$(systemctl is-enabled nous-engine-comfyui.service 2>/dev/null || true)"; ena="${ena:-unknown}"
+  case "$act" in
+    active)
+      COMFY_OFF_MARK="$(c_ylw '未应答')"
+      COMFY_OFF_NOTE="单元 active(is-enabled=${ena})—— 多半还在冷启动(扫自定义节点/LoRA 目录常需 60s 以上),稍后重试;久不好转可能是卡死或超过 4s 超时: enginectl logs comfyui"
+      ;;
+    activating|reloading)
+      COMFY_OFF_MARK="$(c_ylw "$act")"
+      COMFY_OFF_NOTE="单元正在启动(is-enabled=${ena})—— 稍后重试: enginectl status"
+      ;;
+    deactivating)
+      COMFY_OFF_MARK="$(c_ylw "$act")"
+      COMFY_OFF_NOTE="单元正在停止(is-enabled=${ena})"
+      ;;
+    inactive)
+      COMFY_OFF_MARK="$(c_dim '离线')"
+      COMFY_OFF_NOTE="is-active=inactive, is-enabled=${ena} —— sudo systemctl start nous-engine-comfyui"
+      ;;
+    *)
+      COMFY_OFF_MARK="$(c_red "$act")"
+      COMFY_OFF_NOTE="is-active=${act}, is-enabled=${ena} —— enginectl logs comfyui"
+      ;;
+  esac
+}
+
 _status_endpoints() {
   printf '\n监听端口:\n'
   ss -ltn 2>/dev/null | awk 'NR>1 {print $4}' | grep -E ':(8000|8001|5432|8888)$' | sort -u | sed 's/^/  /' || true
@@ -130,7 +165,10 @@ _status_endpoints() {
       printf '  http://%s:8888  %s %s\n' "$ts_host" "$(c_red "HTTP ${zt_code}")" "$(c_dim '(--listen 少了该 IP?或 Tailscale 没起)')"
     fi
   else
-    printf '  http://127.0.0.1:8888  %s\n' "$(c_dim '离线(单元未启用或未启动)')"
+    # 探不通 ≠ 知道为什么探不通:原因得问 systemd 要,不能凭 curl 结果臆断(见
+    # _comfy_offline_reason 的注释,2026-09-13 误导性提示)。
+    _comfy_offline_reason
+    printf '  http://127.0.0.1:8888  %s %s\n' "$COMFY_OFF_MARK" "$(c_dim "$COMFY_OFF_NOTE")"
   fi
 }
 
