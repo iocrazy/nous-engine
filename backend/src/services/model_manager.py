@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import logging
 import time
 from pathlib import Path
@@ -250,12 +251,19 @@ class ModelManager:
         if not supports_group:
             return
         size_gb = self._model_size_gb(spec)
-        if size_gb <= 0:
-            return
         from src.gpu.topology import group_budget_gb, select_tp_group  # noqa: PLC0415
 
-        _total, free = group_budget_gb(cards)
-        if free <= 0:  # 查不到实时显存 → 不拦(别因为 nvidia-smi 抽风就拒绝加载)
+        total, free = group_budget_gb(cards)
+        from src.config import load_runtime_overrides, resolve_vram_utilization  # noqa: PLC0415
+        cls = self._adapter_class(spec)
+        budget = (spec.params or {}).get("vram_budget")
+        if budget is None:
+            budget = (load_runtime_overrides().get(model_id) or {}).get("vram_budget")
+        if cls is not None and "vram_budget" in inspect.signature(cls.__init__).parameters:
+            util = resolve_vram_utilization(budget, total, None, 0.0)
+            if util > 0 and total > 0:
+                size_gb = util * total * len(cards)
+        if size_gb <= 0 or free <= 0:  # 查不到实时显存 → 不拦(别因为 nvidia-smi 抽风就拒绝加载)
             return
         if free * len(cards) >= size_gb:
             return
@@ -317,8 +325,6 @@ class ModelManager:
         # 每模型显存预算 overlay(runtime_overrides.json,spec 2026-06-13)。registry 直读
         # models.yaml 不过 overlay,这里按需注入。只给接受该 kwarg 的适配器(vLLM 类),
         # TTS 等不接受的不传以免 unexpected-kwarg。
-        import inspect
-
         vb = ov.get("vram_budget")
         if (
             isinstance(vb, dict)

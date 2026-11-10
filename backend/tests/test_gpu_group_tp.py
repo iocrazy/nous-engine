@@ -537,6 +537,79 @@ def test_placement_explicit_pin_that_cannot_fit_raises_with_suggestion():
     assert "硬约束" in str(ei.value)
 
 
+@pytest.mark.parametrize(
+    ("budget", "declared_gb", "fits"),
+    [
+        ({"mode": "absolute", "value": 16}, 25, True),
+        ({"mode": "absolute", "value": 22}, 9, False),
+        ({"mode": "absolute", "value": 22}, 0, False),
+        ({"mode": "percent", "value": 0.2}, 25, True),
+        ({"mode": "percent", "value": 0.4}, 9, False),
+        ({"mode": "auto"}, 25, False),
+    ],
+)
+def test_explicit_placement_uses_live_vram_budget(budget, declared_gb, fits):
+    from src.errors import ModelLoadError
+
+    stats = _stats({0: 20 * 1024}, {0: 72 * 1024})
+    mgr = _mgr(stats)
+    spec = _spec(gpu=0, vram_mb=declared_gb * 1024)
+    with patch("src.services.gpu_monitor.poll_gpu_stats", return_value=stats), \
+            patch("src.config.load_runtime_overrides", return_value={"m": {"vram_budget": budget}}):
+        if fits:
+            assert mgr._resolve_placement("m", spec).gpu_indices == [0]
+        else:
+            with pytest.raises(ModelLoadError):
+                mgr._resolve_placement("m", spec)
+
+
+def test_explicit_placement_rechecks_budget_without_rebuilding_registry():
+    from src.errors import ModelLoadError
+
+    stats = _stats({0: 20 * 1024}, {0: 72 * 1024})
+    mgr = _mgr(stats)
+    spec = _spec(gpu=0, vram_mb=25 * 1024)
+    overrides = {"m": {"vram_budget": {"mode": "absolute", "value": 16}}}
+    with patch("src.services.gpu_monitor.poll_gpu_stats", return_value=stats), \
+            patch("src.config.load_runtime_overrides", return_value=overrides):
+        assert mgr._resolve_placement("m", spec).gpu_indices == [0]
+        overrides["m"]["vram_budget"]["value"] = 22
+        with pytest.raises(ModelLoadError):
+            mgr._resolve_placement("m", spec)
+
+
+def test_explicit_group_budget_is_per_card():
+    from src.errors import ModelLoadError
+
+    stats = _stats({0: 12 * 1024, 2: 20 * 1024})
+    mgr = _mgr(stats)
+    spec = _spec(gpus=[0, 2], vram_mb=8 * 1024)
+    with patch("src.services.gpu_monitor.poll_gpu_stats", return_value=stats), \
+            patch("src.config.load_runtime_overrides", return_value={
+                "m": {"vram_budget": {"mode": "absolute", "value": 16}},
+            }):
+        with pytest.raises(ModelLoadError):
+            mgr._resolve_placement("m", spec)
+
+
+def test_explicit_placement_ignores_budget_unsupported_by_adapter():
+    from src.errors import ModelLoadError
+
+    class Adapter:
+        def __init__(self, paths):
+            pass
+
+    stats = _stats({0: 20 * 1024})
+    mgr = _mgr(stats)
+    with patch("src.services.gpu_monitor.poll_gpu_stats", return_value=stats), \
+            patch.object(mgr, "_adapter_class", return_value=Adapter), \
+            patch("src.config.load_runtime_overrides", return_value={
+                "m": {"vram_budget": {"mode": "absolute", "value": 16}},
+            }):
+        with pytest.raises(ModelLoadError):
+            mgr._assert_explicit_fits("m", _spec(vram_mb=25 * 1024), [0], True)
+
+
 def test_placement_auto_selects_declared_group_when_single_card_too_small():
     stats = _stats({0: 20000, 1: 10000, 2: 20000})
     mgr = _mgr(stats)

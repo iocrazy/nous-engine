@@ -49,3 +49,9 @@ def test_preload_order_read_from_yaml(tmp_path):
     assert reg.get("early").preload_order == 10
     assert reg.get("late").preload_order == 20
     assert reg.get("unordered").preload_order is None
+    from src.config import load_model_configs
+
+    configs = load_model_configs(yaml_path, apply_overrides=False)
+    assert configs["early"]["preload_order"] == 10
+    assert configs["late"]["preload_order"] == 20
+    assert configs["unordered"]["preload_order"] is None
