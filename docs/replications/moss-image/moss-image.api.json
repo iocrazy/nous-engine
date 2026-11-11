@@ -1,0 +1,386 @@
+{
+  "19": {
+    "class_type": "ResolutionSelector",
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 2,
+      "multiple": 16
+    },
+    "_meta": {
+      "title": "Resolution Selector"
+    }
+  },
+  "28": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "moss_image_sft_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "29": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": [
+        "80",
+        0
+      ],
+      "clip": [
+        "97",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "30": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3.5_9b_int8_convrot.safetensors",
+      "type": "moss_image",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "31": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 42,
+      "steps": 25,
+      "cfg": 3,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "38",
+        0
+      ],
+      "positive": [
+        "29",
+        0
+      ],
+      "negative": [
+        "36",
+        0
+      ],
+      "latent_image": [
+        "35",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "32": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "35": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": [
+        "19",
+        0
+      ],
+      "height": [
+        "19",
+        1
+      ],
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Empty Flux 2 Latent"
+    }
+  },
+  "36": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": " worst quality, bad anatomy, watermark, jpeg artifact",
+      "clip": [
+        "97",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "37": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "31",
+        0
+      ],
+      "vae": [
+        "32",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "38": {
+    "class_type": "SkipLayerGuidanceDiTSimple",
+    "inputs": {
+      "double_layers": "",
+      "single_layers": "22",
+      "start_percent": 0,
+      "end_percent": 0.5,
+      "model": [
+        "97",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SkipLayerGuidanceDiTSimple"
+    }
+  },
+  "45": {
+    "class_type": "SeedVR2LoadVAEModel",
+    "inputs": {
+      "model": "seedvr2_ema_vae_fp16.safetensors",
+      "device": "cuda:0",
+      "encode_tiled": true,
+      "encode_tile_size": 1024,
+      "encode_tile_overlap": 128,
+      "decode_tiled": true,
+      "decode_tile_size": 1024,
+      "decode_tile_overlap": 128,
+      "tile_debug": "false",
+      "offload_device": "cpu",
+      "cache_model": false
+    },
+    "_meta": {
+      "title": "SeedVR2 (Down)Load VAE Model"
+    }
+  },
+  "46": {
+    "class_type": "SeedVR2VideoUpscaler",
+    "inputs": {
+      "seed": 42,
+      "resolution": [
+        "50",
+        0
+      ],
+      "max_resolution": 6000,
+      "batch_size": 5,
+      "uniform_batch_size": false,
+      "color_correction": "lab",
+      "temporal_overlap": 0,
+      "prepend_frames": 0,
+      "input_noise_scale": 0,
+      "latent_noise_scale": 0,
+      "offload_device": "cpu",
+      "enable_debug": false,
+      "image": [
+        "49",
+        0
+      ],
+      "dit": [
+        "48",
+        0
+      ],
+      "vae": [
+        "45",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SeedVR2 Video Upscaler (v2.5.24)"
+    }
+  },
+  "48": {
+    "class_type": "SeedVR2LoadDiTModel",
+    "inputs": {
+      "model": "seedvr2_ema_7b-Q8_0.gguf",
+      "device": "cuda:0",
+      "blocks_to_swap": 32,
+      "swap_io_components": true,
+      "offload_device": "cpu",
+      "cache_model": false,
+      "attention_mode": "sdpa"
+    },
+    "_meta": {
+      "title": "SeedVR2 (Down)Load DiT Model"
+    }
+  },
+  "49": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 0.30000000000000004,
+      "resolution_steps": 1,
+      "image": [
+        "37",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Scale Image to Total Pixels"
+    }
+  },
+  "50": {
+    "class_type": "INTConstant",
+    "inputs": {
+      "value": 2560
+    },
+    "_meta": {
+      "title": "INT Constant"
+    }
+  },
+  "51": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "nous/moss/upscaled",
+      "images": [
+        "46",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "65": {
+    "class_type": "CustomSystemPromptGenerator|Mie",
+    "inputs": {
+      "input_text": "",
+      "system_prompt_name": "none",
+      "seed": 7,
+      "video_frames": 3,
+      "reference_video_frames": 3,
+      "image_detail": "auto",
+      "temperature": 0.2,
+      "max_tokens": 10000,
+      "llm_service_connector": [
+        "81",
+        0
+      ],
+      "skill": [
+        "72",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Qwen Image 2.1 提示词扩写"
+    }
+  },
+  "66": {
+    "class_type": "CustomSystemPromptGenerator|Mie",
+    "inputs": {
+      "input_text": "输出可复现该画面的详细提示词，不要图片上的文字. ",
+      "system_prompt_name": "none",
+      "seed": 8,
+      "video_frames": 3,
+      "reference_video_frames": 3,
+      "image_detail": "high",
+      "temperature": 0.6,
+      "max_tokens": 10000,
+      "llm_service_connector": [
+        "81",
+        0
+      ],
+      "source": [
+        "92",
+        0
+      ],
+      "skill": [
+        "72",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Qwen Image 2.1 图片反推"
+    }
+  },
+  "72": {
+    "class_type": "NousSkillLoader|Mie",
+    "inputs": {
+      "skill": "MOSS/SKILL.md",
+      "include_references": true,
+      "uploaded_name": "",
+      "uploaded_content": ""
+    },
+    "_meta": {
+      "title": "Nous Skill 加载器"
+    }
+  },
+  "80": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": false,
+      "on_false": [
+        "65",
+        0
+      ],
+      "on_true": [
+        "66",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Lazy Switch KJ"
+    }
+  },
+  "81": {
+    "class_type": "SetGeneralLLMServiceConnector|Mie",
+    "inputs": {
+      "api_url": "https://api.deepseek.com/chat/completions",
+      "api_token": "",
+      "model_select": "deepseek-flash",
+      "config_file": "mie_llm_keys.json",
+      "config_key": "deepseek-flash",
+      "prefer_local_config": true,
+      "timeout": 176
+    },
+    "_meta": {
+      "title": "DeepSeek"
+    }
+  },
+  "92": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": ""
+    },
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "97": {
+    "class_type": "Lora Loader Stack (rgthree)",
+    "inputs": {
+      "lora_01": "moss/KOOK-MOSS-SFT-观澜.safetensors",
+      "strength_01": 1.0,
+      "lora_02": "None",
+      "strength_02": 0.0,
+      "lora_03": "None",
+      "strength_03": 0.0,
+      "lora_04": "None",
+      "strength_04": 0.0,
+      "model": [
+        "28",
+        0
+      ],
+      "clip": [
+        "30",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Lora Loader Stack (rgthree)"
+    }
+  }
+}
