@@ -244,9 +244,9 @@
   "51": {
     "class_type": "SaveImage",
     "inputs": {
-      "filename_prefix": "nous/moss/upscaled",
+      "filename_prefix": "nous/moss/result",
       "images": [
-        "46",
+        "102",
         0
       ]
     },
@@ -257,7 +257,10 @@
   "65": {
     "class_type": "CustomSystemPromptGenerator|Mie",
     "inputs": {
-      "input_text": "",
+      "input_text": [
+        "100",
+        0
+      ],
       "system_prompt_name": "none",
       "seed": 7,
       "video_frames": 3,
@@ -323,7 +326,7 @@
     "inputs": {
       "switch": false,
       "on_false": [
-        "65",
+        "101",
         0
       ],
       "on_true": [
@@ -363,13 +366,25 @@
     "class_type": "Lora Loader Stack (rgthree)",
     "inputs": {
       "lora_01": "moss/KOOK-MOSS-SFT-观澜.safetensors",
-      "strength_01": 1.0,
+      "strength_01": [
+        "111",
+        0
+      ],
       "lora_02": "None",
-      "strength_02": 0.0,
+      "strength_02": [
+        "112",
+        0
+      ],
       "lora_03": "None",
-      "strength_03": 0.0,
+      "strength_03": [
+        "113",
+        0
+      ],
       "lora_04": "None",
-      "strength_04": 0.0,
+      "strength_04": [
+        "114",
+        0
+      ],
       "model": [
         "28",
         0
@@ -381,6 +396,93 @@
     },
     "_meta": {
       "title": "Lora Loader Stack (rgthree)"
+    }
+  },
+  "100": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": ""
+    },
+    "_meta": {
+      "title": "画面描述"
+    }
+  },
+  "101": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": true,
+      "on_false": [
+        "100",
+        0
+      ],
+      "on_true": [
+        "65",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "文字扩写开关"
+    }
+  },
+  "102": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": true,
+      "on_false": [
+        "37",
+        0
+      ],
+      "on_true": [
+        "46",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SeedVR2 超分开关"
+    }
+  },
+  "111": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": true,
+      "on_false": 0.0,
+      "on_true": 1.0
+    },
+    "_meta": {
+      "title": "LoRA 1 开关"
+    }
+  },
+  "112": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": false,
+      "on_false": 0.0,
+      "on_true": 1.0
+    },
+    "_meta": {
+      "title": "LoRA 2 开关"
+    }
+  },
+  "113": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": false,
+      "on_false": 0.0,
+      "on_true": 1.0
+    },
+    "_meta": {
+      "title": "LoRA 3 开关"
+    }
+  },
+  "114": {
+    "class_type": "LazySwitchKJ",
+    "inputs": {
+      "switch": false,
+      "on_false": 0.0,
+      "on_true": 1.0
+    },
+    "_meta": {
+      "title": "LoRA 4 开关"
     }
   }
 }

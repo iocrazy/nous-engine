@@ -2,11 +2,20 @@
   "exposed_params": [
     {
       "key": "prompt",
-      "label": "画面描述（DeepSeek 扩写）",
+      "label": "画面描述",
       "type": "string",
-      "comfy_node_id": "65",
-      "comfy_input": "input_text",
+      "comfy_node_id": "100",
+      "comfy_input": "value",
       "required": true
+    },
+    {
+      "key": "enable_expansion",
+      "label": "启用 DeepSeek 文字扩写",
+      "type": "boolean",
+      "comfy_node_id": "101",
+      "comfy_input": "switch",
+      "required": false,
+      "default": true
     },
     {
       "key": "use_reference",
@@ -111,6 +120,15 @@
       "step": 0.25
     },
     {
+      "key": "enable_lora_01",
+      "label": "启用 LoRA 1",
+      "type": "boolean",
+      "comfy_node_id": "111",
+      "comfy_input": "switch",
+      "required": false,
+      "default": true
+    },
+    {
       "key": "lora_01",
       "label": "LoRA 1（None 为不启用）",
       "type": "string",
@@ -128,13 +146,22 @@
       "key": "strength_01",
       "label": "LoRA 1 强度",
       "type": "float",
-      "comfy_node_id": "97",
-      "comfy_input": "strength_01",
+      "comfy_node_id": "111",
+      "comfy_input": "on_true",
       "required": false,
       "default": 1.0,
       "min": -2,
       "max": 2,
       "step": 0.05
+    },
+    {
+      "key": "enable_lora_02",
+      "label": "启用 LoRA 2",
+      "type": "boolean",
+      "comfy_node_id": "112",
+      "comfy_input": "switch",
+      "required": false,
+      "default": false
     },
     {
       "key": "lora_02",
@@ -154,13 +181,22 @@
       "key": "strength_02",
       "label": "LoRA 2 强度",
       "type": "float",
-      "comfy_node_id": "97",
-      "comfy_input": "strength_02",
+      "comfy_node_id": "112",
+      "comfy_input": "on_true",
       "required": false,
-      "default": 0.0,
+      "default": 1.0,
       "min": -2,
       "max": 2,
       "step": 0.05
+    },
+    {
+      "key": "enable_lora_03",
+      "label": "启用 LoRA 3",
+      "type": "boolean",
+      "comfy_node_id": "113",
+      "comfy_input": "switch",
+      "required": false,
+      "default": false
     },
     {
       "key": "lora_03",
@@ -180,13 +216,22 @@
       "key": "strength_03",
       "label": "LoRA 3 强度",
       "type": "float",
-      "comfy_node_id": "97",
-      "comfy_input": "strength_03",
+      "comfy_node_id": "113",
+      "comfy_input": "on_true",
       "required": false,
-      "default": 0.0,
+      "default": 1.0,
       "min": -2,
       "max": 2,
       "step": 0.05
+    },
+    {
+      "key": "enable_lora_04",
+      "label": "启用 LoRA 4",
+      "type": "boolean",
+      "comfy_node_id": "114",
+      "comfy_input": "switch",
+      "required": false,
+      "default": false
     },
     {
       "key": "lora_04",
@@ -206,13 +251,22 @@
       "key": "strength_04",
       "label": "LoRA 4 强度",
       "type": "float",
-      "comfy_node_id": "97",
-      "comfy_input": "strength_04",
+      "comfy_node_id": "114",
+      "comfy_input": "on_true",
       "required": false,
-      "default": 0.0,
+      "default": 1.0,
       "min": -2,
       "max": 2,
       "step": 0.05
+    },
+    {
+      "key": "enable_upscale",
+      "label": "启用 SeedVR2 超分",
+      "type": "boolean",
+      "comfy_node_id": "102",
+      "comfy_input": "switch",
+      "required": false,
+      "default": true
     },
     {
       "key": "upscale_resolution",

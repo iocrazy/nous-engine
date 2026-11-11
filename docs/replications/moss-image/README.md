@@ -10,7 +10,7 @@
 使用官方前端 1.57.4 的 `app.graphToPrompt()` 导出，转换期间拦截所有非 GET 请求。
 原工作流文件未修改。
 
-文字描述 → DeepSeek 扩写 → MOSS + LoRA → 原有采样链 → SeedVR2 超分 → 返回图片。
+文字描述 → 可选 DeepSeek 扩写 → MOSS + 可选 LoRA → 原有采样链 → 可选 SeedVR2 超分 → 返回图片。
 开启 `use_reference` 时改走原有图片反推分支，调用方必须同时传入 `reference_image`。
 参考图仅用于提示词反推，不会作为 MOSS 的图像条件输入。
 
@@ -22,14 +22,34 @@
 接入副本的处理：
 
 1. 将原有四槽 LoRA 加载器接入模型与文本编码器链路，替代单独的观澜加载节点。
-   第一槽默认为观澜、强度 1，第二至第四槽默认 `None`、强度 0。
+   第一槽默认为观澜、强度 1、开启，第二至第四槽默认 `None`、强度 1、关闭。
+   每槽的独立开关通过懒切换将关闭槽的有效强度置为 0，LoRA 加载器跳过该槽，保存的文件名和强度不变。
 2. LoRA 选项限定为 `None`、`moss/KOOK-MOSS-SFT-观澜.safetensors` 和
    `moss/TJFilmMossV2.safetensors`。这是本机 MOSS 目录下的候选，叠加效果仍需实测。
 3. 懒切换直接读取扩写或反推结果，移除两个独立输出型文本预览节点，避免同时触发两路 API 请求。
-4. 超分保存节点直接读取 SeedVR2 的第一个输出，修正原来指向对比器不存在的第二个输出的连线。
-   服务仅保留最终图片保存节点，避免网关将超分前图片选为主图；原始 ComfyUI 工作流不受影响。
+4. 超分支路直接读取 SeedVR2 的第一个输出，修正原来指向对比器不存在的第二个输出的连线。
+   服务仅保留一个终端保存节点，按开关选择原图或超分图，避免网关将其他支路图片选为主图；
+   原始 ComfyUI 工作流不受影响。
 5. 未提供参考图时使用现有 `omit_when_empty` 机制删除图片加载节点及反推节点的可选 `source` 输入。
    默认走文字扩写，因此不会读取模板占位图片。
+
+## 独立开关
+
+| 参数 | 默认 | 关闭后的行为 |
+|---|---|---|
+| `enable_expansion` | true | 文字生图直接使用 `prompt`，跳过 DeepSeek 文字扩写 |
+| `enable_upscale` | true | 直接保存 MOSS 原始分辨率图片，不执行 SeedVR2 加载与超分支路 |
+| `enable_lora_01` | true | 跳过第 1 槽 LoRA |
+| `enable_lora_02` | false | 跳过第 2 槽 LoRA |
+| `enable_lora_03` | false | 跳过第 3 槽 LoRA |
+| `enable_lora_04` | false | 跳过第 4 槽 LoRA |
+| `use_reference` | false | 使用文字输入模式 |
+
+LoRA 槽要同时满足开关开启、文件非 `None`、强度非 0 才生效。
+关闭再开启会恢复之前所选的文件和强度；新增的第 2–4 槽需明确打开开关。
+图片反推与文字扩写独立：`use_reference=true` 时走 DeepSeek 图片反推，`enable_expansion` 不影响它。
+只有 `enable_expansion=false` 且 `use_reference=false` 时完全跳过 DeepSeek。
+这些开关使用现有 `LazySwitchKJ` 节点，不需要新增节点包或修改引擎运行时代码。
 
 ## 凭据和前置条件
 
@@ -71,7 +91,7 @@ curl --noproxy '*' --fail-with-body -sS "$BASE/v1/services/nous-moss-image/schem
 
 新建同名服务会返回 409，不覆盖任何已存在服务。回滚仅删除本次新建的模板，会级联删除其服务。
 导入后服务位于“全部 / ComfyUI 桥 / 其他”；现有 ComfyUI 模板的分类为 `app`。
-服务详情中的 Playground 由 22 个映射参数生成，调用方也可直接获取上述 schema 渲染表单。
+服务详情中的 Playground 由 28 个映射参数生成，调用方也可直接获取上述 schema 渲染表单。
 
 ## nous 应用调用
 
@@ -83,7 +103,7 @@ Authorization: Bearer <service-api-key>
 Prefer: respond-async
 Content-Type: application/json
 
-{"input":{"prompt":"雾中早市，纪实摄影","seed":42,"lora_01":"moss/KOOK-MOSS-SFT-观澜.safetensors","strength_01":1,"lora_02":"moss/TJFilmMossV2.safetensors","strength_02":0.5}}
+{"input":{"prompt":"雾中早市，纪实摄影","seed":42,"lora_01":"moss/KOOK-MOSS-SFT-观澜.safetensors","strength_01":1,"enable_lora_02":true,"lora_02":"moss/TJFilmMossV2.safetensors","strength_02":0.5}}
 ```
 
 拿到任务 ID 后，使用同一 API key 查询 `GET /v1/predictions/{id}`。
@@ -93,12 +113,18 @@ Content-Type: application/json
 图片反推需加 `use_reference:true` 和 `reference_image:"data:image/png;base64,..."`，
 `reverse_instruction` 可修改反推要求，`prompt` 仍为必填字段。
 LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
+直接使用原提示词、关闭全部增强的请求示例：
+
+```json
+{"input":{"prompt":"窗边木桌上的红色陶瓷茶壶，静物摄影","enable_expansion":false,"enable_upscale":false,"enable_lora_01":false,"enable_lora_02":false,"enable_lora_03":false,"enable_lora_04":false}}
+```
 
 ## 验证范围
 
 已按运行中 ComfyUI 的节点 schema 检查必填输入、枚举和输出索引。
 `tests/comfy/test_moss_image_template.py` 覆盖参数映射、缺省参考图剪枝、LoRA 接线、
 懒分支和在隔离 PostgreSQL 测试库内导入后的服务 schema。
+开关测试覆盖文字扩写、超分、图片反推的 8 种组合，以及四个 LoRA 开关的全部 16 种组合。
 这些检查不启动推理进程、不调用 DeepSeek，也不向生产 ComfyUI 提交任务。
 
 ## 真机验证（2026-11-11）
