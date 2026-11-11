@@ -39,7 +39,7 @@ DeepSeek 连接保持原有 endpoint、模型名 `deepseek-flash` 和本机配�
 
 本机已确认相关节点注册、两份 LoRA 文件名可被 ComfyUI 枚举、Skill 文件和凭据配置项存在。
 修改上游模型名、凭据或 Skill 应走其原有维护流程。
-图片反推还需要上游模型支持图像输入，当前只确认接线，未调用 DeepSeek 验证视觉能力。
+本机 `deepseek-flash` 已实测可接收参考图并返回反推描述，见下方真机验证记录。
 
 ## 注册
 
@@ -87,7 +87,9 @@ Content-Type: application/json
 ```
 
 拿到任务 ID 后，使用同一 API key 查询 `GET /v1/predictions/{id}`。
-只在 `status=succeeded` 时读取 `output.image_url` 展示图片；失败展示任务 `error`。
+只在 `status=succeeded` 时读取 `output.outputs.out.image_url` 展示图片；失败展示任务 `error`。
+`output.outputs.bridge` 是桥节点的同一份结果，应用应统一读取终端节点 `out`。
+若图片地址为相对路径，使用引擎地址作为基址解析后再下载。
 图片反推需加 `use_reference:true` 和 `reference_image:"data:image/png;base64,..."`，
 `reverse_instruction` 可修改反推要求，`prompt` 仍为必填字段。
 LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
@@ -99,5 +101,29 @@ LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
 懒分支和在隔离 PostgreSQL 测试库内导入后的服务 schema。
 这些检查不启动推理进程、不调用 DeepSeek，也不向生产 ComfyUI 提交任务。
 
-尚需发布后的端到端验证：默认观澜生图、TJFilmMossV2 单独及叠加生图、图片反推上游能力、
-最终图片下载与 nous 应用展示。当前文档和产物不代表这些 GPU/外部 API 测试已通过。
+## 真机验证（2026-11-11）
+
+在用户授权测试后，通过控制面创建临时服务和临时授权 key，以实际外部调用路径提交任务。
+使用现有 ComfyUI sidecar 和 Pro 6000，不重启服务、不调整 GPU 0 常驻模型。
+四次任务均使用原有 25 步采样、2 百万像素生图和 2560 短边超分配置。
+
+| 测试 | LoRA 设置 | 任务耗时 | 结果 |
+|---|---|---:|---|
+| 文字扩写与生图 | 观澜 1.0 | 92.21 秒 | 成功，4558×2560 PNG |
+| 替换 LoRA | TJFilmMossV2 1.0 | 42.06 秒 | 成功，4558×2560 PNG |
+| 叠加 LoRA | 观澜 1.0 + TJFilmMossV2 0.5 | 44.10 秒 | 成功，4558×2560 PNG |
+| 图片反推与生图 | 观澜 1.0，使用第一组结果作为参考图 | 72.67 秒 | 成功，4558×2560 PNG |
+
+耗时为提交请求到轮询检测任务完成，不含图片下载时间；每组仅测一次。
+第一组包含 DeepSeek 扩写和首次模型加载，第二、第三组复用了相同扩写缓存，不能直接当作独立冷启动速度。
+日志确认文字扩写只调用一次 DeepSeek，耗时 23.52 秒；图片反推调用一次，耗时 26.16 秒。
+四张图片均成功下载、解码并检查画面，测试时未发现 LoRA 加载错误或 OOM。
+这些结果验证调用链和本次配置可用，不代表所有题材的 LoRA 质量或长期并发稳定性。
+
+另用临时服务在真实浏览器中打开生产 Playground，确认 LoRA 2 可以选择 TJFilmMossV2，
+强度可设为 0.5，页面存在参考图上传控件。浏览器测试没有额外提交生图请求。
+测试结束后，临时服务、模板和授权 key 均删除成功；没有正式发布 `nous-moss-image`。
+
+本机原始记录和图片在 `/tmp/nous-moss-service/live-test/`，其中 `results.json` 为任务结果，
+`ui-result.json` 为浏览器测试结果，`playground.png` 为界面截图。
+尚需接入 nous 应用的任务提交、进度查询和图片展示；该应用页面未在本次测试中修改。
