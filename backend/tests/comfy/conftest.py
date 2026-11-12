@@ -23,3 +23,33 @@ def _isolate_bridge_globals():
     nb._SEM = asyncio.Semaphore(1)
     nb._running_task_id = None
     nb._running_since = None
+
+
+# 生产 ComfyUI sidecar 的端口(见 infra/network.env)。comfy 用例一律走替身,真请求一个都不许发。
+_PROD_COMFY_PORT = 8888
+
+
+@pytest.fixture(autouse=True)
+def _block_real_comfy_http(monkeypatch):
+    """挡住发往 ComfyUI 的真实 HTTP(生产 :8888,以及 NOUS_COMFY_URL 指向的任何地址)。
+
+    没打桩的代码路径(典型:桥剪枝时的 `get_node_infos`)会按 `NOUS_COMFY_URL` 真发请求;
+    本机若在 env 里指向生产 sidecar,测试就会去碰正在出图的 ComfyUI。这里统一抛
+    ConnectError —— 与「sidecar 不可达」同一形状,被测代码的降级路径照常生效。
+    """
+    import os
+    from urllib.parse import urlsplit
+
+    import httpx
+
+    comfy = urlsplit(os.getenv("NOUS_COMFY_URL", "http://127.0.0.1:8188"))
+    blocked = {(comfy.hostname, comfy.port)}
+    real_send = httpx.AsyncClient.send
+
+    async def _guarded_send(self, request, *args, **kwargs):
+        url = request.url
+        if url.port == _PROD_COMFY_PORT or (url.host, url.port) in blocked:
+            raise httpx.ConnectError(f"测试里禁止连真 ComfyUI:{url}", request=request)
+        return await real_send(self, request, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", _guarded_send)

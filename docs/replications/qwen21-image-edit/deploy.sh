@@ -43,7 +43,8 @@ changed=0
 # 回读把没写的字段补成 null/false,比较前两边都去掉 null/false/空值(同 upscale/deploy.sh)。
 norm='map(with_entries(select(.value != null and .value != false and .value != [] and .value != {})))'
 if ! jq -e --slurpfile m "$MAP" \
-    "(.exposed_params | $norm) == (\$m[0].exposed_params | $norm)" <<<"$cur" >/dev/null; then
+    "(.exposed_params | $norm) == (\$m[0].exposed_params | $norm) and .discovery == \$m[0].discovery" \
+    <<<"$cur" >/dev/null; then
   curl -sS --fail-with-body "${AUTH[@]}" -X PUT "$BASE/api/v1/comfy-templates/$tid/mapping" \
     --data-binary "@$MAP" >/dev/null
   echo "  mapping 已同步($(jq '.exposed_params | length' "$MAP") 个参数)"
@@ -61,4 +62,7 @@ fi
 after="$(curl -sS --fail-with-body "${AUTH[@]}" "$BASE/api/v1/comfy-templates/$tid")"
 n="$(jq '[.exposed_params[] | select(.omit_when_empty == true)] | length' <<<"$after")"
 [[ "$n" == "7" ]] || { echo "ERROR 回读 omit_when_empty=true 的参数有 $n 个,期望 7" >&2; exit 1; }
+# 回读核对:discovery(服务发现元数据)真的落库了 —— 老后端会把它静默丢掉。
+jq -e --slurpfile m "$MAP" '.discovery == $m[0].discovery' <<<"$after" >/dev/null \
+  || { echo "ERROR 回读的 discovery 与仓库不一致(后端是否已上线带 discovery 的代码?)" >&2; exit 1; }
 echo "synced $SERVICE → template_id=$tid"

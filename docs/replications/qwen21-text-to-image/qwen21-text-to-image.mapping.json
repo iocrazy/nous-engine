@@ -1,0 +1,307 @@
+{
+  "discovery": {
+    "operation": "text_to_image",
+    "display_name": "Qwen Image 2.1 文生图",
+    "lora_slots": 8
+  },
+  "exposed_params": [
+    {
+      "key": "prompt",
+      "label": "生成提示词",
+      "type": "string",
+      "default": "",
+      "required": true,
+      "comfy_node_id": "517",
+      "comfy_input": "value"
+    },
+    {
+      "key": "aspect_ratio",
+      "label": "画幅比例",
+      "type": "string",
+      "default": "9:16 (Portrait Widescreen)",
+      "options": [
+        "1:1 (Square)",
+        "2:3 (Portrait Photo)",
+        "3:2 (Photo)",
+        "3:4 (Portrait Standard)",
+        "4:3 (Standard)",
+        "9:16 (Portrait Widescreen)",
+        "16:9 (Widescreen)",
+        "21:9 (Ultrawide)"
+      ],
+      "required": false,
+      "comfy_node_id": "512",
+      "comfy_input": "aspect_ratio"
+    },
+    {
+      "key": "megapixels",
+      "label": "百万像素",
+      "type": "number",
+      "default": 1.5,
+      "min": 0.1,
+      "max": 4.0,
+      "step": 0.1,
+      "required": false,
+      "comfy_node_id": "512",
+      "comfy_input": "megapixels"
+    },
+    {
+      "key": "seed",
+      "label": "种子",
+      "type": "integer",
+      "default": -1,
+      "required": false,
+      "random": true,
+      "comfy_node_id": "524",
+      "comfy_input": "seed"
+    },
+    {
+      "key": "lora_1",
+      "label": "LoRA 1",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "lora_01"
+    },
+    {
+      "key": "lora_1_strength",
+      "label": "LoRA 1 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "strength_01"
+    },
+    {
+      "key": "lora_2",
+      "label": "LoRA 2",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "lora_02"
+    },
+    {
+      "key": "lora_2_strength",
+      "label": "LoRA 2 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "strength_02"
+    },
+    {
+      "key": "lora_3",
+      "label": "LoRA 3",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "lora_03"
+    },
+    {
+      "key": "lora_3_strength",
+      "label": "LoRA 3 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "strength_03"
+    },
+    {
+      "key": "lora_4",
+      "label": "LoRA 4",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "lora_04"
+    },
+    {
+      "key": "lora_4_strength",
+      "label": "LoRA 4 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "700",
+      "comfy_input": "strength_04"
+    },
+    {
+      "key": "lora_5",
+      "label": "LoRA 5",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "lora_01"
+    },
+    {
+      "key": "lora_5_strength",
+      "label": "LoRA 5 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "strength_01"
+    },
+    {
+      "key": "lora_6",
+      "label": "LoRA 6",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "lora_02"
+    },
+    {
+      "key": "lora_6_strength",
+      "label": "LoRA 6 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "strength_02"
+    },
+    {
+      "key": "lora_7",
+      "label": "LoRA 7",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "lora_03"
+    },
+    {
+      "key": "lora_7_strength",
+      "label": "LoRA 7 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "strength_03"
+    },
+    {
+      "key": "lora_8",
+      "label": "LoRA 8",
+      "type": "string",
+      "default": "None",
+      "options": [
+        {
+          "value": "None",
+          "label": "不使用"
+        },
+        {
+          "value": "Qwen/Qwen-Image-2.1-viggle-turbo-4step-lora-r64.safetensors",
+          "label": "Viggle Turbo 4 步加速"
+        }
+      ],
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "lora_04"
+    },
+    {
+      "key": "lora_8_strength",
+      "label": "LoRA 8 强度",
+      "type": "number",
+      "default": 1.0,
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.01,
+      "required": false,
+      "comfy_node_id": "701",
+      "comfy_input": "strength_04"
+    }
+  ]
+}

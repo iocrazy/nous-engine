@@ -1,4 +1,9 @@
 {
+  "discovery": {
+    "operation": "image_edit",
+    "display_name": "Qwen Image 2.1 图像编辑",
+    "lora_slots": 0
+  },
   "exposed_params": [
     {
       "key": "prompt",
