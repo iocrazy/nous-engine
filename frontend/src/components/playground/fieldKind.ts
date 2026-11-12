@@ -14,6 +14,7 @@ export type FieldKind =
   | 'number'
   | 'integer'
   | 'boolean'
+  | 'radio'
   | 'file'
   | 'select'
   | 'thumb_select'
@@ -35,6 +36,8 @@ export function classifyField(p: ExposedParam): FieldKind {
     return 'file'
   }
   if (Array.isArray(constraints.enum) && constraints.enum.length > 0) {
+    if ((t === 'boolean' || t === 'bool') && constraints.enum.length === 2
+      && constraints.enum.includes(true) && constraints.enum.includes(false)) return 'radio'
     // option_meta 里只要有任何一项带 image,就用缩略图网格 —— 275 个 fooocus 风格
     // 用纯文本下拉根本没法挑(后端 comfy_templates.py::_split_options 写入)。
     // 一张图都没有时照旧退回 <select>,不做无谓的布局变更。
@@ -81,6 +84,7 @@ export function defaultFor(p: ExposedParam): unknown {
   if (p.default !== undefined && p.default !== null) return p.default
   switch (classifyField(p)) {
     case 'boolean':
+    case 'radio':
       return false
     case 'slider': {
       const c = (p.constraints ?? {}) as Record<string, unknown>
@@ -144,4 +148,9 @@ export function staticOptions(p: ExposedParam): FieldOption[] {
   const enumValues = c.enum
   if (Array.isArray(enumValues)) return enumValues.map((v) => ({ value: String(v) }))
   return []
+}
+
+export function isFieldVisible(p: ExposedParam, values: Record<string, unknown>): boolean {
+  const conditions = p.constraints?.visible_when as Record<string, boolean> | undefined
+  return !conditions || Object.entries(conditions).every(([key, expected]) => values[key] === expected)
 }

@@ -11,7 +11,8 @@
 原工作流文件未修改。
 
 文字描述 → 可选 DeepSeek 扩写 → MOSS + 可选 LoRA → 原有采样链 → 可选 SeedVR2 超分 → 返回图片。
-开启 `use_reference` 时改走原有图片反推分支，调用方必须同时传入 `reference_image`。
+页面通过“输入方式”单选框二选一：文字生图或图片反推。
+选择反推（`use_reference=true`）时改走原有图片反推分支，调用方必须同时传入 `reference_image`。
 参考图仅用于提示词反推，不会作为 MOSS 的图像条件输入。
 
 保留主模型 `moss_image_sft_bf16.safetensors`、文本编码器
@@ -43,11 +44,13 @@
 | `enable_lora_02` | false | 跳过第 2 槽 LoRA |
 | `enable_lora_03` | false | 跳过第 3 槽 LoRA |
 | `enable_lora_04` | false | 跳过第 4 槽 LoRA |
-| `use_reference` | false | 使用文字输入模式 |
+| `use_reference` | false | 输入方式：false 为文字生图，true 为图片反推 |
 
 LoRA 槽要同时满足开关开启、文件非 `None`、强度非 0 才生效。
 关闭再开启会恢复之前所选的文件和强度；新增的第 2–4 槽需明确打开开关。
-图片反推与文字扩写独立：`use_reference=true` 时走 DeepSeek 图片反推，`enable_expansion` 不影响它。
+两种输入方式互斥。文字模式显示提示词和文字扩写选项；反推模式只显示参考图与反推要求。
+扩写参数只在文字模式且扩写开启时显示。不属于当前模式的字段不提交，但切换回来会恢复之前填写的值。
+接口通过布尔字段 `use_reference` 选择分支：true 时走 DeepSeek 图片反推，`enable_expansion` 不影响它。
 只有 `enable_expansion=false` 且 `use_reference=false` 时完全跳过 DeepSeek。
 这些开关使用现有 `LazySwitchKJ` 节点，不需要新增节点包或修改引擎运行时代码。
 
@@ -113,6 +116,7 @@ Content-Type: application/json
 图片反推需加 `use_reference:true` 和 `reference_image:"data:image/png;base64,..."`，
 `reverse_instruction` 可修改反推要求，反推模式不需要提供 `prompt`。
 文字描述字段允许留空并默认使用空字符串，避免未参与反推支路的输入被桥接层误判为必填。
+映射中的 `visible_when` 声明字段在什么布尔参数取值下显示，API schema 同时输出 `x-visible-when`。
 LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
 直接使用原提示词、关闭全部增强的请求示例：
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import SchemaDrivenForm from './SchemaDrivenForm'
 import type { ExposedParam } from '../../api/services'
 
@@ -16,6 +16,67 @@ function setupWithInitial(inputs: ExposedParam[], initialValues: Record<string, 
 }
 
 describe('SchemaDrivenForm', () => {
+  it('switches exclusive input modes, retains values and omits inactive inputs', () => {
+    const { onSubmit } = setup([
+      {
+        node_id: 'bridge', key: 'use_reference', type: 'boolean', label: '输入方式', default: false,
+        constraints: {
+          enum: [false, true],
+          option_meta: [{ value: false, label: '文字生图' }, { value: true, label: '图片反推' }],
+        },
+      },
+      {
+        node_id: 'bridge', key: 'prompt', type: 'string', label: '提示词', default: '',
+        constraints: { visible_when: { use_reference: false } },
+      },
+      {
+        node_id: 'bridge', key: 'enable_expansion', type: 'boolean', label: '扩写', default: true,
+        constraints: { visible_when: { use_reference: false } },
+      },
+      {
+        node_id: 'bridge', key: 'reference_image', type: 'image', label: '参考图',
+        constraints: { visible_when: { use_reference: true } },
+      },
+      {
+        node_id: 'bridge', key: 'reverse_instruction', type: 'string', label: '反推要求', default: '描述图片',
+        constraints: { visible_when: { use_reference: true } },
+      },
+    ])
+    const mode = screen.getByRole('radiogroup', { name: '输入方式' })
+    const text = within(mode).getByRole('radio', { name: '文字生图' })
+    const reference = within(mode).getByRole('radio', { name: '图片反推' })
+    expect(text).toBeChecked()
+    expect(reference).not.toBeChecked()
+    expect(screen.queryByText('参考图')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '保存文字' } })
+    fireEvent.click(reference)
+    expect(reference).toBeChecked()
+    expect(text).not.toBeChecked()
+    expect(screen.queryByText('提示词')).not.toBeInTheDocument()
+    expect(screen.queryByText('扩写')).not.toBeInTheDocument()
+    expect(screen.getByText('参考图')).toBeInTheDocument()
+    fireEvent.click(screen.getByText(/▶ 运行/))
+    expect(onSubmit).toHaveBeenLastCalledWith({
+      use_reference: true, reference_image: null, reverse_instruction: '描述图片',
+    })
+    fireEvent.click(text)
+    expect(screen.getByRole('textbox')).toHaveValue('保存文字')
+    fireEvent.click(screen.getByText(/▶ 运行/))
+    expect(onSubmit).toHaveBeenLastCalledWith({ use_reference: false, prompt: '保存文字', enable_expansion: true })
+  })
+
+  it('restores the visible mode from historical values and applies all visibility conditions', () => {
+    setupWithInitial([
+      { node_id: 'b', key: 'use_reference', type: 'boolean', default: false },
+      { node_id: 'b', key: 'expand', type: 'boolean', default: true },
+      {
+        node_id: 'b', key: 'temperature', type: 'number', label: '扩写温度',
+        constraints: { visible_when: { use_reference: false, expand: true } },
+      },
+    ], { use_reference: true })
+    expect(screen.queryByText('扩写温度')).not.toBeInTheDocument()
+  })
+
   it('renders empty-state hint when no inputs', () => {
     setup([])
     expect(screen.getByText(/没有暴露入参/)).toBeInTheDocument()

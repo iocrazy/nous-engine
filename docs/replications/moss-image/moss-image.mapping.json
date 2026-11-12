@@ -1,31 +1,47 @@
 {
   "exposed_params": [
     {
-      "key": "prompt",
-      "label": "文字描述（反推模式可留空）",
-      "type": "string",
-      "comfy_node_id": "100",
-      "comfy_input": "value",
-      "required": false,
-      "default": ""
-    },
-    {
-      "key": "enable_expansion",
-      "label": "启用 DeepSeek 文字扩写",
-      "type": "boolean",
-      "comfy_node_id": "101",
-      "comfy_input": "switch",
-      "required": false,
-      "default": true
-    },
-    {
       "key": "use_reference",
-      "label": "图片反推（开启后需上传参考图）",
+      "label": "输入方式",
       "type": "boolean",
       "comfy_node_id": "80",
       "comfy_input": "switch",
       "required": false,
-      "default": false
+      "default": false,
+      "options": [
+        {
+          "value": false,
+          "label": "文字生图"
+        },
+        {
+          "value": true,
+          "label": "图片反推"
+        }
+      ]
+    },
+    {
+      "key": "prompt",
+      "label": "提示词",
+      "type": "string",
+      "comfy_node_id": "100",
+      "comfy_input": "value",
+      "required": false,
+      "default": "",
+      "visible_when": {
+        "use_reference": false
+      }
+    },
+    {
+      "key": "enable_expansion",
+      "label": "扩写提示词（DeepSeek）",
+      "type": "boolean",
+      "comfy_node_id": "101",
+      "comfy_input": "switch",
+      "required": false,
+      "default": true,
+      "visible_when": {
+        "use_reference": false
+      }
     },
     {
       "key": "reference_image",
@@ -34,7 +50,10 @@
       "comfy_node_id": "92",
       "comfy_input": "image",
       "required": false,
-      "omit_when_empty": true
+      "omit_when_empty": true,
+      "visible_when": {
+        "use_reference": true
+      }
     },
     {
       "key": "reverse_instruction",
@@ -43,7 +62,10 @@
       "comfy_node_id": "66",
       "comfy_input": "input_text",
       "required": false,
-      "default": "输出可复现该画面的详细提示词，不要图片上的文字. "
+      "default": "输出可复现该画面的详细提示词，不要图片上的文字. ",
+      "visible_when": {
+        "use_reference": true
+      }
     },
     {
       "key": "negative_prompt",
@@ -302,7 +324,11 @@
       "default": 0.2,
       "min": 0,
       "max": 2,
-      "step": 0.05
+      "step": 0.05,
+      "visible_when": {
+        "use_reference": false,
+        "enable_expansion": true
+      }
     },
     {
       "key": "llm_max_tokens",
@@ -313,7 +339,11 @@
       "required": false,
       "default": 10000,
       "min": 64,
-      "max": 32768
+      "max": 32768,
+      "visible_when": {
+        "use_reference": false,
+        "enable_expansion": true
+      }
     }
   ]
 }

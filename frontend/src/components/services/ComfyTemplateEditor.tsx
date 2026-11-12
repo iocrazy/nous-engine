@@ -23,7 +23,7 @@ import {
 } from '../../api/comfyTemplates'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from '../playground/SchemaDrivenForm'
-import { defaultFor } from '../playground/fieldKind'
+import { defaultFor, isFieldVisible } from '../playground/fieldKind'
 import { isComfyNodeRef, layoutComfyGraph, type ComfyWorkflow } from './comfyGraphLayout'
 import { placePopover } from './popoverPlacement'
 import { findInvalidModelRefs, type ModelRefIssue } from './workflowModelCheck'
@@ -710,7 +710,14 @@ function toSchemaExposedParam(p: ExposedParamDraft): ExposedParam {
   if (p.min !== undefined) constraints.min = p.min
   if (p.max !== undefined) constraints.max = p.max
   if (p.step !== undefined) constraints.step = p.step
-  if (p.options) constraints.enum = p.options
+  if (p.options) {
+    constraints.enum = p.options.map((option) => (
+      option && typeof option === 'object' && 'value' in option ? option.value : option
+    ))
+    const metadata = p.options.filter((option) => option && typeof option === 'object' && 'value' in option)
+    if (metadata.length) constraints.option_meta = metadata
+  }
+  if (p.visible_when) constraints.visible_when = p.visible_when
   if (p.random) constraints.random = true
   return {
     key: p.key,
@@ -758,7 +765,7 @@ function CanvasPreviewPanel({ exposedParams }: { exposedParams: ExposedParamDraf
             暂无暴露字段 — 在右侧节点图点节点卡配置
           </div>
         ) : (
-          schemaParams.map((p) => {
+          schemaParams.filter((p) => isFieldVisible(p, values)).map((p) => {
             const k = paramKey(p)
             return (
               <Field
