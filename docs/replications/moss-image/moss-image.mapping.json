@@ -2,11 +2,12 @@
   "exposed_params": [
     {
       "key": "prompt",
-      "label": "画面描述",
+      "label": "文字描述（反推模式可留空）",
       "type": "string",
       "comfy_node_id": "100",
       "comfy_input": "value",
-      "required": true
+      "required": false,
+      "default": ""
     },
     {
       "key": "enable_expansion",

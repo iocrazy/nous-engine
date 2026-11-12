@@ -111,7 +111,8 @@ Content-Type: application/json
 `output.outputs.bridge` 是桥节点的同一份结果，应用应统一读取终端节点 `out`。
 若图片地址为相对路径，使用引擎地址作为基址解析后再下载。
 图片反推需加 `use_reference:true` 和 `reference_image:"data:image/png;base64,..."`，
-`reverse_instruction` 可修改反推要求，`prompt` 仍为必填字段。
+`reverse_instruction` 可修改反推要求，反推模式不需要提供 `prompt`。
+文字描述字段允许留空并默认使用空字符串，避免未参与反推支路的输入被桥接层误判为必填。
 LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
 直接使用原提示词、关闭全部增强的请求示例：
 
