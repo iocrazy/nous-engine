@@ -99,6 +99,8 @@ def _input_property(exposed: dict, widget: dict | None) -> dict:
     # 补齐(不是二选一——widget 分支给的 type 仍然生效,这里只加 enum/minimum/maximum)。
     constraints = exposed.get("constraints")
     if isinstance(constraints, dict):
+        if constraints.get("visible_when"):
+            prop["x-visible-when"] = constraints["visible_when"]
         is_file = str(exposed.get("type") or "").lower() in _FILE_IN_TYPES
         enum = constraints.get("enum")
         # 文件类输入的 enum 不是取值域,是 **sidecar 上已有文件的清单**(ComfyUI

@@ -14,6 +14,7 @@ export interface ComfyExposedParam {
   options?: unknown[]
   required?: boolean
   random?: boolean
+  visible_when?: Record<string, boolean> | null
   multiple?: boolean
   /** 选项依赖:本字段的选项清单随**另一个 exposed_param 的当前值**变(写它的 key)。 */
   options_depends_on?: string | null

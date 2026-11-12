@@ -7,6 +7,7 @@ import {
   classifyField,
   defaultFor,
   isRandomizable,
+  isFieldVisible,
   num,
   optionDependency,
   staticOptions,
@@ -68,6 +69,7 @@ export default function SchemaDrivenForm({
       const k = paramKey(p)
       if (!k) continue
       const v = values[k]
+      if (!isFieldVisible(p, values)) continue
       const kind = classifyField(p)
       const numeric = kind === 'number' || kind === 'integer' || kind === 'slider'
       if (numeric && (v === '' || v === undefined || v === null)) continue
@@ -89,7 +91,7 @@ export default function SchemaDrivenForm({
             该服务没有暴露入参 · 直接点运行即可
           </div>
         )}
-        {inputs.map((p) => {
+        {inputs.filter((p) => isFieldVisible(p, values)).map((p) => {
           // 选项依赖:把「被依赖的那个参数」的当前值传下去(如 style_pack 的值),
           // 字段自己据此拉自己的选项清单。没声明依赖的字段传 undefined,行为不变。
           const dep = optionDependency(p)
@@ -176,7 +178,7 @@ export function Field({
   const kind = classifyField(param)
   const slot = paramSlot(param) ?? '?'
   const typeBadge =
-    kind === 'string_multiline' ? 'string' : kind === 'slider' ? 'number' : kind
+    kind === 'string_multiline' ? 'string' : kind === 'slider' ? 'number' : kind === 'radio' ? 'boolean' : kind
 
   return (
     <div className="flex flex-col gap-2 mb-4">
@@ -233,6 +235,25 @@ function FieldInput({
     padding: '6px 8px',
     fontSize: 12,
   } as const
+
+  if (kind === 'radio') {
+    const meta = (param.constraints?.option_meta ?? []) as { value: boolean; label?: string }[]
+    return (
+      <div role="radiogroup" aria-label={param.label || paramKey(param)} style={{ display: 'flex', gap: 12 }}>
+        {([false, true] as const).map((option) => (
+          <label key={String(option)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name={`${param.node_id}-${paramKey(param)}`}
+              checked={value === option}
+              onChange={() => onChange(option)}
+            />
+            {meta.find((item) => item.value === option)?.label ?? String(option)}
+          </label>
+        ))}
+      </div>
+    )
+  }
 
   if (kind === 'string_multiline') {
     return (

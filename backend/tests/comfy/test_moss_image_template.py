@@ -2,10 +2,13 @@ from copy import deepcopy
 from itertools import product
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from src.api.routes.comfy_templates import MappingBody
+import src.services.nodes.comfy_bridge as bridge
+from src.api.routes.comfy_templates import MappingBody, _mapping_to_exposed_input
 from src.services.comfy.graph_prune import prune_graph
 
 
@@ -87,6 +90,56 @@ async def test_imported_service_exposes_lora_controls_and_image_output(client):
         assert properties[name]["type"] == "boolean"
     assert properties["enable_lora_01"]["default"] is True
     assert properties["enable_lora_02"]["default"] is False
+    assert "prompt" not in schema["input_schema"].get("required", [])
+    assert properties["prompt"]["default"] == ""
+    assert properties["use_reference"]["enum"] == [False, True]
+    assert properties["use_reference"]["x-option-meta"] == [
+        {"value": False, "label": "文字生图"}, {"value": True, "label": "图片反推"},
+    ]
+    assert properties["prompt"]["x-visible-when"] == {"use_reference": False}
+    assert properties["reference_image"]["x-visible-when"] == {"use_reference": True}
+    detail = await client.get(f"/api/v1/comfy-templates/{template_id}")
+    roundtrip = MappingBody.model_validate({"exposed_params": detail.json()["exposed_params"]})
+    assert roundtrip == MappingBody.model_validate(MAPPING)
+
+
+@pytest.mark.parametrize("conditions", [{"missing": True}, {"prompt": True}, {"reference_image": True}])
+def test_visibility_conditions_require_another_boolean_field(conditions):
+    mapping = deepcopy(MAPPING)
+    prompt = next(p for p in mapping["exposed_params"] if p["key"] == "prompt")
+    prompt["visible_when"] = conditions
+    with pytest.raises(ValueError, match="visible_when"):
+        MappingBody.model_validate(mapping)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [{}, {"prompt": ""}, {"prompt": None}])
+async def test_reference_mode_runs_without_a_text_prompt(monkeypatch, extra):
+    mappings = MappingBody.model_validate(MAPPING)
+    exposed = [_mapping_to_exposed_input(p) for p in mappings.exposed_params]
+    sidecar = SimpleNamespace(
+        upload_image=AsyncMock(return_value="uploaded-reference.png"),
+        submit=AsyncMock(return_value="reference-test"),
+        wait=AsyncMock(return_value={
+            "outputs": {"51": {"images": [{"filename": "result.png", "type": "output"}]}},
+            "status": {"status_str": "success"},
+        }),
+        download=AsyncMock(return_value=b"image-bytes"),
+    )
+    monkeypatch.setattr(bridge, "load_template", AsyncMock(return_value=(WORKFLOW, exposed)))
+    monkeypatch.setattr(bridge, "get_client", lambda: sidecar)
+    monkeypatch.setattr(bridge, "write_media", AsyncMock(return_value={"url": "/result.png"}))
+    result = await bridge.ComfyUIWorkflowNode().invoke({
+        "template_id": "test",
+        "use_reference": True,
+        "reference_image": "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
+        **extra,
+    }, {})
+    assert result["image_url"] == "/result.png"
+    submitted = sidecar.submit.call_args.args[0]
+    assert submitted["100"]["inputs"]["value"] == ""
+    assert submitted["80"]["inputs"]["switch"] is True
+    assert submitted["92"]["inputs"]["image"] == "uploaded-reference.png"
 
 
 def test_deepseek_uses_server_side_credentials():

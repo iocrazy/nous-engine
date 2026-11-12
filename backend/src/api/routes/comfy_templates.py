@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, StrictBool, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,6 +122,7 @@ class ExposedParamMapping(BaseModel):
     options: list | None = None
     required: bool = True
     random: bool = False
+    visible_when: dict[str, StrictBool] | None = None
     # 多选 combo:值仍是**逗号分隔字符串**,不是数组 —— ComfyUI-Easy-Use 的
     # select_styles 本来就 `.split(',')`(prompt.py:196)。前端据此渲多选。
     multiple: bool = False
@@ -152,7 +153,13 @@ class MappingBody(BaseModel):
         code=validation_error**,不是裸 FastAPI 的 422)。
         """
         keys = {p.key for p in self.exposed_params}
+        params = {p.key: p for p in self.exposed_params}
         for p in self.exposed_params:
+            for source in p.visible_when or {}:
+                if source == p.key or source not in params:
+                    raise ValueError(f"{p.key}: visible_when must reference another mapped parameter")
+                if params[source].type.lower() not in {"bool", "boolean"}:
+                    raise ValueError(f"{p.key}: visible_when source {source!r} must be boolean")
             dep = p.options_depends_on
             # 文件类字段的值是**上传的文件**(桥把 data URI 落到 sidecar),不是从清单里
             # 选一项。给它挂动态清单 = 运行期 resolve_dynamic_enums 拿一份风格名当白名单,
@@ -279,6 +286,8 @@ def _split_options(options: list) -> tuple[list, list[dict] | None]:
 
 def _numeric_constraints(m: ExposedParamMapping) -> dict[str, Any]:
     c: dict[str, Any] = {}
+    if m.visible_when:
+        c["visible_when"] = m.visible_when
     if m.min is not None:
         c["min"] = m.min
     if m.max is not None:
@@ -337,6 +346,7 @@ def _exposed_input_to_param(item: dict) -> dict:
         "options": c.get("option_meta") or c.get("enum", item.get("options")),
         "required": item.get("required", True),
         "random": c.get("random", item.get("random", False)),
+        "visible_when": c.get("visible_when"),
         "multiple": c.get("multiple", item.get("multiple", False)),
         "options_depends_on": c.get("options_depends_on", item.get("options_depends_on")),
         "options_source": c.get("options_source", item.get("options_source")),
