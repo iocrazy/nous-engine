@@ -186,7 +186,7 @@
       "offload_device": "cpu",
       "enable_debug": false,
       "image": [
-        "49",
+        "125",
         0
       ],
       "dit": [
@@ -246,7 +246,7 @@
     "inputs": {
       "filename_prefix": "nous/moss/result",
       "images": [
-        "102",
+        "126",
         0
       ]
     },
@@ -324,7 +324,10 @@
   "80": {
     "class_type": "LazySwitchKJ",
     "inputs": {
-      "switch": false,
+      "switch": [
+        "123",
+        0
+      ],
       "on_false": [
         "101",
         0
@@ -483,6 +486,101 @@
     },
     "_meta": {
       "title": "LoRA 4 开关"
+    }
+  },
+  "120": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "text"
+    },
+    "_meta": {
+      "title": "输入方式"
+    }
+  },
+  "121": {
+    "class_type": "StringCompare",
+    "inputs": {
+      "string_a": [
+        "120",
+        0
+      ],
+      "string_b": "reference",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "122": {
+    "class_type": "PrimitiveBoolean",
+    "inputs": {
+      "value": false
+    },
+    "_meta": {
+      "title": "API 图片反推开关"
+    }
+  },
+  "123": {
+    "class_type": "Logic Comparison OR",
+    "inputs": {
+      "boolean_a": [
+        "121",
+        0
+      ],
+      "boolean_b": [
+        "122",
+        0
+      ]
+    }
+  },
+  "124": {
+    "class_type": "StringCompare",
+    "inputs": {
+      "string_a": [
+        "120",
+        0
+      ],
+      "string_b": "upscale",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "125": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "switch": [
+        "124",
+        0
+      ],
+      "on_false": [
+        "49",
+        0
+      ],
+      "on_true": [
+        "92",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "超分输入选择"
+    }
+  },
+  "126": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "switch": [
+        "124",
+        0
+      ],
+      "on_false": [
+        "102",
+        0
+      ],
+      "on_true": [
+        "46",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "仅图片放大"
     }
   }
 }

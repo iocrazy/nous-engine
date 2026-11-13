@@ -1,23 +1,38 @@
 {
   "exposed_params": [
     {
-      "key": "use_reference",
+      "key": "input_mode",
       "label": "输入方式",
-      "type": "boolean",
-      "comfy_node_id": "80",
-      "comfy_input": "switch",
+      "type": "string",
+      "default": "text",
       "required": false,
-      "default": false,
+      "widget": "radio",
       "options": [
         {
-          "value": false,
+          "value": "text",
           "label": "文字生图"
         },
         {
-          "value": true,
+          "value": "reference",
           "label": "图片反推"
+        },
+        {
+          "value": "upscale",
+          "label": "仅图片放大"
         }
-      ]
+      ],
+      "comfy_node_id": "120",
+      "comfy_input": "value"
+    },
+    {
+      "key": "use_reference",
+      "label": "API 图片反推开关",
+      "type": "boolean",
+      "comfy_node_id": "122",
+      "comfy_input": "value",
+      "required": false,
+      "default": false,
+      "hidden": true
     },
     {
       "key": "prompt",
@@ -28,7 +43,7 @@
       "required": false,
       "default": "",
       "visible_when": {
-        "use_reference": false
+        "input_mode": "text"
       }
     },
     {
@@ -40,19 +55,22 @@
       "required": false,
       "default": true,
       "visible_when": {
-        "use_reference": false
+        "input_mode": "text"
       }
     },
     {
       "key": "reference_image",
-      "label": "反推参考图",
+      "label": "输入图片",
       "type": "image",
       "comfy_node_id": "92",
       "comfy_input": "image",
       "required": false,
       "omit_when_empty": true,
       "visible_when": {
-        "use_reference": true
+        "input_mode": [
+          "reference",
+          "upscale"
+        ]
       }
     },
     {
@@ -64,7 +82,7 @@
       "required": false,
       "default": "输出可复现该画面的详细提示词，不要图片上的文字. ",
       "visible_when": {
-        "use_reference": true
+        "input_mode": "reference"
       }
     },
     {
@@ -74,7 +92,13 @@
       "comfy_node_id": "36",
       "comfy_input": "text",
       "required": false,
-      "default": " worst quality, bad anatomy, watermark, jpeg artifact"
+      "default": " worst quality, bad anatomy, watermark, jpeg artifact",
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "seed",
@@ -86,7 +110,13 @@
       "default": 42,
       "min": 0,
       "max": 9007199254740991,
-      "random": true
+      "random": true,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "steps",
@@ -97,7 +127,13 @@
       "required": false,
       "default": 25,
       "min": 1,
-      "max": 100
+      "max": 100,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "cfg",
@@ -109,7 +145,13 @@
       "default": 3,
       "min": 0,
       "max": 20,
-      "step": 0.1
+      "step": 0.1,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "aspect_ratio",
@@ -128,7 +170,13 @@
         "9:16 (Portrait Widescreen)",
         "16:9 (Widescreen)",
         "21:9 (Ultrawide)"
-      ]
+      ],
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "megapixels",
@@ -140,7 +188,13 @@
       "default": 2,
       "min": 0.25,
       "max": 4,
-      "step": 0.25
+      "step": 0.25,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "enable_lora_01",
@@ -149,7 +203,13 @@
       "comfy_node_id": "111",
       "comfy_input": "switch",
       "required": false,
-      "default": true
+      "default": true,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "lora_01",
@@ -163,7 +223,13 @@
         "None",
         "moss/KOOK-MOSS-SFT-观澜.safetensors",
         "moss/TJFilmMossV2.safetensors"
-      ]
+      ],
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "strength_01",
@@ -175,7 +241,13 @@
       "default": 1.0,
       "min": -2,
       "max": 2,
-      "step": 0.05
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "enable_lora_02",
@@ -184,7 +256,13 @@
       "comfy_node_id": "112",
       "comfy_input": "switch",
       "required": false,
-      "default": false
+      "default": false,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "lora_02",
@@ -198,7 +276,13 @@
         "None",
         "moss/KOOK-MOSS-SFT-观澜.safetensors",
         "moss/TJFilmMossV2.safetensors"
-      ]
+      ],
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "strength_02",
@@ -210,7 +294,13 @@
       "default": 1.0,
       "min": -2,
       "max": 2,
-      "step": 0.05
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "enable_lora_03",
@@ -219,7 +309,13 @@
       "comfy_node_id": "113",
       "comfy_input": "switch",
       "required": false,
-      "default": false
+      "default": false,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "lora_03",
@@ -233,7 +329,13 @@
         "None",
         "moss/KOOK-MOSS-SFT-观澜.safetensors",
         "moss/TJFilmMossV2.safetensors"
-      ]
+      ],
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "strength_03",
@@ -245,7 +347,13 @@
       "default": 1.0,
       "min": -2,
       "max": 2,
-      "step": 0.05
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "enable_lora_04",
@@ -254,7 +362,13 @@
       "comfy_node_id": "114",
       "comfy_input": "switch",
       "required": false,
-      "default": false
+      "default": false,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "lora_04",
@@ -268,7 +382,13 @@
         "None",
         "moss/KOOK-MOSS-SFT-观澜.safetensors",
         "moss/TJFilmMossV2.safetensors"
-      ]
+      ],
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "strength_04",
@@ -280,7 +400,13 @@
       "default": 1.0,
       "min": -2,
       "max": 2,
-      "step": 0.05
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "enable_upscale",
@@ -289,7 +415,13 @@
       "comfy_node_id": "102",
       "comfy_input": "switch",
       "required": false,
-      "default": true
+      "default": true,
+      "visible_when": {
+        "input_mode": [
+          "text",
+          "reference"
+        ]
+      }
     },
     {
       "key": "upscale_resolution",
@@ -326,7 +458,7 @@
       "max": 2,
       "step": 0.05,
       "visible_when": {
-        "use_reference": false,
+        "input_mode": "text",
         "enable_expansion": true
       }
     },
@@ -341,7 +473,7 @@
       "min": 64,
       "max": 32768,
       "visible_when": {
-        "use_reference": false,
+        "input_mode": "text",
         "enable_expansion": true
       }
     }

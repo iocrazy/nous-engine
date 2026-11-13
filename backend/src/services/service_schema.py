@@ -101,6 +101,10 @@ def _input_property(exposed: dict, widget: dict | None) -> dict:
     if isinstance(constraints, dict):
         if constraints.get("visible_when"):
             prop["x-visible-when"] = constraints["visible_when"]
+        if constraints.get("widget"):
+            prop["x-widget"] = constraints["widget"]
+        if constraints.get("hidden"):
+            prop["x-hidden"] = True
         is_file = str(exposed.get("type") or "").lower() in _FILE_IN_TYPES
         enum = constraints.get("enum")
         # 文件类输入的 enum 不是取值域,是 **sidecar 上已有文件的清单**(ComfyUI

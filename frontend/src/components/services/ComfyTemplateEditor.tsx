@@ -718,6 +718,8 @@ function toSchemaExposedParam(p: ExposedParamDraft): ExposedParam {
     if (metadata.length) constraints.option_meta = metadata
   }
   if (p.visible_when) constraints.visible_when = p.visible_when
+  if (p.widget) constraints.widget = p.widget
+  if (p.hidden) constraints.hidden = true
   if (p.random) constraints.random = true
   return {
     key: p.key,

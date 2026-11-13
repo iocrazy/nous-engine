@@ -178,7 +178,7 @@ export function Field({
   const kind = classifyField(param)
   const slot = paramSlot(param) ?? '?'
   const typeBadge =
-    kind === 'string_multiline' ? 'string' : kind === 'slider' ? 'number' : kind === 'radio' ? 'boolean' : kind
+    kind === 'string_multiline' ? 'string' : kind === 'slider' ? 'number' : kind === 'radio' ? (param.type || 'string') : kind
 
   return (
     <div className="flex flex-col gap-2 mb-4">
@@ -237,10 +237,11 @@ function FieldInput({
   } as const
 
   if (kind === 'radio') {
-    const meta = (param.constraints?.option_meta ?? []) as { value: boolean; label?: string }[]
+    const meta = (param.constraints?.option_meta ?? []) as { value: unknown; label?: string }[]
+    const options = (param.constraints?.enum ?? []) as unknown[]
     return (
       <div role="radiogroup" aria-label={param.label || paramKey(param)} style={{ display: 'flex', gap: 12 }}>
-        {([false, true] as const).map((option) => (
+        {options.map((option) => (
           <label key={String(option)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <input
               type="radio"

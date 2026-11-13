@@ -36,11 +36,13 @@ def test_missing_reference_does_not_remove_the_image_output_chain():
     assert reference.get("default") is None
     result = prune_graph(WORKFLOW, {reference["comfy_node_id"]}, {
         "CustomSystemPromptGenerator|Mie": {"input": {"optional": {"source": ["IMAGE"]}}},
+        "ComfySwitchNode": {"input": {"optional": {"on_true": ["IMAGE"]}}},
     })
     assert result.removed == frozenset({"92"})
     assert "source" not in result.graph["66"]["inputs"]
-    assert result.graph["80"]["inputs"]["switch"] is False
-    assert result.graph["51"]["inputs"]["images"] == ["102", 0]
+    assert _value(result.graph, result.graph["80"]["inputs"]["switch"]) is False
+    assert "on_true" not in result.graph["125"]["inputs"]
+    assert result.graph["51"]["inputs"]["images"] == ["126", 0]
     assert "9" not in result.graph
 
 
@@ -85,29 +87,42 @@ async def test_imported_service_exposes_lora_controls_and_image_output(client):
     ]
     assert "image_url" in schema["output_schema"]["properties"]
     properties = schema["input_schema"]["properties"]
-    assert len(properties) == 28
+    assert len(properties) == 29
     for name in ["enable_expansion", "enable_upscale", *[f"enable_lora_{i:02d}" for i in range(1, 5)]]:
         assert properties[name]["type"] == "boolean"
     assert properties["enable_lora_01"]["default"] is True
     assert properties["enable_lora_02"]["default"] is False
     assert "prompt" not in schema["input_schema"].get("required", [])
     assert properties["prompt"]["default"] == ""
-    assert properties["use_reference"]["enum"] == [False, True]
-    assert properties["use_reference"]["x-option-meta"] == [
-        {"value": False, "label": "文字生图"}, {"value": True, "label": "图片反推"},
+    assert properties["use_reference"]["x-hidden"] is True
+    assert properties["input_mode"]["enum"] == ["text", "reference", "upscale"]
+    assert properties["input_mode"]["x-widget"] == "radio"
+    assert properties["input_mode"]["x-option-meta"] == [
+        {"value": "text", "label": "文字生图"},
+        {"value": "reference", "label": "图片反推"},
+        {"value": "upscale", "label": "仅图片放大"},
     ]
-    assert properties["prompt"]["x-visible-when"] == {"use_reference": False}
-    assert properties["reference_image"]["x-visible-when"] == {"use_reference": True}
+    assert properties["prompt"]["x-visible-when"] == {"input_mode": "text"}
+    assert properties["reference_image"]["x-visible-when"] == {"input_mode": ["reference", "upscale"]}
     detail = await client.get(f"/api/v1/comfy-templates/{template_id}")
     roundtrip = MappingBody.model_validate({"exposed_params": detail.json()["exposed_params"]})
     assert roundtrip == MappingBody.model_validate(MAPPING)
 
 
 @pytest.mark.parametrize("conditions", [{"missing": True}, {"prompt": True}, {"reference_image": True}])
-def test_visibility_conditions_require_another_boolean_field(conditions):
+def test_visibility_conditions_require_another_boolean_or_enum_field(conditions):
     mapping = deepcopy(MAPPING)
     prompt = next(p for p in mapping["exposed_params"] if p["key"] == "prompt")
     prompt["visible_when"] = conditions
+    with pytest.raises(ValueError, match="visible_when"):
+        MappingBody.model_validate(mapping)
+
+
+@pytest.mark.parametrize("expected", ["unknown", [], ["text", "unknown"], True])
+def test_visibility_rejects_values_outside_the_source_enum(expected):
+    mapping = deepcopy(MAPPING)
+    prompt = next(p for p in mapping["exposed_params"] if p["key"] == "prompt")
+    prompt["visible_when"] = {"input_mode": expected}
     with pytest.raises(ValueError, match="visible_when"):
         MappingBody.model_validate(mapping)
 
@@ -138,7 +153,7 @@ async def test_reference_mode_runs_without_a_text_prompt(monkeypatch, extra):
     assert result["image_url"] == "/result.png"
     submitted = sidecar.submit.call_args.args[0]
     assert submitted["100"]["inputs"]["value"] == ""
-    assert submitted["80"]["inputs"]["switch"] is True
+    assert _value(submitted, submitted["80"]["inputs"]["switch"]) is True
     assert submitted["92"]["inputs"]["image"] == "uploaded-reference.png"
 
 
@@ -158,12 +173,24 @@ def _patch(values):
     return graph
 
 
+def _value(graph, value):
+    if not isinstance(value, list):
+        return value
+    node = graph[value[0]]
+    inputs = node["inputs"]
+    if node["class_type"] == "StringCompare":
+        return _value(graph, inputs["string_a"]) == inputs["string_b"]
+    if node["class_type"] == "Logic Comparison OR":
+        return _value(graph, inputs["boolean_a"]) or _value(graph, inputs["boolean_b"])
+    return inputs["value"]
+
+
 def _active_nodes(graph, node_id="51"):
     active = {node_id}
     node = graph[node_id]
     inputs = node["inputs"]
-    if node["class_type"] == "LazySwitchKJ":
-        dependencies = [inputs["on_true" if inputs["switch"] else "on_false"]]
+    if node["class_type"] in {"LazySwitchKJ", "ComfySwitchNode"}:
+        dependencies = [inputs["switch"], inputs["on_true" if _value(graph, inputs["switch"]) else "on_false"]]
     else:
         dependencies = inputs.values()
     for value in dependencies:
@@ -183,6 +210,49 @@ def test_switches_skip_unselected_model_branches(expansion, upscale, reference):
     assert ("45" in active) == upscale
     assert ("48" in active) == upscale
     assert "37" in active
+
+
+@pytest.mark.parametrize("mode", ["text", "reference", "upscale"])
+@pytest.mark.parametrize("expansion,upscale,legacy_reference", product([False, True], repeat=3))
+def test_three_modes_only_execute_the_selected_pipeline(mode, expansion, upscale, legacy_reference):
+    graph = _patch({"input_mode": mode, "enable_expansion": expansion,
+                    "enable_upscale": upscale, "use_reference": legacy_reference})
+    active = _active_nodes(graph)
+    if mode == "upscale":
+        assert {"92", "45", "46", "48", "50", "51"} <= active
+        assert active.isdisjoint({"28", "29", "30", "31", "36", "37", "49", "65", "66", "81", "97"})
+    else:
+        reference = mode == "reference" or legacy_reference
+        assert ("66" in active) == reference
+        assert ("65" in active) == (expansion and not reference)
+        assert ("46" in active) == upscale
+        assert "37" in active
+
+
+@pytest.mark.asyncio
+async def test_upscale_only_uploads_the_original_image_and_skips_generation(monkeypatch):
+    exposed = [_mapping_to_exposed_input(p) for p in MappingBody.model_validate(MAPPING).exposed_params]
+    sidecar = SimpleNamespace(
+        upload_image=AsyncMock(return_value="upscale-input.png"),
+        submit=AsyncMock(return_value="upscale-test"),
+        wait=AsyncMock(return_value={
+            "outputs": {"51": {"images": [{"filename": "upscaled.png", "type": "output"}]}},
+            "status": {"status_str": "success"},
+        }),
+        download=AsyncMock(return_value=b"image-bytes"),
+    )
+    monkeypatch.setattr(bridge, "load_template", AsyncMock(return_value=(WORKFLOW, exposed)))
+    monkeypatch.setattr(bridge, "get_client", lambda: sidecar)
+    monkeypatch.setattr(bridge, "write_media", AsyncMock(return_value={"url": "/upscaled.png"}))
+    result = await bridge.ComfyUIWorkflowNode().invoke({
+        "template_id": "test", "input_mode": "upscale", "enable_upscale": False,
+        "reference_image": "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
+    }, {})
+    assert result["image_url"] == "/upscaled.png"
+    submitted = sidecar.submit.call_args.args[0]
+    assert submitted["92"]["inputs"]["image"] == "upscale-input.png"
+    assert "37" not in _active_nodes(submitted)
+    assert submitted["46"]["inputs"]["image"] == ["125", 0]
 
 
 @pytest.mark.parametrize("enabled", product([False, True], repeat=4))
