@@ -11,9 +11,11 @@
 原工作流文件未修改。
 
 文字描述 → 可选 DeepSeek 扩写 → MOSS + 可选 LoRA → 原有采样链 → 可选 SeedVR2 超分 → 返回图片。
-页面通过“输入方式”单选框二选一：文字生图或图片反推。
-选择反推（`use_reference=true`）时改走原有图片反推分支，调用方必须同时传入 `reference_image`。
+页面通过“输入方式”选择文字生图、图片反推或仅图片放大。
+选择反推（`input_mode="reference"`）时改走原有图片反推分支，调用方必须同时传入 `reference_image`。
 参考图仅用于提示词反推，不会作为 MOSS 的图像条件输入。
+选择仅放大（`input_mode="upscale"`）时，`reference_image` 原图直接送入 SeedVR2，
+不调用 DeepSeek、MOSS 生图或 LoRA，也不经过生图分支的 0.3 MP 预缩放。
 
 保留主模型 `moss_image_sft_bf16.safetensors`、文本编码器
 `qwen3.5_9b_int8_convrot.safetensors`、`flux2-vae.safetensors`，以及原有采样器、CFG、
@@ -44,15 +46,17 @@
 | `enable_lora_02` | false | 跳过第 2 槽 LoRA |
 | `enable_lora_03` | false | 跳过第 3 槽 LoRA |
 | `enable_lora_04` | false | 跳过第 4 槽 LoRA |
-| `use_reference` | false | 输入方式：false 为文字生图，true 为图片反推 |
+| `use_reference` | false | 保留给既有 API 调用的图片反推开关，页面隐藏 |
 
 LoRA 槽要同时满足开关开启、文件非 `None`、强度非 0 才生效。
 关闭再开启会恢复之前所选的文件和强度；新增的第 2–4 槽需明确打开开关。
-两种输入方式互斥。文字模式显示提示词和文字扩写选项；反推模式只显示参考图与反推要求。
+`input_mode` 默认为 `text`，另外支持 `reference` 和 `upscale`。
+三种输入方式互斥。文字模式显示提示词和文字扩写选项；反推模式显示输入图片与反推要求。
+仅放大模式只显示输入图片、放大尺寸和放大种子，`enable_upscale=false` 也不会跳过放大。
 扩写参数只在文字模式且扩写开启时显示。不属于当前模式的字段不提交，但切换回来会恢复之前填写的值。
-接口通过布尔字段 `use_reference` 选择分支：true 时走 DeepSeek 图片反推，`enable_expansion` 不影响它。
-只有 `enable_expansion=false` 且 `use_reference=false` 时完全跳过 DeepSeek。
-这些开关使用现有 `LazySwitchKJ` 节点，不需要新增节点包或修改引擎运行时代码。
+既有 API 的 `use_reference=true` 仍会启用 DeepSeek 图片反推；仅放大模式优先于该字段。
+仅放大模式完全跳过 DeepSeek；文字模式关闭扩写且 `use_reference=false` 时也跳过 DeepSeek。
+分流复用现有懒切换与字符串比较节点，不新增节点包。
 
 ## 凭据和前置条件
 
@@ -94,7 +98,7 @@ curl --noproxy '*' --fail-with-body -sS "$BASE/v1/services/nous-moss-image/schem
 
 新建同名服务会返回 409，不覆盖任何已存在服务。回滚仅删除本次新建的模板，会级联删除其服务。
 导入后服务位于“全部 / ComfyUI 桥 / 其他”；现有 ComfyUI 模板的分类为 `app`。
-服务详情中的 Playground 由 28 个映射参数生成，调用方也可直接获取上述 schema 渲染表单。
+服务详情中的 Playground 由 29 个映射参数生成，调用方也可直接获取上述 schema 渲染表单。
 
 ## nous 应用调用
 
@@ -113,11 +117,21 @@ Content-Type: application/json
 只在 `status=succeeded` 时读取 `output.outputs.out.image_url` 展示图片；失败展示任务 `error`。
 `output.outputs.bridge` 是桥节点的同一份结果，应用应统一读取终端节点 `out`。
 若图片地址为相对路径，使用引擎地址作为基址解析后再下载。
-图片反推需加 `use_reference:true` 和 `reference_image:"data:image/png;base64,..."`，
+图片反推需加 `input_mode:"reference"` 和 `reference_image:"data:image/png;base64,..."`，
 `reverse_instruction` 可修改反推要求，反推模式不需要提供 `prompt`。
 文字描述字段允许留空并默认使用空字符串，避免未参与反推支路的输入被桥接层误判为必填。
-映射中的 `visible_when` 声明字段在什么布尔参数取值下显示，API schema 同时输出 `x-visible-when`。
+映射中的 `visible_when` 支持布尔或枚举参数条件；数组条件匹配其中任意一个枚举值。
+API schema 输出 `x-visible-when`、`x-widget` 和 `x-hidden`，供调用方渲染单选框与隐藏字段。
 LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
+仅放大请求不需要提示词、生图种子或 LoRA 参数：
+
+```json
+{"input":{"input_mode":"upscale","reference_image":"data:image/png;base64,...","upscale_resolution":2560,"upscale_seed":42}}
+```
+
+更新已注册的同名服务需要在部署本次表单与映射支持后，先用
+`PUT /api/v1/comfy-templates/{id}` 更新 `workflow`，再用
+`PUT /api/v1/comfy-templates/{id}/mapping` 写入本目录的映射；保留现有服务 ID 和授权 key。
 直接使用原提示词、关闭全部增强的请求示例：
 
 ```json
@@ -129,7 +143,8 @@ LoRA 下拉选 `None` 或强度设为 0 均可停用该槽。
 已按运行中 ComfyUI 的节点 schema 检查必填输入、枚举和输出索引。
 `tests/comfy/test_moss_image_template.py` 覆盖参数映射、缺省参考图剪枝、LoRA 接线、
 懒分支和在隔离 PostgreSQL 测试库内导入后的服务 schema。
-开关测试覆盖文字扩写、超分、图片反推的 8 种组合，以及四个 LoRA 开关的全部 16 种组合。
+开关测试覆盖三种输入模式与扩写、超分、旧反推开关的全部组合，以及四个 LoRA 开关的全部 16 种组合。
+纯放大支路通过模拟上传和提交验证，尚未进行本次新增模式的真机 GPU 测试。
 这些检查不启动推理进程、不调用 DeepSeek，也不向生产 ComfyUI 提交任务。
 
 ## 真机验证（2026-11-11）

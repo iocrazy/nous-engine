@@ -16,6 +16,40 @@ function setupWithInitial(inputs: ExposedParam[], initialValues: Record<string, 
 }
 
 describe('SchemaDrivenForm', () => {
+  it('offers an upscale-only mode and submits only image and upscale controls', () => {
+    const { onSubmit } = setupWithInitial([
+      {
+        node_id: 'bridge', key: 'input_mode', type: 'string', label: '输入方式',
+        constraints: {
+          widget: 'radio', enum: ['text', 'reference', 'upscale'],
+          option_meta: [
+            { value: 'text', label: '文字生图' },
+            { value: 'reference', label: '图片反推' },
+            { value: 'upscale', label: '仅图片放大' },
+          ],
+        },
+      },
+      { node_id: 'bridge', key: 'use_reference', type: 'boolean', default: false, constraints: { hidden: true } },
+      { node_id: 'bridge', key: 'prompt', type: 'string', label: '提示词', default: '', constraints: { visible_when: { input_mode: 'text' } } },
+      { node_id: 'bridge', key: 'lora', type: 'string', label: 'LoRA', default: 'moss', constraints: { visible_when: { input_mode: ['text', 'reference'] } } },
+      { node_id: 'bridge', key: 'reference_image', type: 'image', label: '输入图片', constraints: { visible_when: { input_mode: ['reference', 'upscale'] } } },
+      { node_id: 'bridge', key: 'upscale_resolution', type: 'int', label: '放大尺寸', default: 2560 },
+    ], { reference_image: 'data:image/png;base64,aW1hZ2U=' })
+    const mode = screen.getByRole('radiogroup', { name: '输入方式' })
+    expect(within(mode).getByRole('radio', { name: '文字生图' })).toBeChecked()
+    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '保留提示词' } })
+    fireEvent.click(within(mode).getByRole('radio', { name: '仅图片放大' }))
+    expect(screen.queryByText('提示词')).not.toBeInTheDocument()
+    expect(screen.queryByText('LoRA')).not.toBeInTheDocument()
+    expect(screen.getByText('输入图片')).toBeInTheDocument()
+    fireEvent.click(screen.getByText(/▶ 运行/))
+    expect(onSubmit).toHaveBeenLastCalledWith({
+      input_mode: 'upscale', reference_image: 'data:image/png;base64,aW1hZ2U=', upscale_resolution: 2560,
+    })
+    fireEvent.click(within(mode).getByRole('radio', { name: '文字生图' }))
+    expect(screen.getAllByRole('textbox')[0]).toHaveValue('保留提示词')
+  })
+
   it('switches exclusive input modes, retains values and omits inactive inputs', () => {
     const { onSubmit } = setup([
       {

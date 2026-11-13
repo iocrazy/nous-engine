@@ -36,6 +36,7 @@ export function classifyField(p: ExposedParam): FieldKind {
     return 'file'
   }
   if (Array.isArray(constraints.enum) && constraints.enum.length > 0) {
+    if (constraints.widget === 'radio') return 'radio'
     if ((t === 'boolean' || t === 'bool') && constraints.enum.length === 2
       && constraints.enum.includes(true) && constraints.enum.includes(false)) return 'radio'
     // option_meta 里只要有任何一项带 image,就用缩略图网格 —— 275 个 fooocus 风格
@@ -84,8 +85,9 @@ export function defaultFor(p: ExposedParam): unknown {
   if (p.default !== undefined && p.default !== null) return p.default
   switch (classifyField(p)) {
     case 'boolean':
-    case 'radio':
       return false
+    case 'radio':
+      return (p.constraints?.enum as unknown[] | undefined)?.[0] ?? false
     case 'slider': {
       const c = (p.constraints ?? {}) as Record<string, unknown>
       return num(c.min) ?? 0
@@ -151,6 +153,8 @@ export function staticOptions(p: ExposedParam): FieldOption[] {
 }
 
 export function isFieldVisible(p: ExposedParam, values: Record<string, unknown>): boolean {
-  const conditions = p.constraints?.visible_when as Record<string, boolean> | undefined
-  return !conditions || Object.entries(conditions).every(([key, expected]) => values[key] === expected)
+  if (p.constraints?.hidden === true) return false
+  const conditions = p.constraints?.visible_when as Record<string, unknown> | undefined
+  return !conditions || Object.entries(conditions).every(([key, expected]) =>
+    Array.isArray(expected) ? expected.includes(values[key]) : values[key] === expected)
 }
