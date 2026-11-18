@@ -23,7 +23,7 @@ import {
 } from '../../api/comfyTemplates'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from '../playground/SchemaDrivenForm'
-import { defaultFor, isFieldVisible } from '../playground/fieldKind'
+import { defaultFor, isFieldRequired, isFieldVisible } from '../playground/fieldKind'
 import { isComfyNodeRef, layoutComfyGraph, type ComfyWorkflow } from './comfyGraphLayout'
 import { placePopover } from './popoverPlacement'
 import { findInvalidModelRefs, type ModelRefIssue } from './workflowModelCheck'
@@ -718,6 +718,7 @@ function toSchemaExposedParam(p: ExposedParamDraft): ExposedParam {
     if (metadata.length) constraints.option_meta = metadata
   }
   if (p.visible_when) constraints.visible_when = p.visible_when
+  if (p.required_when) constraints.required_when = p.required_when
   if (p.widget) constraints.widget = p.widget
   if (p.hidden) constraints.hidden = true
   if (p.random) constraints.random = true
@@ -772,7 +773,7 @@ function CanvasPreviewPanel({ exposedParams }: { exposedParams: ExposedParamDraf
             return (
               <Field
                 key={k ?? `${p.node_id}.${p.input_name}`}
-                param={p}
+                param={{ ...p, required: isFieldRequired(p, values) }}
                 value={k ? values[k] : undefined}
                 onChange={(v) => {
                   if (k) setValues((prev) => ({ ...prev, [k]: v }))

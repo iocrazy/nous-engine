@@ -8,6 +8,7 @@ import {
   defaultFor,
   isRandomizable,
   isFieldVisible,
+  isFieldRequired,
   num,
   optionDependency,
   staticOptions,
@@ -98,7 +99,7 @@ export default function SchemaDrivenForm({
           return (
             <Field
               key={`${p.node_id}.${paramKey(p)}`}
-              param={p}
+              param={{ ...p, required: isFieldRequired(p, values) }}
               value={values[paramKey(p) ?? '']}
               dependsValue={dep ? String(values[dep.dependsOn] ?? '') : undefined}
               onChange={(v) => {

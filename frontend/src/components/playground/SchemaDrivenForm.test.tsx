@@ -16,6 +16,22 @@ function setupWithInitial(inputs: ExposedParam[], initialValues: Record<string, 
 }
 
 describe('SchemaDrivenForm', () => {
+  it('marks a field required only in the applicable mode', () => {
+    setup([
+      {
+        node_id: 'bridge', key: 'input_mode', type: 'string', label: '功能模式', default: 'edit',
+        constraints: { widget: 'radio', enum: ['edit', 'remove'] },
+      },
+      {
+        node_id: 'bridge', key: 'mask', type: 'image', label: '遮罩',
+        constraints: { required_when: { input_mode: 'remove' } },
+      },
+    ])
+    expect(screen.queryByText('必填')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'remove' }))
+    expect(screen.getByText('必填')).toBeInTheDocument()
+  })
+
   it('offers an upscale-only mode and submits only image and upscale controls', () => {
     const { onSubmit } = setupWithInitial([
       {

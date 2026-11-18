@@ -101,6 +101,9 @@ def _input_property(exposed: dict, widget: dict | None) -> dict:
     if isinstance(constraints, dict):
         if constraints.get("visible_when"):
             prop["x-visible-when"] = constraints["visible_when"]
+        required_when = constraints.get("required_when")
+        if isinstance(required_when, dict) and required_when:
+            prop["x-required-when"] = required_when
         if constraints.get("widget"):
             prop["x-widget"] = constraints["widget"]
         if constraints.get("hidden"):
@@ -219,6 +222,21 @@ def validate_service_input(
     for k in (input_schema or {}).get("required") or []:
         if payload.get(k) is None:
             errors.append(f"missing required input: {k}")
+    for key, spec in props.items():
+        conditions = spec.get("x-required-when")
+        value = payload.get(key, spec.get("default"))
+        if conditions and (value is None or isinstance(value, str) and not value.strip()):
+            matches = True
+            for source, expected in conditions.items():
+                source_value = payload.get(source)
+                if source_value is None:
+                    source_value = props.get(source, {}).get("default")
+                allowed = expected if isinstance(expected, list) else [expected]
+                if not any(type(source_value) is type(item) and source_value == item for item in allowed):
+                    matches = False
+                    break
+            if matches:
+                errors.append(f"missing required input: {key}")
     for k, v in payload.items():
         spec = props.get(k)
         if spec is None or v is None:

@@ -155,6 +155,15 @@ export function staticOptions(p: ExposedParam): FieldOption[] {
 export function isFieldVisible(p: ExposedParam, values: Record<string, unknown>): boolean {
   if (p.constraints?.hidden === true) return false
   const conditions = p.constraints?.visible_when as Record<string, unknown> | undefined
-  return !conditions || Object.entries(conditions).every(([key, expected]) =>
+  return !conditions || matchesFieldConditions(conditions, values)
+}
+
+export function isFieldRequired(p: ExposedParam, values: Record<string, unknown>): boolean {
+  const conditions = p.constraints?.required_when as Record<string, unknown> | undefined
+  return p.required === true || (!!conditions && matchesFieldConditions(conditions, values))
+}
+
+function matchesFieldConditions(conditions: Record<string, unknown>, values: Record<string, unknown>): boolean {
+  return Object.entries(conditions).every(([key, expected]) =>
     Array.isArray(expected) ? expected.includes(values[key]) : values[key] === expected)
 }
