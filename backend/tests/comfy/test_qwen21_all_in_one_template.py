@@ -55,6 +55,7 @@ def test_modes_only_run_the_selected_branch(mode, samplers, uses_optimizer, uses
     active = _active_nodes(graph, "389")
     assert active & {"24", "70", "197", "259"} == samplers
     assert ("34" in active or "409" in active) == uses_optimizer
+    assert ("344" in active) == (mode == "reference")
     assert ("387" in active) == uses_seedvr
     assert ("339" in active) == bool(samplers)
     assert ("280" in active) == (mode == "remove")
@@ -63,6 +64,16 @@ def test_modes_only_run_the_selected_branch(mode, samplers, uses_optimizer, uses
         graph["408"]["inputs"]["value"] = True
         active = _active_nodes(graph, "389")
         assert {"70", "383", "387"} <= active
+
+
+def test_reference_and_text_optimization_use_the_local_nous_connector():
+    assert all(node["class_type"] != "QwenImagePromptOptimizer" for node in WORKFLOW.values())
+    for node_id in ("34", "409"):
+        node = WORKFLOW[node_id]
+        assert node["class_type"] == "CustomSystemPromptGenerator|Mie"
+        connector_id, _ = node["inputs"]["llm_service_connector"]
+        assert WORKFLOW[connector_id]["inputs"]["api_url"] == "http://127.0.0.1:8000/v1/chat/completions"
+    assert "source" not in WORKFLOW["409"]["inputs"]
 
 
 @pytest.mark.parametrize(("payload", "missing"), [

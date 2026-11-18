@@ -197,29 +197,36 @@
     }
   },
   "34": {
+    "class_type": "CustomSystemPromptGenerator|Mie",
+    "_meta": {
+      "title": "本机 Qwen 图片反推"
+    },
     "inputs": {
-      "用户提示词": [
+      "input_text": [
         "33",
         0
       ],
-      "文生图模型": "pe_t2i_heretic-Q4_K_M.gguf",
-      "图生图模型": "pe_i2i_heretic-Q4_K_M.gguf",
-      "视觉模型": "pe_i2i_heretic.mmproj-bf16.gguf",
-      "输出语言": "自动",
-      "透明背景": false,
-      "种子值": 9527,
-      "种子模式": "固定",
-      "卸载模型": "自动",
-      "图像_01": [
+      "system_prompt_name": "none",
+      "seed": 8,
+      "temperature": 0.4,
+      "max_tokens": 4096,
+      "llm_service_connector": [
+        "392",
+        0
+      ],
+      "skill": [
+        "425",
+        0
+      ],
+      "source": [
         "344",
         0
+      ],
+      "image_detail": "high",
+      "system_prompt_text": [
+        "426",
+        0
       ]
-    },
-    "class_type": "QwenImagePromptOptimizer",
-    "_meta": {
-      "title": "Qwen image 2.1 提示词优化",
-      "aux_id": "goohai/Goohaitools-comfyui",
-      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
     }
   },
   "35": {
@@ -1715,25 +1722,27 @@
     }
   },
   "409": {
+    "class_type": "CustomSystemPromptGenerator|Mie",
+    "_meta": {
+      "title": "本机 Qwen 文字提示词优化"
+    },
     "inputs": {
-      "用户提示词": [
+      "input_text": [
         "33",
         0
       ],
-      "文生图模型": "pe_t2i_heretic-Q4_K_M.gguf",
-      "图生图模型": "pe_i2i_heretic-Q4_K_M.gguf",
-      "视觉模型": "pe_i2i_heretic.mmproj-bf16.gguf",
-      "输出语言": "自动",
-      "透明背景": false,
-      "种子值": 9527,
-      "种子模式": "固定",
-      "卸载模型": "自动"
-    },
-    "class_type": "QwenImagePromptOptimizer",
-    "_meta": {
-      "title": "Qwen image 2.1 提示词优化",
-      "aux_id": "goohai/Goohaitools-comfyui",
-      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+      "system_prompt_name": "none",
+      "seed": 8,
+      "temperature": 0.4,
+      "max_tokens": 4096,
+      "llm_service_connector": [
+        "392",
+        0
+      ],
+      "skill": [
+        "425",
+        0
+      ]
     }
   },
   "410": {
@@ -1994,6 +2003,27 @@
         "423",
         0
       ]
+    }
+  },
+  "425": {
+    "class_type": "NousSkillLoader|Mie",
+    "_meta": {
+      "title": "Qwen Image 2.1 文生图 Skill"
+    },
+    "inputs": {
+      "skill": "Qwen-Image-2.1/Qwen-Image-2.1-文生图.md",
+      "include_references": true,
+      "uploaded_name": "",
+      "uploaded_content": ""
+    }
+  },
+  "426": {
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "图片反推要求"
+    },
+    "inputs": {
+      "value": "根据参考图写出一段可独立用于重新生图的详细提示词，描述主体、构图、环境、光线、颜色和质感。若用户有附加要求，将其合入提示词。直接输出提示词正文。"
     }
   }
 }
