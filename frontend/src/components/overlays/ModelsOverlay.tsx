@@ -327,7 +327,7 @@ export default function ModelsOverlay() {
       className="absolute inset-0 overflow-y-auto z-[16]"
       style={{ background: 'var(--bg)' }}
     >
-      <div style={{ padding: '24px 28px', maxWidth: 1600, margin: '0 auto' }}>
+      <div className="console-page console-controls">
         {/* m11 header: title + subtitle on left, toolbar on right */}
         <div
           style={{
@@ -338,24 +338,10 @@ export default function ModelsOverlay() {
           }}
         >
           <div>
-            <h1
-              style={{
-                fontSize: 20,
-                fontWeight: 600,
-                color: 'var(--text-strong)',
-                margin: 0,
-              }}
-            >
+            <h1 className="console-title">
               引擎库
             </h1>
-            <p
-              style={{
-                fontSize: 13,
-                color: 'var(--muted)',
-                marginTop: 4,
-                marginBottom: 0,
-              }}
-            >
+            <p className="console-description">
               底层推理引擎文件与 GPU 常驻管理 · 右键卡片查看更多操作
             </p>
           </div>

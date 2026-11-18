@@ -67,7 +67,7 @@ function MainLayout({ workflowRoute }: { workflowRoute?: boolean }) {
   // 画布内浮动条 WorkflowCanvasToolbar(画布顶部正中)。NodeEditor 现在直
   // 占满 isWorkflowView 主区,toolbar 浮在画布上层。
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
+    <div className={`flex h-screen flex-col overflow-hidden${isWorkflowView ? '' : ' console-shell'}`} style={{ background: 'var(--bg)' }}>
       <RouteSync />
       {workflowRoute && <WorkflowRouteLoader />}
       <GlobalTopbar />

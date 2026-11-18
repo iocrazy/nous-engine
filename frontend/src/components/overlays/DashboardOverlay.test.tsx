@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import DashboardOverlay from './DashboardOverlay'
 import type { GpuGroup } from '../../api/engines'
+import type { VLLMInstance } from '../../api/vllm'
 import type { SysGpuInfo } from '../../api/system'
 
 // DashboardOverlay 拉一堆 api —— 全部 mock 成空/最小数据，只验 GPU 卡片区。
@@ -9,6 +10,7 @@ import type { SysGpuInfo } from '../../api/system'
 // import 之前，不能直接闭包捕获 describe 内的变量）。
 const box = vi.hoisted(() => ({
   gpus: [] as SysGpuInfo[],
+  vllm: [] as VLLMInstance[],
   groups: [] as GpuGroup[],
   engines: [] as Partial<import('../../api/engines').EngineInfo>[],
 }))
@@ -60,7 +62,7 @@ const LLM_TP: GpuGroup = {
 vi.mock('../../api/dashboard', () => ({ useDashboardSummary: () => ({ data: undefined }) }))
 vi.mock('../../api/observability', () => ({ useRuntimeMetrics: () => ({ data: undefined, isLoading: false, error: null }) }))
 vi.mock('../../api/vllm', () => ({
-  useVLLMMetrics: () => ({ data: { instances: [] }, isLoading: false, error: null }),
+  useVLLMMetrics: () => ({ data: { instances: box.vllm }, isLoading: false, error: null }),
 }))
 vi.mock('../../api/engines', () => ({
   useEngines: () => ({ data: box.engines }),
@@ -111,11 +113,45 @@ function renderSystemPanel() {
 
 beforeEach(() => {
   box.gpus = THREE_GPUS
+  box.vllm = []
   box.groups = []
   box.engines = []
 })
 
 describe('DashboardOverlay tabs', () => {
+  it('keeps vLLM capacity, scheduling and prefix metrics explicit', () => {
+    box.vllm = [
+      {
+        name: 'chat', port: 47381, healthy: true, error: null,
+        config: { num_gpu_blocks: '191', block_size: '800', enable_prefix_caching: 'True' },
+        stats: { kv_cache_usage_perc: 0.34, running: 2, waiting: 0, prefix_cache_hit_rate: 0.64,
+          prefix_cache_hits_total: 64, prefix_cache_queries_total: 100 },
+      },
+      {
+        name: 'embed', port: 46929, healthy: true, error: null,
+        config: { enable_prefix_caching: 'False' }, stats: {},
+      },
+      {
+        name: 'rerank', port: 41459, healthy: true, error: null,
+        config: { enable_prefix_caching: 'True' },
+        stats: { prefix_cache_queries_total: 0, prefix_cache_hits_total: 0, prefix_cache_hit_rate: 0 },
+      },
+    ]
+    renderSystemPanel()
+    const table = within(screen.getByRole('table', { name: 'vLLM 实例指标' }))
+    const chat = within(table.getByRole('row', { name: /chat/ }))
+    expect(chat.getByText('端口 47381')).toBeTruthy()
+    expect(chat.getByText('34%')).toBeTruthy()
+    expect(chat.getByTitle('152,800 tokens')).toBeTruthy()
+    expect(chat.getByText('191 blocks × 800')).toBeTruthy()
+    expect(chat.getByText('2')).toBeTruthy()
+    expect(chat.getByText('0')).toBeTruthy()
+    expect(chat.getByText('64%')).toBeTruthy()
+    expect(chat.getByText('64 / 100')).toBeTruthy()
+    expect(within(table.getByRole('row', { name: /embed/ })).getByText('关闭')).toBeTruthy()
+    expect(within(table.getByRole('row', { name: /rerank/ })).getByText('暂无查询')).toBeTruthy()
+  })
+
   it('places service and connection health immediately after resources', () => {
     renderSystemPanel()
     const resources = screen.getByRole('region', { name: '资源与运行时' })

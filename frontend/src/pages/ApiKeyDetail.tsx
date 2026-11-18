@@ -275,7 +275,7 @@ export default function ApiKeyDetail() {
         background: 'var(--bg)',
       }}
     >
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: 20 }}>
+      <div className="console-page console-controls">
         {/* breadcrumb */}
         <button
           type="button"
@@ -299,7 +299,7 @@ export default function ApiKeyDetail() {
         {/* header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 18 }}>
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text)' }}>
+            <h1 className="console-title">
               {key.label}
             </h1>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>

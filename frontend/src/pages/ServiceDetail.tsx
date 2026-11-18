@@ -90,7 +90,7 @@ export default function ServiceDetailPage({ serviceId, onBack }: ServiceDetailPa
         background: 'var(--bg)',
       }}
     >
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
+      <div className="console-page console-controls">
         <Breadcrumb name={svc.name} onBack={onBack} />
         <Header svc={svc} />
         <Tabs current={tab} onChange={setTab} />
@@ -238,7 +238,7 @@ function Header({ svc }: { svc: ServiceDetailT }) {
             </>
           ) : (
             <>
-              <h1 style={{ fontSize: 22, color: 'var(--text)' }}>{svc.name}</h1>
+              <h1 className="console-title">{svc.name}</h1>
               <button
                 onClick={startEdit}
                 title="改名(对外路由键)"

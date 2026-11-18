@@ -236,3 +236,27 @@ async def test_monitor_stats_recomputes_after_ttl(db_client: AsyncClient, monkey
         await db_client.get("/api/v1/monitor/stats")
         await db_client.get("/api/v1/monitor/stats")
     assert calls["n"] == 2, f"TTL=0 应每次重算,got {calls['n']}"
+
+
+async def test_systemd_comfy_gpu_process_is_protected(db_client, monkeypatch):
+    from src.api.routes import monitor
+    from src.services import safe_signal
+    from src.services.comfy import sidecar_status
+
+    async def main_pid():
+        return 1234
+
+    def gpu_processes(pid_map):
+        assert pid_map[1234] == "ComfyUI"
+        return {0: [{"pid": 1234, "managed": True}, {"pid": 1235, "managed": True}]}
+
+    def refuse_signal(*args):
+        pytest.fail(f"managed process was signalled: {args}")
+
+    monkeypatch.setattr(sidecar_status, "unit_main_pid", main_pid)
+    monkeypatch.setattr(monitor, "_gpu_processes", gpu_processes)
+    monkeypatch.setattr(safe_signal, "safe_kill", refuse_signal)
+
+    for pid in (1234, 1235):
+        response = await db_client.post("/api/v1/monitor/kill-process", json={"pid": pid})
+        assert response.status_code == 409

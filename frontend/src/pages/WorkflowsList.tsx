@@ -77,11 +77,11 @@ export default function WorkflowsList() {
         background: 'var(--bg)',
       }}
     >
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 14 }}>
+      <div className="console-page console-controls">
+        <div className="console-page-header">
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>Workflow</h1>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            <h1 className="console-title">Workflow</h1>
+            <p className="console-description">
               搭建节点化工作流 · 发布为「服务」后对外暴露 API 端点，通过 API Key 调用
             </p>
           </div>
