@@ -13,7 +13,7 @@ import { useRuntimeMetrics, type RuntimeSnapshot } from '../../api/observability
 import { useVLLMMetrics } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { useHealth } from '../../api/health'
-import { useStatus, type ComponentStatus } from '../../api/status'
+import { useStatus, useStatusConnections, type ComponentStatus } from '../../api/status'
 import { useComfyHealth } from '../../api/comfyTemplates'
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
@@ -377,6 +377,7 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
 
 function SystemConnections() {
   const status = useStatus()
+  const connections = useStatusConnections()
   const health = useComfyHealth()
   const sidecar = useHealth().data?.comfy
   const { data: processes } = useSysProcesses()
@@ -384,12 +385,15 @@ function SystemConnections() {
   const bridge = health.data
   const probe = processes?.net_probe
   const render = bridge?.running_render
+  const checks = connections.isError ? undefined : connections.data
+  const startedAt = checks?.comfy_unit.started_at
+  const restartCount = checks?.comfy_unit.restart_count
   const bridgeChecked = !health.isError && !!bridge
 
   const copyAddress = async (address: string) => {
     try {
       await navigator.clipboard.writeText(address)
-      setCopyMessage('已复制桥接地址')
+      setCopyMessage('已复制地址')
     } catch {
       setCopyMessage('复制失败，可手动选中地址')
     }
@@ -428,6 +432,30 @@ function SystemConnections() {
               <button type="button" className="text-xs underline" onClick={() => void copyAddress(bridge.base_url)}>复制地址</button>
             </div>
           )}
+          <div className="mt-3 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
+            <p style={{ color: 'var(--muted)' }}>
+              Tailscale · 服务器侧探测
+              {checks && ` · ${new Date(checks.checked_at).toLocaleTimeString()}`}
+            </p>
+            {connections.isError && <p role="alert" className="mt-1">Tailscale 探测结果暂不可用</p>}
+            {!checks && !connections.isError && <p role="status" className="mt-1">正在探测…</p>}
+            {checks?.tailscale === null && <p className="mt-1">未配置有效的 Tailscale 地址</p>}
+            {checks?.tailscale?.map((probe) => (
+              <div key={probe.key} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div className="min-w-0">
+                  <span className="block">{probe.key === 'backend' ? '后端 API' : 'ComfyUI'}</span>
+                  <code className="break-all" style={{ color: 'var(--muted)' }}>{probe.url}</code>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: probe.http_status === 200 ? 'var(--ok, #22c55e)' : 'var(--warn, #f59e0b)' }}>
+                    {probe.http_status == null ? '探测失败' : `HTTP ${probe.http_status}`}
+                  </span>
+                  <button type="button" className="underline" aria-label={`复制 ${probe.key === 'backend' ? '后端 API' : 'ComfyUI'} 的 Tailscale 地址`}
+                    onClick={() => void copyAddress(probe.url)}>复制地址</button>
+                </div>
+              </div>
+            ))}
+          </div>
           {copyMessage && <p role="status" className="mt-1 text-xs">{copyMessage}</p>}
           {sidecar && (
             <details className="mt-3 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
@@ -444,6 +472,8 @@ function SystemConnections() {
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
           <span>队列任务 {bridgeChecked && bridge.online ? bridge.queue_depth : '—'}</span>
           {render && <span>桥接任务 {render.task_id} · 已占用 {render.held_seconds.toFixed(1)} 秒</span>}
+          <span>最近启动 {startedAt == null ? '—' : new Date(startedAt * 1000).toLocaleString()}</span>
+          <span title="systemd 为此单元记录的自动重启次数">自动重启 {restartCount == null ? '—' : `${restartCount} 次`}</span>
         </div>
       </Panel>
     </section>

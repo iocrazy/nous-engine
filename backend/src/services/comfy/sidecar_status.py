@@ -41,7 +41,7 @@ def _unit_name() -> str:
     return os.getenv("NOUS_COMFY_UNIT", "nous-engine-comfyui.service")
 
 
-def _comfy_port() -> int:
+def comfy_port() -> int:
     from src.services.comfy.client import _base_url  # noqa: PLC0415
     parsed = urllib.parse.urlparse(_base_url())
     if parsed.port:
@@ -49,18 +49,23 @@ def _comfy_port() -> int:
     return 443 if parsed.scheme == "https" else 80
 
 
-def expected_listens(path: Path | None = None) -> list[str]:
-    """network.env 里的 NOUS_COMFY_LISTEN;读不到 / 没这一行 → []。"""
+def _network_setting(key: str, path: Path | None = None) -> str:
     try:
         text = (path or _NETWORK_ENV).read_text(encoding="utf-8")
-    except OSError:
-        return []
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("NOUS_COMFY_LISTEN="):
-            value = line.split("=", 1)[1].strip()
-            return [a.strip() for a in value.split(",") if a.strip()]
-    return []
+    except (OSError, UnicodeError):
+        return ""
+    prefix = f"{key}="
+    return next((line[len(prefix):].strip() for line in map(str.strip, text.splitlines())
+                 if line.startswith(prefix)), "")
+
+
+def expected_listens(path: Path | None = None) -> list[str]:
+    return [address.strip() for address in _network_setting("NOUS_COMFY_LISTEN", path).split(",")
+            if address.strip()]
+
+
+def tailscale_host() -> str:
+    return os.getenv("NOUS_TS_HOST") or _network_setting("NOUS_TS_HOST")
 
 
 async def _run_cmd(*argv: str) -> str | None:
@@ -81,6 +86,20 @@ async def _run_cmd(*argv: str) -> str | None:
     if proc.returncode != 0:
         return None
     return out.decode("utf-8", "replace")
+
+
+async def unit_restart_info() -> dict[str, int | None]:
+    out = await _run_cmd(
+        "systemctl", "show", _unit_name(), "--timestamp=unix",
+        "-p", "ExecMainStartTimestamp", "-p", "NRestarts",
+    )
+    fields = dict(line.split("=", 1) for line in (out or "").splitlines() if "=" in line)
+    start = fields.get("ExecMainStartTimestamp", "")
+    count = fields.get("NRestarts", "")
+    return {
+        "started_at": int(start[1:]) if start.startswith("@") and start[1:].isdigit() else None,
+        "restart_count": int(count) if count.isdigit() else None,
+    }
 
 
 async def _probe_online() -> bool:
@@ -144,7 +163,7 @@ def _parse_ss(out: str) -> tuple[list[str], set[int]]:
 
 
 async def _compute() -> dict:
-    port = _comfy_port()
+    port = comfy_port()
     unit = _unit_name()
     unit_short = unit.removesuffix(".service")
 

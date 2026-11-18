@@ -73,6 +73,16 @@ vi.mock('../../api/health', () => ({
 }))
 vi.mock('../../api/status', () => ({
   useStatus: () => ({ data: { overall: 'degraded', components: [{ key: 'comfy', name: 'ComfyUI 桥', status: 'degraded' }] } }),
+  useStatusConnections: () => ({
+    data: {
+      tailscale: [
+        { key: 'backend', url: 'http://100.64.0.42:8000', http_status: 200 },
+        { key: 'comfy', url: 'http://100.64.0.42:8888', http_status: null },
+      ],
+      comfy_unit: { started_at: 1794978664, restart_count: 3 },
+      checked_at: '2026-11-18T05:30:00Z',
+    },
+  }),
 }))
 vi.mock('../../api/comfyTemplates', () => ({
   useComfyHealth: () => ({
@@ -114,6 +124,10 @@ describe('DashboardOverlay tabs', () => {
     expect(screen.getByText('队列任务 2')).toBeTruthy()
     expect(screen.getByText('http://127.0.0.1:8888')).toBeTruthy()
     expect(screen.getByText('ComfyUI 监听地址（1）').closest('details')?.open).toBe(false)
+    expect(screen.getByText('HTTP 200')).toBeTruthy()
+    expect(screen.getByText('探测失败')).toBeTruthy()
+    expect(screen.getByText('自动重启 3 次')).toBeTruthy()
+    expect(screen.getByText(/最近启动/).textContent).not.toContain('—')
   })
 
   it('opens the model tab filtered to failed models from the overview', () => {

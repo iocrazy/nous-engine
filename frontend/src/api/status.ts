@@ -34,3 +34,19 @@ export function useStatus() {
     refetchInterval: 15_000, // 状态页 15s 自动刷新
   })
 }
+
+
+export interface StatusConnections {
+  tailscale: { key: 'backend' | 'comfy'; url: string; http_status: number | null }[] | null
+  comfy_unit: { started_at: number | null; restart_count: number | null }
+  checked_at: string
+}
+
+export function useStatusConnections() {
+  return useQuery<StatusConnections>({
+    queryKey: ['status-connections'],
+    queryFn: () => apiFetch('/api/v1/status/connections'),
+    refetchInterval: 15_000,
+    retry: false,
+  })
+}
