@@ -42,6 +42,8 @@ import CreateApiKeyDialog from '../components/api-keys/CreateApiKeyDialog'
 import SchemaDrivenForm from '../components/playground/SchemaDrivenForm'
 import { ModelPlayground } from '../components/playground/ModelPlayground'
 import SchemaDrivenOutput from '../components/playground/SchemaDrivenOutput'
+import { pluck } from '../components/playground/outputValues'
+import QwenImagePlayground from '../components/playground/QwenImagePlayground'
 import AsyncRunState from '../components/playground/AsyncRunState'
 import { createPredictionAsync } from '../api/predictions'
 import { useTasksByWorkflow, type ExecutionTask } from '../api/tasks'
@@ -446,13 +448,22 @@ function ModelsPanel({ models }: { models: ServiceModelRef[] }) {
 
 // 合并后的「Playground」tab:运行(干净表单+输出)与编辑(节点图+暴露字段配置)
 // 二合一,顶部分段切换。仅工作流类服务(有节点快照)才出现「编辑」;LLM/TTS 只有运行。
+function isQwenImageWorkflow(svc: ServiceDetailT) {
+  return svc.source_type === 'comfy_template' && svc.name === 'nous-qwen21-all-in-one'
+    && svc.exposed_inputs.some(input => input.key === 'input_mode')
+}
+
 function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: Record<string, unknown> }) {
   const canEdit = useMemo(
     () => snapshotToNodes(svc.workflow_snapshot ?? {}).length > 0,
     [svc.workflow_snapshot],
   )
   const [mode, setMode] = useState<'run' | 'edit'>('run')
+  const [imageMode, setImageMode] = useState(
+    typeof initialInputs?.input_mode === 'string' ? initialInputs.input_mode : undefined,
+  )
   const m = canEdit ? mode : 'run'
+  const qwen = isQwenImageWorkflow(svc)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {canEdit && (
@@ -461,13 +472,16 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
           <SegBtn active={m === 'edit'} onClick={() => setMode('edit')} icon={<SlidersHorizontal size={13} />} label="编辑暴露字段" />
         </div>
       )}
+      {qwen && <div hidden={m !== 'run'}>
+        <PlaygroundTab svc={svc} initialInputs={initialInputs} onImageModeChange={setImageMode} />
+      </div>}
       {m === 'edit' ? (
         svc.source_type === 'comfy_template' && svc.source_id ? (
-          <ComfyTemplateEditor templateId={svc.source_id} serviceId={svc.id} />
+          <ComfyTemplateEditor templateId={svc.source_id} serviceId={svc.id} currentMode={imageMode} />
         ) : (
           <AppEditorTab svc={svc} />
         )
-      ) : svc.source_type === 'model' && (svc.category === 'llm' || svc.category === 'embedding' || svc.category === 'rerank') ? (
+      ) : qwen ? null : svc.source_type === 'model' && (svc.category === 'llm' || svc.category === 'embedding' || svc.category === 'rerank') ? (
         // 模型类服务没有 exposed_inputs,通用表单只能发出 messages:[](见 ModelPlayground 头注释)
         <ModelPlayground name={svc.name} category={svc.category} />
       ) : (
@@ -498,7 +512,11 @@ function SegBtn({ active, onClick, icon, label }: { active: boolean; onClick: ()
 
 // exported for tests: comfy_template respond-async 集成回归(Task 10 review 修复)需要
 // 直接渲染这层——不依赖 react-query/react-router 的 ServiceDetailPage 外壳。
-export function PlaygroundTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: Record<string, unknown> }) {
+export function PlaygroundTab({ svc, initialInputs, onImageModeChange }: {
+  svc: ServiceDetailT
+  initialInputs?: Record<string, unknown>
+  onImageModeChange?: (mode: string) => void
+}) {
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -598,6 +616,46 @@ export function PlaygroundTab({ svc, initialInputs }: { svc: ServiceDetailT; ini
     } finally {
       setRunning(false)
     }
+  }
+
+  const asyncOutput = asyncPredictionId ? (
+    <AsyncRunState
+      predictionId={asyncPredictionId}
+      onDone={(output) => {
+        setResult(output)
+        setStatus('completed')
+        setLatencyMs(Math.round(performance.now() - startRef.current))
+        setRunning(false)
+        setAsyncPredictionId(null)
+      }}
+      onError={(message) => {
+        // 与同步路径的 catch 分支对称:落 error/failed,交给下面
+        // (!asyncPredictionId 后)SchemaDrivenOutput 的 error prop 渲染,
+        // 而不是让 AsyncRunState 内部一直卡着——否则 failed 永久锁死提交按钮。
+        setError(message)
+        setStatus('failed')
+        setLatencyMs(Math.round(performance.now() - startRef.current))
+        setRunning(false)
+        setAsyncPredictionId(null)
+      }}
+      onCancel={() => {
+        setStatus('idle')
+        setRunning(false)
+        setAsyncPredictionId(null)
+      }}
+    />
+  ) : null
+
+  if (isQwenImageWorkflow(svc)) {
+    const imageOutput = svc.exposed_outputs.find(output => output.key === 'image_url')
+    const image = result && imageOutput ? pluck(result, imageOutput) : undefined
+    const activity = asyncOutput ?? (error
+      ? <div role="alert" style={{ padding: 10, color: 'var(--error)' }}>{error}</div>
+      : status === 'running' ? <p role="status" style={{ padding: 10 }}>正在提交…</p>
+      : status === 'completed' ? <StatusFooter status={status} latencyMs={latencyMs} result={result} /> : null)
+    return <QwenImagePlayground key={svc.id} inputs={svc.exposed_inputs} initialInputs={initialInputs}
+      resultUrl={typeof image === 'string' && image ? image : undefined}
+      activity={activity} running={running} onRun={submit} onModeChange={onImageModeChange} />
   }
 
   return (
@@ -713,33 +771,7 @@ export function PlaygroundTab({ svc, initialInputs }: { svc: ServiceDetailT; ini
         }}>
           <SectionHeader title="输出" />
           <div style={{ padding: asyncPredictionId ? 0 : '16px 18px' }}>
-            {asyncPredictionId ? (
-              <AsyncRunState
-                predictionId={asyncPredictionId}
-                onDone={(output) => {
-                  setResult(output)
-                  setStatus('completed')
-                  setLatencyMs(Math.round(performance.now() - startRef.current))
-                  setRunning(false)
-                  setAsyncPredictionId(null)
-                }}
-                onError={(message) => {
-                  // 与同步路径的 catch 分支对称:落 error/failed,交给下面
-                  // (!asyncPredictionId 后)SchemaDrivenOutput 的 error prop 渲染,
-                  // 而不是让 AsyncRunState 内部一直卡着——否则 failed 永久锁死提交按钮。
-                  setError(message)
-                  setStatus('failed')
-                  setLatencyMs(Math.round(performance.now() - startRef.current))
-                  setRunning(false)
-                  setAsyncPredictionId(null)
-                }}
-                onCancel={() => {
-                  setStatus('idle')
-                  setRunning(false)
-                  setAsyncPredictionId(null)
-                }}
-              />
-            ) : (
+            {asyncOutput ?? (
               <>
                 {status === 'running' && !result && !error && (
                   <div style={{

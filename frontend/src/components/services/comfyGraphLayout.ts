@@ -10,9 +10,12 @@
 // (ComfyTemplateGraph.tsx 卡片宽 190、两行内容高约 60)换算 —— 旧的 220/64 几乎不留
 // 缝隙,图挤成一团(用户反馈「太乱」的一部分原因),这里放宽出可读的行列间距。
 
+import type { ComfyCanvasLayout } from '../../api/comfyTemplates'
+
 export interface ComfyWorkflowNode {
   class_type: string
   inputs: Record<string, unknown>
+  _meta?: { title?: string }
 }
 
 export type ComfyWorkflow = Record<string, ComfyWorkflowNode>
@@ -23,6 +26,7 @@ export interface ComfyLayoutNode {
   x: number
   y: number
   usedCount: number
+  title?: string
 }
 
 export interface ComfyLayoutEdge {
@@ -90,6 +94,7 @@ export function layoutComfyGraph(
       nodes.push({
         id,
         class_type: workflow[id].class_type,
+        title: workflow[id]._meta?.title,
         x: Number(col) * COL_WIDTH,
         y: row * ROW_HEIGHT,
         usedCount: 0,
@@ -98,4 +103,84 @@ export function layoutComfyGraph(
   }
 
   return { nodes, edges }
+}
+
+
+export interface ComfyNodePosition {
+  classType: string
+  x: number
+  y: number
+}
+
+export type ComfyNodePositions = Record<string, ComfyNodePosition>
+
+export function groupComfyNodes(
+  nodes: ComfyLayoutNode[],
+  canvas: ComfyCanvasLayout,
+  positions: ComfyNodePositions,
+) {
+  const native = new Map(canvas.nodes.map(node => [node.id, node]))
+  const right = Math.max(0, ...canvas.groups.map(({ bounding: [x, , width] }) => x + width),
+    ...canvas.nodes.map(({ pos }) => pos[0] + 190))
+  const top = Math.min(0, ...canvas.nodes.map(({ pos }) => pos[1]))
+  const extra: ComfyLayoutNode[] = []
+  const placed = nodes.map(node => {
+    const manual = positions[node.id]
+    const original = native.get(node.id)
+    if (original?.type === node.class_type) {
+      const [x, y] = original.pos
+      return { ...node, ...(manual?.classType === node.class_type ? manual : { x, y }) }
+    }
+    const index = extra.length
+    const fallback = { x: right + 120 + index % 3 * COL_WIDTH, y: top + 50 + Math.floor(index / 3) * ROW_HEIGHT }
+    const placedNode = { ...node, ...(manual?.classType === node.class_type ? manual : fallback) }
+    extra.push(placedNode)
+    return placedNode
+  })
+  const groups = canvas.groups.filter(({ bounding: [x, y, w, h] }) =>
+    placed.some(node => {
+      const match = native.get(node.id)
+      return match?.type === node.class_type && match.pos[0] >= x && match.pos[0] <= x + w
+        && match.pos[1] >= y && match.pos[1] <= y + h
+    }),
+  )
+  if (extra.length) {
+    const x = Math.min(...extra.map(node => node.x)) - 24
+    const y = Math.min(...extra.map(node => node.y)) - 42
+    const w = Math.max(...extra.map(node => node.x + 214)) - x
+    const h = Math.max(...extra.map(node => node.y + ROW_HEIGHT)) - y
+    groups.push({ title: '服务接入', bounding: [x, y, w, h] })
+  }
+  return { nodes: placed, groups }
+}
+
+const OUTPUT_NODES = /^(SaveImage|Image Save|SaveVideo|SaveWEBM|SaveAnimated|VHS_VideoCombine)/
+
+export function filterComfyBranch(workflow: ComfyWorkflow, modeNodeId: string, mode: string): ComfyWorkflow {
+  const ids = new Set(Object.keys(workflow))
+  const outputs = Object.keys(workflow).filter(id => OUTPUT_NODES.test(workflow[id].class_type))
+  if (!outputs.length) return workflow
+  const switchValue = (input: unknown) => {
+    if (typeof input === 'boolean') return input
+    if (!isComfyNodeRef(input, ids)) return undefined
+    const node = workflow[input[0]]
+    const source = node.inputs?.string_a
+    if (node.class_type === 'StringCompare' && isComfyNodeRef(source, ids) && source[0] === modeNodeId
+      && node.inputs.mode === 'Equal' && typeof node.inputs.string_b === 'string') {
+      return node.inputs.string_b === mode
+    }
+    return undefined
+  }
+  const included = new Set<string>()
+  const visit = (id: string) => {
+    if (included.has(id)) return
+    included.add(id)
+    const node = workflow[id]
+    const inputs = node.inputs ?? {}
+    const toggle = node.class_type === 'ComfySwitchNode' ? switchValue(inputs.switch) : undefined
+    const sources = toggle === undefined ? Object.values(inputs) : [inputs.switch, toggle ? inputs.on_true : inputs.on_false]
+    for (const source of sources) if (isComfyNodeRef(source, ids)) visit(source[0])
+  }
+  outputs.forEach(visit)
+  return Object.fromEntries(Object.entries(workflow).filter(([id]) => included.has(id)))
 }

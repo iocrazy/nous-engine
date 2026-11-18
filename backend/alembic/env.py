@@ -3,7 +3,7 @@
 - URL 从 src.config.get_settings() 注入(不在 alembic.ini 硬编码/泄漏口令)。
 - target_metadata = Base.metadata,**import 齐所有 model 模块**后才完整 —— autogenerate
   靠它 diff。漏 import 一个 = 那张表在 diff 里"消失"→ 生成 drop_table,危险。故下方显式
-  import 全部 18 个 model 模块(与 src/models/*.py 定义表的模块一一对应)。
+  import 已纳入迁移的 model 模块(与 src/models/*.py 定义表的模块一一对应)。
 - online 迁移走 async 引擎(asyncpg / aiosqlite),经 connection.run_sync 挂到 Alembic。
 """
 
@@ -23,6 +23,7 @@ from src.models.database import Base
 # —— import 齐所有定义表的 model 模块,填满 Base.metadata ——
 import src.models.admin_credentials  # noqa: F401,E402
 import src.models.api_gateway  # noqa: F401,E402
+import src.models.comfy_template  # noqa: F401,E402
 import src.models.context_cache  # noqa: F401,E402
 import src.models.execution_task  # noqa: F401,E402
 import src.models.file  # noqa: F401,E402

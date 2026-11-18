@@ -1,28 +1,19 @@
-// ComfyTemplateEditor 的 React Flow 渲染层(Task 9)。独立成子组件,好处两个:
-// 1) 让 ComfyTemplateEditor.test.tsx 能 vi.mock 掉这一层,不用在 jsdom 里真跑 xyflow
-//    (对齐 WorkflowAppEditor 已验证可行,但这里节点数可能更多,拆出去更稳)。
-// 2) 渲染逻辑(卡片/边)和编辑器状态逻辑(popover/表/保存)解耦。
-// 卡片纯展示:标题=class_type,#id,已用则出 accent-2 徽标 + 描边高亮,当前点开配置弹窗的
-// 节点额外描 accent 高亮环(对齐 Infinite-Canvas 参考实现的 is-active 描边,用主题
-// --accent 而不是写死颜色,浅色主题下也分得清)。点击统一走 React Flow 的 onNodeClick
-// (同 AppEditorNode 的教训 —— 卡片内 DOM onClick 在 xyflow 里不可靠);同时把
-// event.currentTarget(即 xyflow 的 .react-flow__node 包裹 div,已确认点击 handler 就绑在
-// 它上面)透传给上层,ComfyTemplateEditor 拿它的 getBoundingClientRect() 算弹窗贴靠位置
-// (popoverPlacement.ts),不用另外查 DOM。
-import { memo, useMemo } from 'react'
-import { ReactFlow, Background, Controls, Handle, Position, type Edge, type Node, type NodeMouseHandler } from '@xyflow/react'
+import { memo, useEffect, useEffectEvent, useMemo, useState } from 'react'
+import {
+  ReactFlow, Background, Controls, Handle, Position, useNodesState,
+  type Edge, type Node, type NodeMouseHandler, type ReactFlowInstance,
+} from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import type { ComfyCanvasLayout } from '../../api/comfyTemplates'
 import type { ComfyLayoutEdge, ComfyLayoutNode } from './comfyGraphLayout'
 
 const USED_COLOR = 'var(--accent-2)'
 const ACTIVE_COLOR = 'var(--accent)'
-// 同 ExposedSummaryTable 的 stale 行用的红色语义(var(--error, #ef4444))——「本机不存在
-// 的模型引用」跟「指向已消失节点的映射」是同一类问题(工作流里冻结了别处的状态,本机
-// 兑不了现),复用同一套错误配色,不另起一个新视觉语言。
 const ERROR_COLOR = 'var(--error, #ef4444)'
 
 interface ComfyCardData {
   classType: string
+  title?: string
   nodeId: string
   usedCount: number
   active: boolean
@@ -32,15 +23,7 @@ interface ComfyCardData {
   [key: string]: unknown
 }
 
-// 连接点。xyflow 的边是「从 source 节点的 source handle 连到 target 节点的 target
-// handle」——自定义节点里没有 <Handle>,整条边就在渲染前被丢掉(控制台 error#008
-// "Couldn't create edge for source handle id: null"),DOM 里连 .react-flow__edge-path
-// 都不会有。之前三轮「连线看不见」全部是这个原因,不是配色问题(配色只是次要问题,
-// 一并在 --graph-edge 里修了)。
-// 视觉上把 handle 本身藏掉(1px 透明):布局是按拓扑深度从左到右分列的,边从卡片
-// 左/右缘中点出入即可,不需要再画端口圆点跟卡片抢注意力。两个 handle 恒定渲染
-// (不按有无连线条件渲染)—— handle 的增删要配合 useUpdateNodeInternals 才能让
-// xyflow 重新量位置,恒定渲染就没这个坑。
+// React Flow requires handles even when the card does not display ports.
 const HANDLE_STYLE = {
   width: 1, height: 1, minWidth: 1, minHeight: 1,
   background: 'transparent', border: 'none', opacity: 0, pointerEvents: 'none' as const,
@@ -52,7 +35,7 @@ function ComfyNodeCardImpl({ data }: { data: ComfyCardData }) {
   const ringColor = data.active ? ACTIVE_COLOR : invalidModel ? ERROR_COLOR : used ? USED_COLOR : null
   return (
     <div
-      title="点击配置该节点的暴露字段"
+      title={data.classType}
       style={{
         width: 190,
         background: 'var(--card)',
@@ -82,7 +65,7 @@ function ComfyNodeCardImpl({ data }: { data: ComfyCardData }) {
           flex: 1, color: 'var(--text)', fontWeight: 700, fontSize: 10.5,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
-          {data.classType}
+          {data.title || data.classType}
         </span>
       </div>
       <div style={{
@@ -116,33 +99,68 @@ function ComfyNodeCardImpl({ data }: { data: ComfyCardData }) {
 }
 
 const ComfyNodeCard = memo(ComfyNodeCardImpl)
-const nodeTypes = { comfyNode: ComfyNodeCard }
+const nodeTypes = {
+  comfyNode: ComfyNodeCard,
+  canvasGroup: ({ data }: { data: ComfyCardData }) => <strong className="comfy-canvas-group-label">{data.title}</strong>,
+}
 
 export interface ComfyTemplateGraphProps {
   nodes: Array<ComfyLayoutNode & { invalidModel?: boolean }>
   edges: ComfyLayoutEdge[]
   activeNodeId: string | null
-  /** nodeEl = 该节点在 xyflow 里的包裹 DOM(.react-flow__node),供上层算弹窗贴靠位置。 */
-  onNodeClick: (nodeId: string, nodeEl: HTMLElement) => void
+  groups?: ComfyCanvasLayout['groups']
+  focus?: { group?: number; node?: string }
+  onMove?: (nodeId: string, position: { x: number; y: number }) => void
+  onNodeClick: (nodeId: string) => void
 }
 
-export default function ComfyTemplateGraph({ nodes, edges, activeNodeId, onNodeClick }: ComfyTemplateGraphProps) {
-  const rfNodes = useMemo<Node<ComfyCardData>[]>(
-    () =>
-      nodes.map((n) => ({
-        id: n.id,
-        type: 'comfyNode',
-        position: { x: n.x, y: n.y },
-        data: {
-          classType: n.class_type,
-          nodeId: n.id,
-          usedCount: n.usedCount,
-          active: n.id === activeNodeId,
-          invalidModel: n.invalidModel,
-        },
-      })),
-    [nodes, activeNodeId],
-  )
+export default function ComfyTemplateGraph({
+  nodes, edges, activeNodeId, onNodeClick, groups, focus, onMove,
+}: ComfyTemplateGraphProps) {
+  const initialNodes = useMemo<Node<ComfyCardData>[]>(() => [
+    ...(groups ?? []).map(({ title, bounding: [x, y, width, height] }, index) => ({
+      id: `group:${index}`,
+      type: 'canvasGroup',
+      position: { x, y },
+      width, height,
+      className: 'comfy-canvas-group',
+      selectable: false,
+      draggable: false,
+      focusable: false,
+      zIndex: -1,
+      data: { title, classType: '', nodeId: '', usedCount: 0, active: false },
+    })),
+    ...nodes.map((node) => ({
+      id: node.id,
+      type: 'comfyNode',
+      position: { x: node.x, y: node.y },
+      data: {
+        classType: node.class_type,
+        title: node.title,
+        nodeId: node.id,
+        usedCount: node.usedCount,
+        active: node.id === activeNodeId,
+        invalidModel: node.invalidModel,
+      },
+    })),
+  ], [nodes, activeNodeId, groups])
+  const [rfNodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const [viewport, setViewport] = useState<ReactFlowInstance<Node<ComfyCardData>> | null>(null)
+
+  useEffect(() => setNodes(initialNodes), [initialNodes, setNodes])
+  const moveViewport = useEffectEvent((view: ReactFlowInstance<Node<ComfyCardData>>, targetFocus: NonNullable<typeof focus>) => {
+    const focus = targetFocus
+    if (focus.group !== undefined && groups?.[focus.group]) {
+      const [x, y, width, height] = groups[focus.group].bounding
+      void view.fitBounds({ x, y, width, height }, { padding: 0.12, duration: 160 })
+    } else if (focus.node) {
+      const target = nodes.find(node => node.id === focus.node)
+      if (target) void view.setCenter(target.x + 95, target.y + 30, { zoom: 0.9, duration: 160 })
+    }
+  })
+  useEffect(() => {
+    if (viewport && focus) moveViewport(viewport, focus)
+  }, [viewport, focus])
 
   const rfEdges = useMemo<Edge[]>(() => {
     // 同一对节点之间常有多条边(如 CheckpointLoader 同时喂 model 和 clip 给
@@ -162,13 +180,15 @@ export default function ComfyTemplateGraph({ nodes, edges, activeNodeId, onNodeC
         // 别再换回 --border / --border-strong / --muted —— 那三个都试过,总有一个
         // 主题下是隐形的。stroke-linecap: round 让密集交叉的曲线端点不出方角。
         // 边渲染层在 xyflow DOM 里先于节点层,天然在节点后面,不用 z-index。
-        style: { stroke: 'var(--graph-edge)', strokeWidth: 1.8, strokeLinecap: 'round' as const },
+        style: { stroke: [e.source, e.target].includes(activeNodeId ?? '') ? ACTIVE_COLOR : 'var(--graph-edge)', strokeWidth: 1.8, strokeLinecap: 'round' as const },
       })
     }
     return out
-  }, [edges])
+  }, [edges, activeNodeId])
 
-  const handleNodeClick: NodeMouseHandler = (e, node) => onNodeClick(node.id, e.currentTarget as HTMLElement)
+  const handleNodeClick: NodeMouseHandler = (_, node) => {
+    if (node.type === 'comfyNode') onNodeClick(node.id)
+  }
 
   return (
     <ReactFlow
@@ -176,10 +196,14 @@ export default function ComfyTemplateGraph({ nodes, edges, activeNodeId, onNodeC
       edges={rfEdges}
       nodeTypes={nodeTypes}
       onNodeClick={handleNodeClick}
-      nodesDraggable={false}
+      onInit={setViewport}
+      onNodesChange={onNodesChange}
+      onNodeDragStop={(_, node) => onMove?.(node.id, node.position)}
+      nodesDraggable={!!onMove}
+      minZoom={0.03}
       nodesConnectable={false}
       elementsSelectable={false}
-      fitView
+      fitView={!focus}
       proOptions={{ hideAttribution: true }}
       style={{ background: 'var(--bg)' }}
     >

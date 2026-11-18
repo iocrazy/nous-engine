@@ -1,22 +1,12 @@
-// ComfyUI 模板服务的「编辑」分支(Task 9,spec §「读图选节点配置」)。替代
-// comfy_template 来源服务在 ServiceDetail 里的旧节点图编辑器:读原始 ComfyUI 工作流
-// JSON,不依赖 nous 声明式节点表(那套只认自家节点类型)。流程:
-//   1) sidecar 状态行(在线才能拿 object_info 类型预填,离线仍可手工配置)。
-//   2) 重新上传替换 workflow_json(节点结构变了 → 旧映射按 comfy_node_id/comfy_input
-//      定位失效,标红提示,不自动删,留给管理员确认)。
-//   3) React Flow 通用节点卡(标题=class_type,与 nous 节点图共用视觉语言但节点内容
-//      来自原始 class_type/inputs,不经 DECLARATIVE_NODES)。点卡开弹窗配置该节点的
-//      原始 inputs(节点引用连线 [nodeId,slot] 不算可配置字段,过滤掉)。
-//   4) 弹窗与下方字段汇总表共享同一份 exposedParams state,保存走 putMapping。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Upload, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import {
   getComfyHealth,
   getComfyTemplate,
   getObjectInfo,
   putMapping,
-  reuploadComfyTemplate,
+  type ComfyCanvasLayout,
   type ComfyExposedParam,
   type ComfyHealth,
   type ComfyTemplateDetail,
@@ -24,8 +14,14 @@ import {
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from '../playground/SchemaDrivenForm'
 import { defaultFor, isFieldRequired, isFieldVisible } from '../playground/fieldKind'
-import { isComfyNodeRef, layoutComfyGraph, type ComfyWorkflow } from './comfyGraphLayout'
-import { placePopover } from './popoverPlacement'
+import {
+  filterComfyBranch, groupComfyNodes, isComfyNodeRef, layoutComfyGraph,
+  type ComfyNodePositions, type ComfyWorkflow,
+} from './comfyGraphLayout'
+import ComfyWorkflowUpdate from './ComfyWorkflowUpdate'
+import { mappingDependents } from './comfyMapping'
+import qwenCanvas from './qwen21CanvasLayout.json'
+import './ComfyTemplateEditor.css'
 import { findInvalidModelRefs, type ModelRefIssue } from './workflowModelCheck'
 import ComfyTemplateGraph from './ComfyTemplateGraph'
 
@@ -39,6 +35,7 @@ export interface ComfyTemplateEditorProps {
    *  缓存,否则「运行」分段的 Playground 表单还显示旧 exposed_inputs(见 services.ts
    *  useService 的 queryKey ['service', id])。 */
   serviceId?: string | number
+  currentMode?: string
 }
 
 interface RawInputRow {
@@ -120,17 +117,22 @@ function isSeedLike(inputName: string, type: string): boolean {
   return type === 'integer' && /seed/i.test(inputName)
 }
 
-/** 同 ImportComfyDialog 的导入格式校验(API 格式 = 每个顶层值都是带 class_type 的节点对象)。 */
-function isApiFormatWorkflow(parsed: unknown): parsed is ComfyWorkflow {
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
-  const values = Object.values(parsed as Record<string, unknown>)
-  if (values.length === 0) return false
-  return values.every(
-    (v) => !!v && typeof v === 'object' && !Array.isArray(v) && 'class_type' in (v as object),
-  )
+const EMPTY_WORKFLOW: ComfyWorkflow = {}
+const QWEN_MODE_NODES: Record<string, string> = {
+  text: '33', reference: '344', edit: '125', outpaint: '179', remove: '282', upscale: '387',
 }
 
-export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemplateEditorProps) {
+function loadPositions(id: string): ComfyNodePositions {
+  try {
+    const value = JSON.parse(localStorage.getItem(`nous:comfy:positions:${id}`) ?? '{}')
+    return Object.fromEntries(Object.entries(value as ComfyNodePositions).filter(([, position]) =>
+      typeof position?.classType === 'string' && Number.isFinite(position.x) && Number.isFinite(position.y)))
+  } catch {
+    return {}
+  }
+}
+
+export default function ComfyTemplateEditor({ templateId, serviceId, currentMode: runMode }: ComfyTemplateEditorProps) {
   const idStr = String(templateId)
   const qc = useQueryClient()
   const [detail, setDetail] = useState<ComfyTemplateDetail | null>(null)
@@ -144,14 +146,17 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
   // 不存在的模型」在图上直接看得见,不用等真跑一次才在 ComfyUI 侧炸出 `Value not in list`。
   const [modelIssues, setModelIssues] = useState<ModelRefIssue[]>([])
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
-  // 点击节点时记录的 xyflow 包裹 DOM(见 ComfyTemplateGraph 的 onNodeClick)——popover 定位
-  // (placePopover)靠它的 getBoundingClientRect() 算贴靠位置,不用另外查 DOM。
-  const [activeNodeEl, setActiveNodeEl] = useState<HTMLElement | null>(null)
-  const graphContainerRef = useRef<HTMLDivElement>(null)
+  const [view, setView] = useState<'graph' | 'fields'>('graph')
+  const [arrangement, setArrangement] = useState<'grouped' | 'compact'>('grouped')
+  const [mode, setMode] = useState('')
+  const [search, setSearch] = useState('')
+  const [focus, setFocus] = useState<{ group?: number; node?: string }>()
+  const [positions, setPositions] = useState<ComfyNodePositions>(() => loadPositions(idStr))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -161,7 +166,11 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
     setStaleKeys([])
     setModelIssues([])
     setActiveNodeId(null)
-    setActiveNodeEl(null)
+    setMode('')
+    setFocus(undefined)
+    setReviewing(false)
+    setUpdating(false)
+    setPositions(loadPositions(String(templateId)))
     Promise.all([
       getComfyTemplate(templateId),
       getComfyHealth().catch(() => null),
@@ -171,6 +180,7 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
         if (cancelled) return
         setDetail(tpl)
         setExposedParams(tpl.exposed_params ?? [])
+        setStaleKeys(tpl.stale_keys ?? [])
         setHealth(h)
         setObjectInfo(info)
         setModelIssues(findInvalidModelRefs(tpl.workflow_json as ComfyWorkflow, info))
@@ -183,10 +193,34 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
     }
   }, [templateId])
 
-  const workflow = (detail?.workflow_json ?? {}) as ComfyWorkflow
+  const workflow = (detail?.workflow_json as ComfyWorkflow | undefined) ?? EMPTY_WORKFLOW
   const idSet = useMemo(() => new Set(Object.keys(workflow)), [workflow])
+  const nativeCanvas = detail?.canvas_layout ?? (detail?.service_name === 'nous-qwen21-all-in-one'
+    ? qwenCanvas as ComfyCanvasLayout : null)
+  const grouped = arrangement === 'grouped' && !!nativeCanvas
+  const modeField = exposedParams.find(field => field.key === 'input_mode' && field.widget === 'radio')
+  const availableModes = useMemo(() => (modeField?.options ?? []).flatMap(item => {
+    if (typeof item === 'string') return [{ value: item, label: item }]
+    if (!item || typeof item !== 'object' || !('value' in item) || typeof item.value !== 'string') return []
+    return [{ value: item.value, label: 'label' in item && typeof item.label === 'string' ? item.label : item.value }]
+  }), [modeField])
+  const defaultMode = typeof modeField?.default === 'string' ? modeField.default : ''
+  const currentMode = mode === 'all' ? '' : mode || runMode || defaultMode
+  const modeNodeId = modeField?.comfy_node_id
+  const visibleWorkflow = useMemo(() => currentMode && modeNodeId
+    ? filterComfyBranch(workflow, modeNodeId, currentMode) : workflow, [workflow, modeNodeId, currentMode])
+  const layout = useMemo(() => layoutComfyGraph(visibleWorkflow), [visibleWorkflow])
+  const canvas = useMemo(() => grouped && nativeCanvas
+    ? groupComfyNodes(layout.nodes, nativeCanvas, positions) : { nodes: layout.nodes, groups: undefined },
+  [grouped, layout.nodes, nativeCanvas, positions])
+  const defaultNode = detail?.service_name === 'nous-qwen21-all-in-one' && currentMode
+    ? QWEN_MODE_NODES[currentMode] : undefined
+  const graphFocus = useMemo(() => focus ?? (grouped && defaultNode && visibleWorkflow[defaultNode]
+    ? { node: defaultNode } : undefined), [focus, grouped, defaultNode, visibleWorkflow])
+  const query = search.trim().toLowerCase()
+  const matchesNode = (id: string) => [id, `#${id}`, workflow[id]?.class_type, workflow[id]?._meta?.title]
+    .some(value => value?.toLowerCase().includes(query))
 
-  const layout = useMemo(() => layoutComfyGraph(workflow), [workflow])
   const usedCountByNode = useMemo(() => {
     const m = new Map<string, number>()
     for (const p of exposedParams) m.set(p.comfy_node_id, (m.get(p.comfy_node_id) ?? 0) + 1)
@@ -195,12 +229,12 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
   const modelIssueNodeIds = useMemo(() => new Set(modelIssues.map((i) => i.nodeId)), [modelIssues])
   const graphNodes = useMemo(
     () =>
-      layout.nodes.map((n) => ({
+      canvas.nodes.map((n) => ({
         ...n,
         usedCount: usedCountByNode.get(n.id) ?? 0,
         invalidModel: modelIssueNodeIds.has(n.id),
       })),
-    [layout.nodes, usedCountByNode, modelIssueNodeIds],
+    [canvas.nodes, usedCountByNode, modelIssueNodeIds],
   )
 
   const rawRowsFor = (nodeId: string): RawInputRow[] => {
@@ -222,12 +256,13 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
 
   const toggleExpose = (nodeId: string, inputName: string, rawValue: unknown) => {
     setExposedParams((prev) => {
-      const existing = prev.find((p) => p.comfy_node_id === nodeId && p.comfy_input === inputName)
-      if (existing) return prev.filter((p) => p !== existing)
+      if (prev.some(param => param.comfy_node_id === nodeId && param.comfy_input === inputName)) return prev
       const classType = workflow[nodeId]?.class_type ?? ''
       const meta = deriveFieldMeta(classType, inputName, rawValue, objectInfo)
       const keysInUse = new Set(prev.map((p) => p.key))
-      const key = keysInUse.has(inputName) ? `${inputName}_${nodeId}` : inputName
+      const base = keysInUse.has(inputName) ? `${inputName}_${nodeId}` : inputName
+      let key = base
+      for (let suffix = 2; keysInUse.has(key); suffix++) key = `${base}_${suffix}`
       const draft: ExposedParamDraft = {
         key,
         label: inputName,
@@ -253,41 +288,9 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
     setSaved(false)
   }
 
-  const handleNodeClick = (nodeId: string, nodeEl: HTMLElement) => {
-    setActiveNodeId(nodeId)
-    setActiveNodeEl(nodeEl)
-  }
-
-  const closePopover = () => {
-    setActiveNodeId(null)
-    setActiveNodeEl(null)
-  }
-
-  // Task 1(popover 定位):贴节点右侧/翻左/夹边界的算术全在 popoverPlacement.ts(纯函数,
-  // 已单测)—— 这里只读一次 DOM 矩形喂给它。在渲染期间直接读 ref 而不是丢进 effect 再
-  // setState,是因为这只是渲染要用的派生布局值、不回写状态,省一次多余的 re-render;
-  // activeNodeEl 为空(理论上不会发生,兜底)时退化成贴容器左上角,不崩。
-  const POP_W = 380
-  let popLeft = 8
-  let popTop = 8
-  let popMaxHeight = 400
-  if (activeNodeId && graphContainerRef.current) {
-    const containerEl = graphContainerRef.current
-    const containerRect = containerEl.getBoundingClientRect()
-    const nodeRect = activeNodeEl?.getBoundingClientRect() ?? containerRect
-    popMaxHeight = Math.min(containerEl.clientHeight - 40, window.innerHeight * 0.7)
-    const pos = placePopover({
-      nodeRect,
-      containerRect,
-      scrollLeft: containerEl.scrollLeft,
-      scrollTop: containerEl.scrollTop,
-      clientW: containerEl.clientWidth,
-      clientH: containerEl.clientHeight,
-      popW: POP_W,
-      popH: popMaxHeight,
-    })
-    popLeft = pos.left
-    popTop = pos.top
+  const invalidateService = () => {
+    void qc.invalidateQueries({ queryKey: ['services'] })
+    if (serviceId != null) void qc.invalidateQueries({ queryKey: ['service', String(serviceId)] })
   }
 
   const save = async () => {
@@ -295,12 +298,10 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
     setSaved(false)
     setSaveError(null)
     try {
-      await putMapping(idStr, exposedParams)
+      const result = await putMapping(idStr, exposedParams, detail?.revision)
+      setDetail(value => value ? { ...value, revision: result.revision } : value)
       setSaved(true)
-      // 保存改的是对外 exposed_inputs schema — invalidate 服务详情缓存,否则「运行」
-      // 分段的 Playground 表单还是切 tab 前的旧字段(services.ts useService/useServices)。
-      qc.invalidateQueries({ queryKey: ['services'] })
-      if (serviceId != null) qc.invalidateQueries({ queryKey: ['service', String(serviceId)] })
+      invalidateService()
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -308,32 +309,29 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
     }
   }
 
-  const handleReuploadFile = (file: File) => {
-    setUploadError(null)
-    const reader = new FileReader()
-    reader.onerror = () => setUploadError('读取文件失败')
-    reader.onload = async () => {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(String(reader.result))
-      } catch {
-        setUploadError('不是合法 JSON')
-        return
-      }
-      if (!isApiFormatWorkflow(parsed)) {
-        setUploadError('不是 ComfyUI API 格式导出，请在 ComfyUI 用 Export (API) 导出')
-        return
-      }
-      try {
-        const res = await reuploadComfyTemplate(idStr, parsed)
-        setDetail((d) => (d ? { ...d, workflow_json: parsed } : d))
-        setStaleKeys(res.stale_keys)
-        setModelIssues(findInvalidModelRefs(parsed, objectInfo))
-      } catch (e) {
-        setUploadError(e instanceof Error ? e.message : String(e))
-      }
+  const remove = (key: string) => {
+    const dependents = mappingDependents(exposedParams, key)
+    if (dependents.length) {
+      setSaveError(`「${key}」被 ${dependents.map(field => field.key).join('、')} 引用，请先调整这些字段`)
+      return
     }
-    reader.readAsText(file)
+    setExposedParams(previous => previous.filter(field => field.key !== key))
+    setStaleKeys(previous => previous.filter(item => item !== key))
+    setSaved(false)
+    setSaveError(null)
+  }
+
+  const selectNode = (id: string) => {
+    setActiveNodeId(id)
+    if (!visibleWorkflow[id]) setMode('all')
+    setFocus({ node: id })
+  }
+
+  const moveNode = (id: string, position: { x: number; y: number }) => {
+    const next = { ...positions, [id]: { ...position, classType: workflow[id].class_type } }
+    setPositions(next)
+    try { localStorage.setItem(`nous:comfy:positions:${idStr}`, JSON.stringify(next)) }
+    catch { setSaveError('当前浏览器无法保存节点位置') }
   }
 
   if (loadError) {
@@ -343,68 +341,129 @@ export default function ComfyTemplateEditor({ templateId, serviceId }: ComfyTemp
     return <div style={{ fontSize: 12, color: 'var(--muted)', padding: 14 }}>加载中…</div>
   }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <SidecarStatusLine health={health} />
-      <ReuploadZone onFile={handleReuploadFile} error={uploadError} staleKeys={staleKeys} />
+  const displayedFields = exposedParams.filter(field =>
+    [field.key, field.label, field.comfy_input].some(value => value?.toLowerCase().includes(query)) ||
+    matchesNode(field.comfy_node_id))
 
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '10px 14px', background: 'var(--bg-accent)',
-          border: '1px solid var(--border)', borderRadius: 8,
-        }}
-      >
-        <div style={{ flex: 1, fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <AlertTriangle size={12} style={{ color: 'var(--warn, #f59e0b)', flexShrink: 0 }} />
-          点节点卡配置要暴露的字段 · 改动会更新对外 API schema
-        </div>
-        {saved && !saving && <span style={{ fontSize: 11, color: 'var(--ok, #34c759)' }}>已保存</span>}
-        {saveError && <span style={{ fontSize: 11, color: 'var(--error, #ef4444)' }}>{saveError}</span>}
-        <button type="button" onClick={save} disabled={saving} style={saveBtnStyle(saving)}>
-          {saving ? '保存中…' : '保存配置'}
-        </button>
+  return (
+    <div className="comfy-editor">
+      <div className="comfy-editor-header">
+        <SidecarStatusLine health={health} />
+        <ComfyWorkflowUpdate key={idStr} detail={detail} fields={exposedParams} busy={updating || saving}
+          onBusy={setUpdating} onReview={setReviewing} onApplied={next => {
+            setDetail(next)
+            setExposedParams(next.exposed_params)
+            setStaleKeys(next.stale_keys ?? [])
+            setModelIssues(findInvalidModelRefs(next.workflow_json as ComfyWorkflow, objectInfo))
+            setSaved(true)
+            setSaveError(null)
+            invalidateService()
+          }} />
       </div>
 
-      <div style={{ display: 'flex', gap: 10, height: '58vh', minHeight: 420 }}>
-        <div
-          style={{
-            width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column',
-            border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
-            background: 'var(--bg-accent)',
-          }}
-        >
-          <CanvasPreviewPanel exposedParams={exposedParams} />
+      <div className="comfy-editor-heading">
+        <strong>工作流参数映射 <small>{exposedParams.length} 个字段</small></strong>
+        <div className="comfy-editor-actions">
+          {saved && !saving && <span role="status">已保存</span>}
+          {saveError && <span role="alert">{saveError}</span>}
+          <button type="button" onClick={() => void save()} disabled={saving || updating || reviewing || !!staleKeys.length} style={saveBtnStyle(saving)}>
+            {saving ? '保存中…' : '保存配置'}
+          </button>
         </div>
+      </div>
 
-        <div
-          ref={graphContainerRef}
-          style={{ flex: 1, minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', position: 'relative' }}
-        >
-          <ComfyTemplateGraph
-            nodes={graphNodes}
-            edges={layout.edges}
-            activeNodeId={activeNodeId}
-            onNodeClick={handleNodeClick}
-          />
-          {activeNodeId && activeNode && (
-            <NodeConfigPopover
-              nodeId={activeNodeId}
-              classType={activeNode.class_type}
-              rows={activeRows}
-              exposedByInput={exposedByInput}
-              objectInfo={objectInfo}
-              left={popLeft}
-              top={popTop}
-              maxHeight={popMaxHeight}
+      {!!staleKeys.length && (
+        <div role="alert" className="comfy-editor-warning">
+          待处理字段 · {staleKeys.join('、')}。可在字段列表移除，或上传时重新绑定。
+        </div>
+      )}
+
+      <div className="comfy-editor-grid" hidden={reviewing} inert={saving || updating}>
+        <section className="comfy-editor-panel" aria-label="工作流配置">
+          <div className="comfy-editor-toolbar">
+            <div className="comfy-editor-actions">
+              <button type="button" aria-pressed={view === 'graph'} onClick={() => setView('graph')}>节点画布</button>
+              <button type="button" aria-pressed={view === 'fields'} onClick={() => setView('fields')}>字段列表</button>
+            </div>
+            <input type="search" aria-label="搜索节点或字段" placeholder={view === 'graph' ? '搜索节点或 ID' : '搜索字段'}
+              value={search} onChange={event => setSearch(event.currentTarget.value)}
+              onKeyDown={event => {
+                if (event.key !== 'Enter' || view !== 'graph' || !query) return
+                const id = Object.keys(workflow).find(matchesNode)
+                if (id) selectNode(id)
+              }} />
+          </div>
+
+          {view === 'graph' ? (
+            <>
+              <div className="comfy-editor-toolbar">
+                {!!availableModes.length && <label>显示范围 <select value={mode} onChange={event => {
+                  setMode(event.currentTarget.value)
+                  setFocus(undefined)
+                }}>
+                  <option value="">当前功能</option><option value="all">全部节点</option>
+                  {availableModes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select></label>}
+                {nativeCanvas && <label>布局 <select value={arrangement} onChange={event => {
+                  setArrangement(event.currentTarget.value === 'compact' ? 'compact' : 'grouped')
+                  setFocus(activeNodeId ? { node: activeNodeId } : undefined)
+                }}>
+                  <option value="grouped">原分组</option>
+                  <option value="compact">紧凑排列</option>
+                </select></label>}
+                {grouped && !!canvas.groups?.length && <select aria-label="定位分组" value="" onChange={event => {
+                  if (event.currentTarget.value !== '') setFocus({ group: Number(event.currentTarget.value) })
+                }}>
+                  <option value="">定位分组</option>
+                  {canvas.groups.map((group, index) => <option key={index} value={index}>{group.title}</option>)}
+                </select>}
+                <span className="comfy-editor-count">{graphNodes.length} / {idSet.size} 个节点</span>
+              </div>
+              {query && <div className="comfy-editor-search-results">
+                {Object.keys(workflow).filter(matchesNode).map(id => <button key={id} type="button" onClick={() => selectNode(id)}>
+                  #{id} {workflow[id]._meta?.title || workflow[id].class_type}
+                </button>)}
+              </div>}
+              <div className="comfy-editor-canvas">
+                <ComfyTemplateGraph key={`${arrangement}:${currentMode}`}
+                  nodes={graphNodes} edges={layout.edges} groups={canvas.groups} focus={graphFocus}
+                  activeNodeId={activeNodeId} onNodeClick={setActiveNodeId} onMove={grouped ? moveNode : undefined} />
+              </div>
+            </>
+          ) : (
+            <div className="comfy-editor-field-list">
+              {displayedFields.map(field => <div key={field.key} className="comfy-editor-field-row">
+                <button type="button" disabled={!workflow[field.comfy_node_id]}
+                  aria-pressed={activeNodeId === field.comfy_node_id} onClick={() => setActiveNodeId(field.comfy_node_id)}>
+                  <strong>{field.label || field.key}</strong>
+                  <code>{field.key} · #{field.comfy_node_id} · {field.comfy_input}</code>
+                </button>
+                <button type="button" aria-label={`移除参数 ${field.label || field.key}`} onClick={() => remove(field.key)}>移除参数</button>
+              </div>)}
+              {!displayedFields.length && <p className="comfy-editor-empty">没有匹配的字段</p>}
+            </div>
+          )}
+        </section>
+
+        <aside className="comfy-editor-panel" aria-label="映射详情">
+          <div className="comfy-editor-toolbar"><strong>映射详情</strong>
+            {activeNodeId && workflow[activeNodeId] && <button type="button" onClick={() => {
+              setView('graph')
+              selectNode(activeNodeId)
+            }}>定位节点</button>}
+          </div>
+          {activeNodeId && activeNode ? (
+            <NodeConfigPanel nodeId={activeNodeId} classType={activeNode.class_type} rows={activeRows}
+              exposedByInput={exposedByInput} objectInfo={objectInfo}
               onToggle={(inputName, rawValue) => toggleExpose(activeNodeId, inputName, rawValue)}
               onPatch={(inputName, patch) => patchExposed(activeNodeId, inputName, patch)}
-              onClose={closePopover}
-            />
-          )}
-        </div>
+              onRemove={remove} modes={availableModes} onClose={() => setActiveNodeId(null)} />
+          ) : <p className="comfy-editor-empty">选择节点后可添加、编辑或移除参数。</p>}
+          <details className="comfy-editor-preview"><summary>运行表单预览</summary>
+            <CanvasPreviewPanel exposedParams={exposedParams.filter(field => !staleKeys.includes(field.key))} />
+          </details>
+        </aside>
       </div>
-
     </div>
   )
 }
@@ -446,47 +505,6 @@ function Dot({ color }: { color: string }) {
   return <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
 }
 
-// ---------- reupload zone ----------
-
-function ReuploadZone({ onFile, error, staleKeys }: {
-  onFile: (f: File) => void
-  error: string | null
-  /** 重新上传后 comfy_node_id/comfy_input 已不存在的字段 key —— 汇总表删掉后,
-   *  这条可见性挪到这里,否则用户不知道哪些映射被新 JSON 打断了。 */
-  staleKeys: string[]
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={dropZoneStyle}>
-        <Upload size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        <span style={{ fontSize: 12, color: 'var(--text)' }}>
-          重新上传工作流 JSON(替换节点结构;指向旧节点的字段会标红,需确认/移除)
-        </span>
-        <input
-          data-testid="comfy-reupload-input"
-          type="file"
-          accept=".json,application/json"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) onFile(f)
-            e.target.value = ''
-          }}
-        />
-      </label>
-      {error && <div style={{ fontSize: 11, color: 'var(--error, #ef4444)' }}>{error}</div>}
-      {staleKeys.length > 0 && (
-        <div data-testid="stale-keys-warning" style={{ fontSize: 11, color: 'var(--error, #ef4444)' }}>
-          {staleKeys.length} 个字段的节点映射已失效(新 JSON 里找不到对应节点/输入):
-          {' '}{staleKeys.join('、')} —— 请在节点卡上重新勾选或取消暴露
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------- node config popover ----------
-
 function ValueBadge({ value }: { value: unknown }) {
   if (typeof value === 'string') {
     const v = value.length > 50 ? value.slice(0, 50) + '…' : value
@@ -503,11 +521,10 @@ function ValueBadge({ value }: { value: unknown }) {
 }
 
 function NumField({
-  label, value, disabled, onChange,
+  label, value, onChange,
 }: {
   label: string
   value: number | undefined
-  disabled: boolean
   onChange: (v: number | undefined) => void
 }) {
   return (
@@ -516,55 +533,29 @@ function NumField({
       <input
         type="number"
         value={value ?? ''}
-        disabled={disabled}
         onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-        style={{ ...smallInput, opacity: disabled ? 0.5 : 1 }}
+        style={smallInput}
       />
     </label>
   )
 }
 
-function NodeConfigPopover({
-  nodeId, classType, rows, exposedByInput, objectInfo, left, top, maxHeight, onToggle, onPatch, onClose,
+function NodeConfigPanel({
+  nodeId, classType, rows, exposedByInput, objectInfo, onToggle, onPatch, onRemove, onClose, modes,
 }: {
   nodeId: string
   classType: string
   rows: RawInputRow[]
   exposedByInput: Map<string, ExposedParamDraft>
   objectInfo: Record<string, unknown> | null
-  /** 相对图容器的定位(popoverPlacement.placePopover 算好传入)。 */
-  left: number
-  top: number
-  maxHeight: number
   onToggle: (inputName: string, rawValue: unknown) => void
   onPatch: (inputName: string, patch: Partial<ExposedParamDraft>) => void
+  onRemove: (key: string) => void
+  modes: { value: string; label: string }[]
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return (
-    <>
-      {/* 点击空白处关闭 —— 透明覆盖层,不再是全屏遮暗背景(对齐 IC:弹窗贴节点旁边,
-          遮暗背景会把它和节点的空间关联感盖掉,读起来更「浮空」而不是「弹窗盖住了页面」)。 */}
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 20 }} />
-      <div
-        role="dialog"
-        onWheel={(e) => e.stopPropagation()}
-        style={{
-          position: 'absolute', left, top,
-          width: 380, maxWidth: 'calc(100% - 16px)', maxHeight,
-          display: 'flex', flexDirection: 'column', zIndex: 21,
-          background: 'var(--card)', border: '1px solid var(--border-strong, var(--border))',
-          borderRadius: 14, boxShadow: 'var(--shadow-lg, 0 12px 40px rgba(0,0,0,0.25))',
-          overflow: 'hidden',
-        }}
-      >
+    <div className="comfy-node-config" key={nodeId}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
           borderBottom: '1px solid var(--border)', background: 'var(--card-hl)',
@@ -584,6 +575,9 @@ function NodeConfigPopover({
         </div>
 
         <div style={{ overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {rows.some(row => !exposedByInput.has(row.inputName)) && (
+            <small className="comfy-available-inputs">可配置输入 · 勾选后暴露给运行页与 API</small>
+          )}
           {rows.length === 0 && (
             <div style={{ color: 'var(--muted)', fontSize: 12, padding: '12px 4px' }}>该节点无可配置的原始字段</div>
           )}
@@ -595,6 +589,10 @@ function NodeConfigPopover({
             const numeric = NUMERIC_TYPES.has(type)
             const seedLike = isSeedLike(r.inputName, type)
             const fileLike = OMITTABLE_TYPES.has(type)
+            const visible = cur?.visible_when?.input_mode
+            const shown = visible == null ? modes.map(mode => mode.value) : [visible].flat()
+            const requiredModes = [cur?.required_when?.input_mode].flat()
+            const canHide = !cur || cur.hidden || (cur.required === false && !cur.required_when)
             return (
               <div
                 key={r.inputName}
@@ -611,7 +609,7 @@ function NodeConfigPopover({
                     type="checkbox"
                     aria-label={`暴露 ${r.inputName}`}
                     checked={active}
-                    onChange={() => onToggle(r.inputName, r.rawValue)}
+                    onChange={() => cur ? onRemove(cur.key) : onToggle(r.inputName, r.rawValue)}
                     style={{ marginTop: 2, cursor: 'pointer' }}
                   />
                   <span style={{ minWidth: 0, flex: 1 }}>
@@ -622,18 +620,20 @@ function NodeConfigPopover({
                   </span>
                 </label>
 
+                {cur && <>
+                <div className="comfy-draft-source"><span>API 参数</span><code>{cur.key}</code></div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input
-                    style={{ ...smallInput, flex: 1, minWidth: 0, opacity: active ? 1 : 0.5 }}
+                    aria-label="显示名称"
+                    style={{ ...smallInput, flex: 1, minWidth: 0 }}
                     placeholder="显示名"
-                    value={(cur?.label ?? r.inputName) || ''}
-                    disabled={!active}
+                    value={cur.label ?? r.inputName}
                     onChange={(e) => onPatch(r.inputName, { label: e.target.value })}
                   />
                   <select
-                    style={{ ...smallInput, width: 84, flexShrink: 0, opacity: active ? 1 : 0.5 }}
+                    aria-label="字段类型"
+                    style={{ ...smallInput, width: 84, flexShrink: 0 }}
                     value={type}
-                    disabled={!active}
                     onChange={(e) => onPatch(r.inputName, { type: e.target.value })}
                   >
                     {TYPE_OPTIONS.map((o) => (
@@ -642,43 +642,77 @@ function NodeConfigPopover({
                   </select>
                 </div>
 
+                {!fileLike && (
+                  <label className="comfy-draft-default">默认值
+                    {type === 'boolean' ? <input type="checkbox" checked={Boolean(cur.default)}
+                      onChange={event => onPatch(r.inputName, { default: event.currentTarget.checked })} />
+                      : <input style={smallInput} type={numeric ? 'number' : 'text'} step={type === 'number' ? 'any' : 1}
+                        value={typeof cur.default === 'number' || typeof cur.default === 'string' ? cur.default : ''}
+                        onChange={event => {
+                          const value = event.currentTarget.value
+                          onPatch(r.inputName, { default: numeric ? (value === '' ? null : Number(value)) : value })
+                        }} />}
+                  </label>
+                )}
+                <div className="comfy-draft-flags">
+                  <label title={!canHide ? '取消必填后可隐藏' : undefined}><input type="checkbox" checked={!cur.hidden}
+                    disabled={!canHide} onChange={event => onPatch(r.inputName, { hidden: !event.currentTarget.checked })} /> 在运行页暴露</label>
+                  <label><input type="checkbox" checked={cur.required ?? true} disabled={cur.omit_when_empty || cur.hidden}
+                    onChange={event => onPatch(r.inputName, {
+                      required: event.currentTarget.checked,
+                      required_when: event.currentTarget.checked ? null : cur.required_when,
+                    })} /> 始终必填</label>
+                </div>
+                {modes.length > 0 && cur.key !== 'input_mode' && (
+                  <fieldset className="comfy-mode-visibility"><legend>显示于</legend>
+                    {modes.map(mode => {
+                      const checked = shown.includes(mode.value)
+                      return <label key={mode.value}><input type="checkbox" checked={checked}
+                        disabled={cur.required || (checked && (shown.length === 1 || requiredModes.includes(mode.value)))} onChange={() => {
+                          const next = checked ? shown.filter(value => value !== mode.value) : [...shown, mode.value]
+                          const conditions = { ...cur.visible_when }
+                          if (next.length === modes.length) delete conditions.input_mode
+                          else conditions.input_mode = next
+                          onPatch(r.inputName, { visible_when: conditions })
+                        }} />{mode.label}</label>
+                    })}
+                  </fieldset>
+                )}
                 {numeric && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <NumField
-                      label="min" value={cur?.min ?? meta.min} disabled={!active}
+                      label="min" value={cur.min ?? meta.min}
                       onChange={(v) => onPatch(r.inputName, { min: v })}
                     />
                     <NumField
-                      label="max" value={cur?.max ?? meta.max} disabled={!active}
+                      label="max" value={cur.max ?? meta.max}
                       onChange={(v) => onPatch(r.inputName, { max: v })}
                     />
                     <NumField
-                      label="step" value={cur?.step ?? meta.step} disabled={!active}
+                      label="step" value={cur.step ?? meta.step}
                       onChange={(v) => onPatch(r.inputName, { step: v })}
                     />
                   </div>
                 )}
 
                 {seedLike && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text)', opacity: active ? 1 : 0.5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text)' }}>
                     <input
                       type="checkbox"
                       aria-label={`随机 ${r.inputName}`}
-                      checked={!!cur?.random}
-                      disabled={!active}
+                      checked={!!cur.random}
                       onChange={(e) => onPatch(r.inputName, { random: e.target.checked })}
                     />
-                    每次调用随机取值(不由调用方传入)
+                    未传种子时随机取值
                   </label>
                 )}
 
                 {fileLike && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text)', opacity: active ? 1 : 0.5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text)' }}>
                     <input
                       type="checkbox"
                       aria-label={`未传时剪掉 ${r.inputName}`}
-                      checked={!!cur?.omit_when_empty}
-                      disabled={!active}
+                      checked={!!cur.omit_when_empty}
                       // 可省略 ⇒ 非必填 + 清掉 default(后端拒这两种组合):暴露时 default 是
                       // 节点里烤死的占位文件名,留着的话桥 data.get(key, default) 永远不算「未传」,
                       // 开关静默失效、占位图照喂。
@@ -689,12 +723,13 @@ function NodeConfigPopover({
                     未传时剪掉该支路(可选参考图:不传就不喂模板占位图)
                   </label>
                 )}
+                <button className="comfy-remove-field" type="button" onClick={() => onRemove(cur.key)}>移除参数</button>
+                </>}
               </div>
             )
           })}
         </div>
-      </div>
-    </>
+    </div>
   )
 }
 
@@ -740,28 +775,14 @@ function toSchemaExposedParam(p: ExposedParamDraft): ExposedParam {
  *  的「运行」分段,这里放个提示文案说明(需求明确排除:这版不加运行按钮)。 */
 function CanvasPreviewPanel({ exposedParams }: { exposedParams: ExposedParamDraft[] }) {
   const schemaParams = useMemo(() => exposedParams.map(toSchemaExposedParam), [exposedParams])
-  const [values, setValues] = useState<Record<string, unknown>>({})
-
-  useEffect(() => {
-    setValues((prev) => {
-      const next: Record<string, unknown> = {}
-      for (const p of schemaParams) {
-        const k = paramKey(p)
-        if (!k) continue
-        next[k] = k in prev ? prev[k] : defaultFor(p)
-      }
-      return next
-    })
-  }, [schemaParams])
+  const [edits, setValues] = useState<Record<string, unknown>>({})
+  const values = Object.fromEntries(schemaParams.flatMap(param => {
+    const key = paramKey(param)
+    return key ? [[key, key in edits ? edits[key] : defaultFor(param)]] : []
+  }))
 
   return (
     <div data-testid="canvas-preview-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>画布节点预览 · 实时</div>
-        <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
-          仅预览,不可运行 · 运行请到 Playground「运行」分段
-        </div>
-      </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '14px' }}>
         {schemaParams.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', padding: '20px 4px' }}>
@@ -794,13 +815,6 @@ const smallInput: React.CSSProperties = {
   fontSize: 12, padding: '6px 8px',
   background: 'var(--bg)', color: 'var(--text)',
   border: '1px solid var(--border)', borderRadius: 6,
-}
-
-const dropZoneStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-  background: 'var(--bg-accent)', color: 'var(--text)',
-  border: '1px dashed var(--border)', borderRadius: 8,
-  padding: '10px 12px', fontSize: 12, cursor: 'pointer',
 }
 
 function saveBtnStyle(saving: boolean): React.CSSProperties {
