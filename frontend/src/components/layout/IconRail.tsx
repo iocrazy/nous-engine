@@ -16,16 +16,10 @@ import {
   HeartPulse,
 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { usePanelStore, type PanelId, type OverlayId } from '../../stores/panel'
+import { usePanelStore, type OverlayId } from '../../stores/panel'
 import { useThemeStore } from '../../stores/theme'
 import { useExecutionStore } from '../../stores/execution'
 import { useAdminLogout, useAdminMe } from '../../api/admin'
-
-// v3 IA: 8 main navs (Dashboard / Services / Workflow / Engines / API Key /
-// Usage / Logs / Settings) + 3 theme buttons + GPU pill.
-//
-// Workflow is the panel-style entry (opens the canvas tabs); the rest are
-// overlay-style routes.
 
 const OVERLAY_ROUTES: Record<OverlayId, string> = {
   dashboard: '/dashboard',
@@ -46,15 +40,10 @@ const OVERLAY_ROUTES: Record<OverlayId, string> = {
   status: '/status',
 }
 
-// Workflow goes through the overlay nav now (v3 m08 list); the in-canvas
-// side panel is still available via PanelId='workflows' from inside the
-// editor at /workflows/:id, but the rail no longer toggles it.
-const PANEL_ITEMS: { id: PanelId; icon: typeof GitBranch; label: string }[] = []
-
 const TOP_NAVS: { id: OverlayId; icon: typeof LayoutDashboard; label: string }[] = [
-  { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { id: 'dashboard', icon: LayoutDashboard, label: '概览' },
   { id: 'services', icon: Activity, label: '服务' },
-  { id: 'workflows-list', icon: GitBranch, label: 'Workflow' },
+  { id: 'workflows-list', icon: GitBranch, label: '工作流' },
 ]
 
 const MID_NAVS: { id: OverlayId; icon: typeof Layers; label: string }[] = [
@@ -67,7 +56,7 @@ const MID_NAVS: { id: OverlayId; icon: typeof Layers; label: string }[] = [
 ]
 
 export default function IconRail() {
-  const { activePanel, activeOverlay, togglePanel } = usePanelStore()
+  const activeOverlay = usePanelStore((state) => state.activeOverlay)
   const { mode, setMode } = useThemeStore()
   const navigate = useNavigate()
   const location = useLocation()
@@ -87,26 +76,18 @@ export default function IconRail() {
   }
 
   return (
-    <div
-      className="flex flex-col items-center shrink-0 z-20"
+    <nav
+      className="console-rail flex flex-col items-center shrink-0 z-20" aria-label="主导航"
       style={{
-        width: 48,
+        width: 'var(--console-nav-width, 48px)',
         background: 'var(--bg-accent)',
         borderRight: '1px solid var(--border)',
         padding: '8px 0',
       }}
     >
-      {/* Logo */}
-      <div
-        className="flex items-center justify-center font-extrabold text-white text-[13px] mb-3"
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: 6,
-          background: 'var(--accent)',
-        }}
-      >
-        N
+      <div className="rail-brand mb-3">
+        <span className="rail-mark flex h-7 w-7 items-center justify-center rounded-md text-sm font-extrabold" aria-hidden="true">N</span>
+        <span className="rail-brand-label">nous-engine</span>
       </div>
 
       {/* Top: Dashboard, Services */}
@@ -118,23 +99,6 @@ export default function IconRail() {
             (id === 'services' && activeOverlay === 'service-detail')
           }
           onClick={() => navigateOverlay(id)}
-          label={label}
-        >
-          <Icon size={18} />
-        </RailButton>
-      ))}
-
-      <Sep />
-
-      {/* Workflow (panel) */}
-      {PANEL_ITEMS.map(({ id, icon: Icon, label }) => (
-        <RailButton
-          key={id}
-          active={activePanel === id && !activeOverlay}
-          onClick={() => {
-            if (location.pathname !== '/') navigate('/')
-            togglePanel(id)
-          }}
           label={label}
         >
           <Icon size={18} />
@@ -172,15 +136,17 @@ export default function IconRail() {
 
         <Sep />
 
-        <ThemeButton active={mode === 'light'} onClick={() => setMode('light')}>
-          <Sun size={12} />
-        </ThemeButton>
-        <ThemeButton active={mode === 'dark'} onClick={() => setMode('dark')}>
-          <Moon size={12} />
-        </ThemeButton>
-        <ThemeButton active={mode === 'auto'} onClick={() => setMode('auto')}>
-          <Monitor size={12} />
-        </ThemeButton>
+        <div className="rail-theme-picker">
+          <ThemeButton label="浅色主题" active={mode === 'light'} onClick={() => setMode('light')}>
+            <Sun size={12} />
+          </ThemeButton>
+          <ThemeButton label="深色主题" active={mode === 'dark'} onClick={() => setMode('dark')}>
+            <Moon size={12} />
+          </ThemeButton>
+          <ThemeButton label="跟随系统主题" active={mode === 'auto'} onClick={() => setMode('auto')}>
+            <Monitor size={12} />
+          </ThemeButton>
+        </div>
 
         {canLogout && (
           <>
@@ -217,15 +183,15 @@ export default function IconRail() {
           GPU
         </div>
       </div>
-    </div>
+    </nav>
   )
 }
 
 function Sep() {
   return (
     <div
-      className="my-1.5"
-      style={{ width: 24, height: 1, background: 'var(--border)' }}
+      className="rail-separator my-1.5 w-6"
+      style={{ height: 1, background: 'var(--border)' }}
     />
   )
 }
@@ -245,9 +211,10 @@ function RailButton({
     <button
       onClick={onClick}
       aria-label={label}
-      className="group relative flex items-center justify-center mb-0.5"
+      title={label}
+      className="rail-link group relative flex items-center justify-center mb-0.5"
       style={{
-        width: 36,
+        width: 'var(--rail-item-width, 36px)',
         height: 36,
         borderRadius: 6,
         border: 'none',
@@ -270,8 +237,9 @@ function RailButton({
       }}
     >
       {children}
+      <span className="rail-label" aria-hidden="true">{label}</span>
       <span
-        className="hidden group-hover:block absolute pointer-events-none"
+        className="rail-tooltip hidden group-hover:block absolute pointer-events-none"
         style={{
           left: 44,
           top: '50%',
@@ -335,16 +303,20 @@ function TaskRailButton() {
 
 function ThemeButton({
   active,
+  label,
   onClick,
   children,
 }: {
   active: boolean
+  label: string
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
       className="flex items-center justify-center"
       style={{
         width: 32,

@@ -205,7 +205,7 @@ function LoadingRow({ cols }: { cols: number }) {
 
 function RequestTable({ items, loading, onRowClick }: { items: LogItem[]; loading: boolean; onRowClick: (row: LogItem) => void }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <table className="console-table">
       <thead>
         <tr>
           <Th w={140}>Time</Th>
@@ -240,7 +240,7 @@ function RequestTable({ items, loading, onRowClick }: { items: LogItem[]; loadin
 
 function AppTable({ items, loading, onRowClick }: { items: LogItem[]; loading: boolean; onRowClick: (row: LogItem) => void }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <table className="console-table">
       <thead>
         <tr>
           <Th w={140}>Time</Th>
@@ -271,7 +271,7 @@ function AppTable({ items, loading, onRowClick }: { items: LogItem[]; loading: b
 
 function FrontendTable({ items, loading, onRowClick }: { items: LogItem[]; loading: boolean; onRowClick: (row: LogItem) => void }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <table className="console-table">
       <thead>
         <tr>
           <Th w={140}>Time</Th>
@@ -302,7 +302,7 @@ function FrontendTable({ items, loading, onRowClick }: { items: LogItem[]; loadi
 
 function AuditTable({ items, loading, onRowClick }: { items: LogItem[]; loading: boolean; onRowClick: (row: LogItem) => void }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <table className="console-table">
       <thead>
         <tr>
           <Th w={140}>Time</Th>
@@ -425,9 +425,7 @@ export default function LogsOverlay() {
         }}
       >
         <div className="flex items-center justify-between mb-3">
-          <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-strong)', margin: 0 }}>
-            Logs
-          </h2>
+          <h1 className="console-title">Logs</h1>
           <div className="flex items-center gap-2">
             {/* Total count */}
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>

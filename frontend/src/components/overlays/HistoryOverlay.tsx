@@ -113,7 +113,7 @@ export default function HistoryOverlay() {
         className="shrink-0 flex items-center gap-3"
         style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}
       >
-        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>历史生成</span>
+        <h1 className="console-title">历史生成</h1>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>{items.length} 张</span>
         <button
           type="button"
@@ -126,7 +126,7 @@ export default function HistoryOverlay() {
       </div>
 
       {/* grid */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>
+      <div className="console-page flex-1 overflow-auto">
         {isLoading ? (
           <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 40 }}>加载中…</div>
         ) : items.length === 0 ? (

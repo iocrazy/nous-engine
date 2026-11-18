@@ -52,7 +52,7 @@ export default function GlobalTopbar() {
     <div
       className="flex items-center px-4 shrink-0 z-30"
       style={{
-        height: 44,
+        height: 'var(--console-header-height, 44px)',
         background: 'var(--tp-bg-panel)',
         borderBottom: '1px solid var(--tp-border-faint)',
       }}
@@ -71,8 +71,10 @@ export default function GlobalTopbar() {
       <div className="flex-1" />
 
       {/* 硬件监控条(CPU/内存/GPU)—— 放在 healthy 左侧,ComfyUI 式 */}
-      <TopbarGpuMonitor />
-      <div style={{ width: 1, height: 16, background: 'var(--tp-border-faint)', marginRight: 12 }} />
+      <div className="console-topbar-monitors">
+        <TopbarGpuMonitor />
+        <div style={{ width: 1, height: 16, background: 'var(--tp-border-faint)', marginRight: 12 }} />
+      </div>
 
       {/* 全局状态 */}
       <InfraStatus />

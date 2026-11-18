@@ -147,6 +147,14 @@ def _parse_unit(out: str | None) -> tuple[bool | None, int | None]:
     return states[0] == "active", (main_pid or None)
 
 
+async def unit_main_pid() -> int | None:
+    output = await _run_cmd(
+        "systemctl", "show", _unit_name(), "-p", "ActiveState", "-p", "MainPID", "--value",
+    )
+    active, main_pid = _parse_unit(output)
+    return main_pid if active else None
+
+
 def _parse_ss(out: str) -> tuple[list[str], set[int]]:
     """`ss -lntpH` 的行 → (监听地址列表, 占用 pid 集合)。地址去掉端口与 IPv6 方括号。"""
     listens: list[str] = []
@@ -221,6 +229,7 @@ async def _compute() -> dict:
         "state": state,
         "online": online,
         "unit_active": unit_active,
+        "main_pid": main_pid if unit_active else None,
         "identity": identity,
         "listens": listens,
         "missing_listens": missing,
@@ -244,7 +253,7 @@ async def sidecar_status() -> dict:
     except Exception as e:  # noqa: BLE001 — 体检自身出错按 down 报,不让调用方 500
         logger.warning("comfy sidecar status failed: %s", e)
         result = {
-            "state": "down", "online": False, "unit_active": None, "identity": "unknown",
+            "state": "down", "online": False, "unit_active": None, "main_pid": None, "identity": "unknown",
             "listens": [], "missing_listens": [], "problems": [f"ComfyUI 体检失败:{e}"],
             "checked_at": time.time(),
         }

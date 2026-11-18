@@ -96,6 +96,25 @@ def _gpu_stats_nvidia_smi() -> list[dict] | None:
         return None
 
 
+async def _managed_gpu_pids(app_state, *, fresh: bool = False) -> dict[int, str]:
+    from src.services.comfy import sidecar_status as comfy_sidecar
+
+    pid_map: dict[int, str] = {}
+    model_mgr = getattr(app_state, "model_manager", None)
+    if model_mgr is not None:
+        pid_map.update(model_mgr.get_pid_map())
+    for sup in getattr(app_state, "runner_supervisors", []) or []:
+        sup_pid = getattr(sup, "pid", None)
+        if sup_pid is not None:
+            # group_id 形如 "image" / "tts" / "llm-tp" — 当 model_name 展示给 UI。
+            pid_map[sup_pid] = f"runner:{getattr(sup, 'group_id', 'unknown')}"
+    main_pid = (await comfy_sidecar.unit_main_pid() if fresh
+                else (await comfy_sidecar.sidecar_status()).get("main_pid"))
+    if main_pid is not None:
+        pid_map[main_pid] = "ComfyUI"
+    return pid_map
+
+
 def _gpu_processes(pid_map: dict[int, str] | None = None) -> dict[int, list[dict]]:
     """Get per-GPU process memory usage via nvidia-smi, enriched with process info."""
     if pid_map is None:
@@ -328,29 +347,11 @@ async def _compute_system_stats(request: Request):
     # 直接在事件循环上跑会周期性阻塞所有并发请求(含流式推理)。丢线程池。性能 P1-1。
     gpus = await asyncio.to_thread(_gpu_stats_nvidia_smi) or []
 
-    # Get PID map for managed/orphan detection.
-    #
-    # 三类受管子进程都要纳入,否则 ProcRow 会把活跃 runner 误标 orphan(red bg + kill 按钮),
-    # 误导操作员 kill 掉自己的 image runner:
-    # 1. **常驻 LLM**(`model_manager._models[*].adapter.pid`)— vLLM/sgLang inference 进程
-    # 2. **RunnerSupervisor 子进程**(`app.state.runner_supervisors[*].pid`)— image / tts /
-    #    llm-tp 等按 hardware.yaml group spawn 的常驻 runner(本地用户报告的 2501948 = image
-    #    runner subprocess,Pro 6000 上常驻 ~38GB)
-    # 3. **主进程 LLM runner**(`app.state.llm_runner` 当无 hardware.yaml 时)— 进程内对象,
-    #    跟主 backend 共享 PID,这里跳过(主 backend PID 不该出现在 GPU compute-apps 里;
-    #    若出现,也属于 backend 本体)
-    pid_map: dict[int, str] = {}
     model_mgr = getattr(request.app.state, "model_manager", None)
-    if model_mgr is not None:
-        pid_map.update(model_mgr.get_pid_map())
-    for sup in getattr(request.app.state, "runner_supervisors", []) or []:
-        sup_pid = getattr(sup, "pid", None)
-        if sup_pid is not None:
-            # group_id 形如 "image" / "tts" / "llm-tp" — 当 model_name 展示给 UI。
-            pid_map[sup_pid] = f"runner:{getattr(sup, 'group_id', 'unknown')}"
 
     # Attach per-GPU process info (又是两次 nvidia-smi subprocess + psutil 遍历 → 线程池)
     if gpus:
+        pid_map = await _managed_gpu_pids(request.app.state)
         gpu_procs = await asyncio.to_thread(_gpu_processes, pid_map)
         for gpu in gpus:
             gpu["processes"] = gpu_procs.get(gpu["index"], [])
@@ -490,34 +491,21 @@ async def kill_gpu_process(req: KillProcessRequest, request: Request):
     """Kill an orphan GPU process by PID. Admin only — can disrupt any GPU worker."""
     pid = req.pid
 
-    # 1. Verify PID is in GPU process list
-    gpu_procs = _gpu_processes()
-    all_gpu_pids = {p["pid"] for procs in gpu_procs.values() for p in procs}
-    if pid not in all_gpu_pids:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=404,
-            content={"detail": f"PID {pid} not found in GPU process list"},
-        )
+    import asyncio
 
-    # 2. Verify not managed by ModelManager
-    model_mgr = getattr(request.app.state, "model_manager", None)
-    if model_mgr is not None:
-        pid_map = model_mgr.get_pid_map()
-        if pid in pid_map:
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                status_code=409,
-                content={"detail": f"PID {pid} is managed model '{pid_map[pid]}'. Use the unload API instead."},
-            )
+    from fastapi.responses import JSONResponse
 
-    # 3. Kill with SIGTERM, fallback to SIGKILL. safe_kill refuses pid<=1/0
-    #    (broadcast guard). pid is already validated to be in the GPU-process list
-    #    (step 1) and not a managed model (step 2), so it's a real GPU worker.
+    pid_map = await _managed_gpu_pids(request.app.state, fresh=True)
+    gpu_procs = await asyncio.to_thread(_gpu_processes, pid_map)
+    matches = [process for processes in gpu_procs.values() for process in processes if process["pid"] == pid]
+    if not matches:
+        return JSONResponse(status_code=404, content={"detail": f"PID {pid} not found in GPU process list"})
+    if pid in pid_map or any(process["managed"] for process in matches):
+        return JSONResponse(status_code=409, content={"detail": f"PID {pid} is managed by nous-engine or systemd"})
+
     from src.services.safe_signal import safe_kill
     try:
         if not safe_kill(pid, signal.SIGTERM):
-            from fastapi.responses import JSONResponse
             return JSONResponse(status_code=400,
                                 content={"detail": f"Refused to signal pid {pid} (guard)"})
         logger.info("Sent SIGTERM to GPU process %d", pid)
@@ -535,7 +523,6 @@ async def kill_gpu_process(req: KillProcessRequest, request: Request):
         return {"killed": True, "pid": pid}  # Already dead
     except Exception as e:
         logger.warning("Failed to kill process %d: %s", pid, e)
-        from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=500,
             content={"detail": f"Failed to kill process {pid}: {e}"},

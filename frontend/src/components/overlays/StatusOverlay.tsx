@@ -62,12 +62,12 @@ export default function StatusOverlay() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto z-[16]" style={{ background: 'var(--bg)' }}>
-      <div style={{ maxWidth: 920, margin: '0 auto', padding: 20 }}>
+      <div className="console-page console-controls">
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
           <HeartPulse size={20} style={{ color: 'var(--text)' }} />
           <div>
-            <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>系统状态</h1>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+            <h1 className="console-title">系统状态</h1>
+            <p className="console-description">
               各组件实时健康 + 过去 7 天可用率(15s 自动刷新)
             </p>
           </div>

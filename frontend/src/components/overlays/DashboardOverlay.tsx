@@ -10,7 +10,7 @@ import {
 } from '../../api/engines'
 import { useDashboardSummary, type AlertItem, type TopServiceRow } from '../../api/dashboard'
 import { useRuntimeMetrics, type RuntimeSnapshot } from '../../api/observability'
-import { useVLLMMetrics } from '../../api/vllm'
+import { useVLLMMetrics, type VLLMInstance } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { useHealth } from '../../api/health'
 import { useStatus, useStatusConnections, type ComponentStatus } from '../../api/status'
@@ -57,15 +57,15 @@ export default function DashboardOverlay() {
       className="absolute inset-0 overflow-y-auto z-[16]"
       style={{ background: 'var(--bg)' }}
     >
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
+      <div className="console-page console-controls">
         <div style={{ marginBottom: 14 }}>
-          <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>概览</h1>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+          <h1 className="console-title">概览</h1>
+          <p className="console-description">
             模型、系统资源与服务用量
           </p>
         </div>
 
-        <div role="tablist" aria-label="概览视图" className="mb-4 flex gap-4 overflow-x-auto border-b" style={{ borderColor: 'var(--border)' }}>
+        <div role="tablist" aria-label="概览视图" className="console-tabs">
           {TABS.map(({ id, label }, index) => (
             <button
               key={id}
@@ -75,8 +75,7 @@ export default function DashboardOverlay() {
               aria-selected={tab === id}
               aria-controls="dashboard-panel"
               tabIndex={tab === id ? 0 : -1}
-              className="shrink-0 border-b-2 px-1 pb-2 text-sm"
-              style={{ borderColor: tab === id ? 'var(--accent)' : 'transparent', color: tab === id ? 'var(--text)' : 'var(--muted)' }}
+              className="console-tab"
               onClick={() => setTab(id)}
               onKeyDown={(event) => {
                 const last = TABS.length - 1
@@ -297,7 +296,7 @@ function DashboardModels(props: DashboardModelsProps) {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs" aria-label="模型运行状态">
+            <table className="console-table" aria-label="模型运行状态">
               <thead style={{ color: 'var(--muted)' }}>
                 <tr>{['模型', '状态', '服务', 'GPU', '加载策略'].map((label) => <th key={label} scope="col" className="px-2 py-2 font-medium">{label}</th>)}</tr>
               </thead>
@@ -495,20 +494,17 @@ function BizStat({
   subColor?: string
 }) {
   return (
-    <div
+    <div className="console-card"
       style={{
-        background: 'var(--bg-accent)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: '14px 16px',
+        padding: '16px 18px',
       }}
     >
-      <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase' }}>
         {label}
       </div>
       <div
         style={{
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: 600,
           color: valueColor ?? 'var(--text)',
           marginTop: 4,
@@ -519,7 +515,7 @@ function BizStat({
       </div>
       {sub && (
         <div
-          style={{ fontSize: 11, color: subColor ?? 'var(--muted)', marginTop: 4 }}
+          style={{ fontSize: 13, color: subColor ?? 'var(--muted)', marginTop: 4 }}
         >
           {sub}
         </div>
@@ -540,12 +536,9 @@ function Panel({
   children: React.ReactNode
 }) {
   return (
-    <div
+    <div className="console-card"
       style={{
-        background: 'var(--bg-accent)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: '14px 16px',
+        padding: '16px 18px',
         marginBottom: 12,
       }}
     >
@@ -558,7 +551,7 @@ function Panel({
         }}
       >
         {icon}
-        <h3 style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, flex: 1 }}>
+        <h3 style={{ fontSize: 15, color: 'var(--text)', fontWeight: 500, flex: 1 }}>
           {title}
         </h3>
         {rightSlot}
@@ -1030,20 +1023,14 @@ function MiniStat({
   hint?: string
 }) {
   return (
-    <div
-      style={{
-        background: 'var(--bg)',
-        padding: '10px 12px',
-        borderRadius: 4,
-      }}
-    >
-      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase' }}>
+    <div className="console-card px-4 py-3">
+      <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase' }}>
         {label}
       </div>
       <div
         style={{
-          fontSize: 14,
-          fontWeight: 500,
+          fontSize: 24,
+          fontWeight: 650,
           color: 'var(--text)',
           fontVariantNumeric: 'tabular-nums',
           marginTop: 2,
@@ -1051,7 +1038,7 @@ function MiniStat({
       >
         {value}
         {hint && (
-          <span style={{ color: 'var(--muted)', fontSize: 10, marginLeft: 6 }}>
+          <span style={{ color: 'var(--muted)', fontSize: 12, display: 'block', fontWeight: 400 }}>
             {hint}
           </span>
         )}
@@ -1283,21 +1270,8 @@ function GpuGroupCard({
           warn={lowMemory}
         />
         {procs.length > 0 && (
-          <div
-            style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}
-          >
-            <div
-              style={{
-                fontSize: 9,
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                marginBottom: 6,
-              }}
-            >
-              GPU Processes
-            </div>
+          <details className="console-gpu-processes">
+            <summary>GPU 进程（{procs.length}）</summary>
             {procs.map((m) =>
               m.managed ? (
                 <MergedProcRow key={m.key} merged={m} />
@@ -1310,7 +1284,7 @@ function GpuGroupCard({
                 />
               ),
             )}
-          </div>
+          </details>
         )}
       </div>
       {expanded &&
@@ -1450,25 +1424,12 @@ function GpuCard({
         warn={gpu.low_memory}
       />
       {gpu.processes && gpu.processes.length > 0 && (
-        <div
-          style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}
-        >
-          <div
-            style={{
-              fontSize: 9,
-              fontWeight: 600,
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              marginBottom: 6,
-            }}
-          >
-            GPU Processes
-          </div>
+        <details className="console-gpu-processes">
+          <summary>GPU 进程（{gpu.processes.length}）</summary>
           {gpu.processes.map((proc) => (
             <ProcRow key={proc.pid} proc={proc} onKill={onKill} />
           ))}
-        </div>
+        </details>
       )}
     </div>
   )
@@ -1661,164 +1622,82 @@ function fmtTimeAgo(iso: string | null): string {
   return `${Math.floor(diffSec / 86400)} 天前`
 }
 
-// vLLM KV cache + scheduler state — one card per active inference instance.
-// Pulled from each instance's :PORT/metrics by the backend, polled every 3s.
 function VLLMPanel() {
   const { data, isLoading, error } = useVLLMMetrics()
   const instances = data?.instances ?? []
 
-  const subtitle = isLoading
-    ? '加载中…'
-    : error
-      ? '指标接口不可达'
-      : instances.length === 0
-        ? '没有正在运行的 vLLM 实例'
-        : `${instances.length} 个实例 · 每 3 秒刷新`
-
   return (
-    <Panel icon={<Cpu size={14} color="var(--accent)" />} title="vLLM KV Cache · 调度">
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>{subtitle}</div>
-
-      {instances.map((inst) => {
-        const usage = inst.stats.kv_cache_usage_perc ?? 0
-        const usagePct = Math.round(usage * 100)
-        const totalBlocks = Number(inst.config.num_gpu_blocks ?? 0)
-        const blockSize = Number(inst.config.block_size ?? 0)
-        const totalTokens = totalBlocks * blockSize
-        const prefixOn = inst.config.enable_prefix_caching === 'True'
-        const hitRate = inst.stats.prefix_cache_hit_rate
-
-        return (
-          <div
-            key={`${inst.name}-${inst.port}`}
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: 12,
-              marginBottom: 8,
-              background: 'var(--bg)',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 8,
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>
-                {inst.name}
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--muted)' }}>port :{inst.port}</div>
-              {!inst.healthy && (
-                <span style={{ fontSize: 10, color: 'var(--error, #ef4444)' }}>
-                  · {inst.error}
-                </span>
-              )}
-            </div>
-
-            {inst.healthy && (
-              <>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: 12,
-                    marginBottom: 8,
-                  }}
-                >
-                  <Stat label="KV 使用" value={`${usagePct}%`} />
-                  <Stat
-                    label="总容量"
-                    value={
-                      totalTokens > 0
-                        ? `${(totalTokens / 1000).toFixed(0)}K tokens`
-                        : '—'
-                    }
-                    sub={
-                      totalBlocks > 0 && blockSize > 0
-                        ? `${totalBlocks} blocks × ${blockSize}`
-                        : undefined
-                    }
-                  />
-                  <Stat
-                    label="并发"
-                    value={`${inst.stats.running ?? 0}`}
-                    sub={
-                      (inst.stats.waiting ?? 0) > 0
-                        ? `等待 ${inst.stats.waiting}`
-                        : undefined
-                    }
-                  />
-                  <Stat
-                    label="Prefix 命中"
-                    value={
-                      hitRate != null
-                        ? `${Math.round(hitRate * 100)}%`
-                        : prefixOn
-                          ? '0%'
-                          : '关'
-                    }
-                    sub={
-                      prefixOn
-                        ? `${inst.stats.prefix_cache_hits_total ?? 0} / ${inst.stats.prefix_cache_queries_total ?? 0}`
-                        : undefined
-                    }
-                  />
-                </div>
-
-                {/* KV usage bar */}
-                <div
-                  style={{
-                    height: 4,
-                    borderRadius: 2,
-                    background: 'var(--bg-accent)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${usagePct}%`,
-                      height: '100%',
-                      background:
-                        usage > 0.85 ? 'var(--error, #ef4444)' : 'var(--accent)',
-                      transition: 'width 0.3s',
-                    }}
-                  />
-                </div>
-
-                {/* 启动参数编辑移到引擎页的 LaunchParamsEditor —— 两处编辑同一份状态会打架,
-                    且这些是**模型级**参数,不属于 Dashboard 的实例监控面板。 */}
-              </>
-            )}
-          </div>
-        )
-      })}
+    <Panel icon={<Cpu size={16} color="var(--accent)" />} title="vLLM KV Cache · 调度"
+      rightSlot={instances.length > 0 && <span className="text-xs" style={{ color: 'var(--muted)' }}>{instances.length} 个实例 · 每 3 秒刷新</span>}
+    >
+      {isLoading && <p role="status" className="text-sm">正在加载 vLLM 指标…</p>}
+      {error && <p role="alert" className="text-sm">vLLM 指标接口不可达</p>}
+      {!isLoading && !error && instances.length === 0 && <p className="text-sm">没有正在运行的 vLLM 实例</p>}
+      {instances.length > 0 && (
+        <div className="console-table-wrap">
+          <table className="console-table" aria-label="vLLM 实例指标">
+            <thead>
+              <tr>
+                {['实例', 'KV 使用', '总容量', '运行中', '排队', 'Prefix 命中'].map((label) => <th scope="col" key={label}>{label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {instances.map((instance) => <VLLMRow key={`${instance.name}-${instance.port}`} instance={instance} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Panel>
   )
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function VLLMRow({ instance }: { instance: VLLMInstance }) {
+  const { name, port, healthy, error, config, stats } = instance
+  const usage = stats.kv_cache_usage_perc
+  const usagePct = usage == null ? null : Math.round(usage * 100)
+  const blocks = Number(config.num_gpu_blocks)
+  const blockSize = Number(config.block_size)
+  const total = Number.isFinite(blocks * blockSize) && blocks > 0 && blockSize > 0 ? blocks * blockSize : null
+  const prefixOff = config.enable_prefix_caching?.toLowerCase() === 'false'
+  const queries = stats.prefix_cache_queries_total
+  const hits = stats.prefix_cache_hits_total
+  const hitRate = stats.prefix_cache_hit_rate
+  let prefix = '—'
+  if (prefixOff) prefix = '关闭'
+  else if (queries === 0) prefix = '暂无查询'
+  else if (hitRate != null) prefix = `${Math.round(hitRate * 100)}%`
+
   return (
-    <div>
-      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase' }}>
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 16,
-          fontWeight: 600,
-          color: 'var(--text)',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>
+    <tr>
+      <th scope="row">
+        <span className="break-all">{name}</span>
+        <span className="metric-detail">端口 {port}</span>
+      </th>
+      {!healthy ? (
+        <td colSpan={5} style={{ color: 'var(--error)' }}>{error || '实例指标不可用'}</td>
+      ) : (
+        <>
+          <td>
+            <span className="metric-value">{usagePct == null ? '—' : `${usagePct}%`}</span>
+            {usagePct != null && (
+              <progress className="console-kv-meter" aria-label={`${name} KV 使用率`} max={100} value={usagePct}
+                style={{ accentColor: usagePct > 85 ? 'var(--error)' : undefined }} />
+            )}
+          </td>
+          <td>
+            <span className="metric-value" title={total == null ? undefined : `${total.toLocaleString()} tokens`}>
+              {total == null ? '—' : `${fmtN(total)} tokens`}
+            </span>
+            {total != null && <span className="metric-detail">{blocks} blocks × {blockSize}</span>}
+          </td>
+          <td className="metric-value">{stats.running ?? '—'}</td>
+          <td className="metric-value">{stats.waiting ?? '—'}</td>
+          <td>
+            <span className="metric-value">{prefix}</span>
+            {!prefixOff && hits != null && queries != null && <span className="metric-detail">{hits} / {queries}</span>}
+          </td>
+        </>
       )}
-    </div>
+    </tr>
   )
 }

@@ -50,11 +50,11 @@ export default function UsagePage() {
         background: 'var(--bg)',
       }}
     >
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 14 }}>
+      <div className="console-page console-controls">
+        <div className="console-page-header">
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>用量统计</h1>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            <h1 className="console-title">用量统计</h1>
+            <p className="console-description">
               调用量 · token 消耗 · 按 Key 按服务按时段的聚合
             </p>
           </div>
@@ -111,7 +111,7 @@ export default function UsagePage() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))',
             gap: 12,
             marginBottom: 14,
           }}
@@ -157,7 +157,7 @@ export default function UsagePage() {
           {topKeys.isLoading && <CenterMsg>加载中…</CenterMsg>}
           {topKeys.error && <CenterMsg error>{(topKeys.error as Error).message}</CenterMsg>}
           {topKeys.data && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <table className="console-table">
               <thead>
                 <tr style={{ color: 'var(--muted)', fontSize: 11, textAlign: 'left' }}>
                   <th style={th}>Label</th>
@@ -278,11 +278,8 @@ function Stat({
   muted?: boolean
 }) {
   return (
-    <div
+    <div className="console-card"
       style={{
-        background: 'var(--bg-accent)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
         padding: '14px 16px',
       }}
     >
@@ -309,11 +306,8 @@ function Stat({
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div
+    <div className="console-card"
       style={{
-        background: 'var(--bg-accent)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
         marginBottom: 12,
       }}
     >

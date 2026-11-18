@@ -146,12 +146,12 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
         background: 'var(--bg)',
       }}
     >
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
+      <div className="console-page console-controls">
         {/* header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 14 }}>
+        <div className="console-page-header">
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>服务</h1>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            <h1 className="console-title">服务</h1>
+            <p className="console-description">
               所有对外可调用的服务实例 · 每条服务 = endpoint + schema + 授权 · 通过 API Key 调用
             </p>
           </div>
@@ -462,13 +462,10 @@ function ServiceCard({
   }
 
   return (
-    <div
+    <div className="console-card"
       style={{
-        background: 'var(--bg-accent)',
-        border: '1px solid var(--border)',
-        borderLeft: inactive ? '1px solid var(--border)' : '3px solid var(--accent-2, #22c55e)',
-        borderRadius: 8,
-        padding: 14,
+        borderLeft: inactive ? undefined : '3px solid var(--accent-2, #22c55e)',
+        padding: 16,
         display: 'flex',
         flexDirection: 'column',
         gap: 10,

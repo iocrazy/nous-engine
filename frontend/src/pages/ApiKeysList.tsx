@@ -55,12 +55,12 @@ export default function ApiKeysList() {
         background: 'var(--bg)',
       }}
     >
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
+      <div className="console-page console-controls">
         {/* header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 14 }}>
+        <div className="console-page-header">
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>API Key</h1>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            <h1 className="console-title">API Key</h1>
+            <p className="console-description">
               一把 Key 可授权 N 个服务 · 明文常驻可复看 · OpenAI / Ollama / Anthropic 三种调用协议
             </p>
           </div>
