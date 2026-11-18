@@ -167,3 +167,19 @@ def test_default_network_env_path_points_at_repo():
 def test_parse_ss_ipv6_brackets():
     listens, pids = cs._parse_ss('LISTEN 0 128 [::1]:8888 [::]:* users:(("python",pid=5,fd=3))')
     assert listens == ["::1"] and pids == {5}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("output", "expected"), [
+    ("NRestarts=3\nExecMainStartTimestamp=@1794978664\n",
+     {"started_at": 1794978664, "restart_count": 3}),
+    ("ExecMainStartTimestamp=\nNRestarts=0\n", {"started_at": None, "restart_count": 0}),
+    (None, {"started_at": None, "restart_count": None}),
+])
+async def test_unit_restart_info(monkeypatch, output, expected):
+    async def run(*argv):
+        assert argv[:3] == ("systemctl", "show", cs._unit_name())
+        return output
+
+    monkeypatch.setattr(cs, "_run_cmd", run)
+    assert await cs.unit_restart_info() == expected

@@ -1,33 +1,56 @@
-import { useState, type CSSProperties } from 'react'
-import { Activity, AlertTriangle, BarChart3, ChevronRight, Cpu, X } from 'lucide-react'
+import { useState } from 'react'
+import { Activity, AlertTriangle, BarChart3, Cpu, X } from 'lucide-react'
 import {
   useSysGpus, useSysStats, useSysProcesses, useKillProcess,
   type SysGpuInfo, type GpuProcessInfo,
 } from '../../api/system'
 import {
   useEngines, useLoadedAdapters, useGpuGroups,
-  type GpuGroup,
+  type EngineInfo, type GpuGroup,
 } from '../../api/engines'
 import { useDashboardSummary, type AlertItem, type TopServiceRow } from '../../api/dashboard'
 import { useRuntimeMetrics, type RuntimeSnapshot } from '../../api/observability'
 import { useVLLMMetrics } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
+import { useHealth } from '../../api/health'
+import { useStatus, useStatusConnections, type ComponentStatus } from '../../api/status'
+import { useComfyHealth } from '../../api/comfyTemplates'
+import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { sortProcesses, formatRate, type ProcSortKey, type ProcSortDir } from './processSort'
 
-/**
- * m04 Dashboard — v3 layout.
- *
- * Top: 4 business stats (today's calls / month tokens / active alerts /
- *   key·service counts).
- * Mid: alerts feed + today's top services.
- * Bottom: collapsible "system status" with GPU panels, mini stats,
- *   loaded models, processes table — keeps the v2 monitoring detail
- *   accessible without dominating the page.
- */
+const TABS = [
+  { id: 'overview', label: '概览' },
+  { id: 'models', label: '模型' },
+  { id: 'system', label: '系统状态' },
+  { id: 'processes', label: '进程' },
+  { id: 'usage', label: '调用与告警' },
+] as const
+
+type DashboardTab = typeof TABS[number]['id']
+type ModelStatus = EngineInfo['status']
+
+const MODEL_STATUS: Record<ModelStatus, { label: string; color: string; order: number }> = {
+  failed: { label: '加载失败', color: 'var(--err, #ef4444)', order: 0 },
+  loading: { label: '加载中', color: 'var(--warn, #f59e0b)', order: 1 },
+  loaded: { label: '已加载', color: 'var(--ok, #22c55e)', order: 2 },
+  unloaded: { label: '未加载', color: 'var(--muted)', order: 3 },
+}
+
 export default function DashboardOverlay() {
-  const summary = useDashboardSummary()
-  const [sysOpen, setSysOpen] = useState(false)
+  const [tab, setTab] = useState<DashboardTab>('overview')
+  const [statusFilter, setStatusFilter] = useState<ModelStatus | ''>('')
+  const [modelSearch, setModelSearch] = useState('')
+  const openModels = (status: ModelStatus | '' = '') => {
+    setStatusFilter(status)
+    setModelSearch('')
+    setTab('models')
+    document.getElementById('dashboard-tab-models')?.focus()
+  }
+  const openSystem = () => {
+    setTab('system')
+    document.getElementById('dashboard-tab-system')?.focus()
+  }
 
   return (
     <div
@@ -38,109 +61,425 @@ export default function DashboardOverlay() {
         <div style={{ marginBottom: 14 }}>
           <h1 style={{ fontSize: 20, color: 'var(--text)', fontWeight: 600 }}>概览</h1>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-            今日业务鸟瞰 + 系统状态
+            模型、系统资源与服务用量
           </p>
         </div>
 
-        {/* Top business stats */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 12,
-            marginBottom: 12,
-          }}
-        >
-          <BizStat
-            label="今日调用"
-            value={fmtN(summary.data?.today_calls)}
-            sub={deltaText(summary.data?.today_calls_delta_pct)}
-            subColor={
-              summary.data?.today_calls_delta_pct == null
-                ? 'var(--muted)'
-                : summary.data.today_calls_delta_pct >= 0
-                  ? 'var(--accent-2, #22c55e)'
-                  : 'var(--warn, #f59e0b)'
-            }
-          />
-          <BizStat
-            label="本月 token 用量"
-            value={fmtN(summary.data?.month_tokens)}
-            sub={
-              summary.data?.month_tokens_quota
-                ? `占 ${fmtN(summary.data.month_tokens_quota)} 配额 ${summary.data.month_tokens_used_pct}%`
-                : '暂未挂资源包'
-            }
-          />
-          <BizStat
-            label="活跃告警"
-            value={summary.data ? String(summary.data.active_alerts_count) : '—'}
-            valueColor={
-              (summary.data?.active_alerts_count ?? 0) > 0
-                ? 'var(--warn, #f59e0b)'
-                : undefined
-            }
-            sub={summary.data?.active_alerts_top_label ?? '一切正常'}
-          />
-          <BizStat
-            label="API Key · 实例"
-            value={
-              summary.data
-                ? `${summary.data.api_key_count} · ${summary.data.service_count}`
-                : '—'
-            }
-            sub={
-              summary.data && summary.data.unbound_key_count > 0
-                ? `${summary.data.unbound_key_count} key 未绑定`
-                : ''
-            }
-          />
+        <div role="tablist" aria-label="概览视图" className="mb-4 flex gap-4 overflow-x-auto border-b" style={{ borderColor: 'var(--border)' }}>
+          {TABS.map(({ id, label }, index) => (
+            <button
+              key={id}
+              type="button"
+              id={`dashboard-tab-${id}`}
+              role="tab"
+              aria-selected={tab === id}
+              aria-controls="dashboard-panel"
+              tabIndex={tab === id ? 0 : -1}
+              className="shrink-0 border-b-2 px-1 pb-2 text-sm"
+              style={{ borderColor: tab === id ? 'var(--accent)' : 'transparent', color: tab === id ? 'var(--text)' : 'var(--muted)' }}
+              onClick={() => setTab(id)}
+              onKeyDown={(event) => {
+                const last = TABS.length - 1
+                const destinations: Record<string, number> = {
+                  ArrowLeft: index === 0 ? last : index - 1,
+                  ArrowRight: index === last ? 0 : index + 1,
+                  Home: 0,
+                  End: last,
+                }
+                if (!Object.hasOwn(destinations, event.key)) return
+                event.preventDefault()
+                const next = TABS[destinations[event.key]].id
+                setTab(next)
+                document.getElementById(`dashboard-tab-${next}`)?.focus()
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-
-        {/* Alerts feed */}
-        <Panel
-          icon={<AlertTriangle size={14} style={{ color: 'var(--warn, #f59e0b)' }} />}
-          title="活跃告警 · 最近触发"
-        >
-          {(summary.data?.recent_alerts.length ?? 0) === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
-              过去 7 天无告警触发
-            </div>
-          ) : (
-            summary.data!.recent_alerts.map((a) => <AlertRow key={a.id} alert={a} />)
+        <section id="dashboard-panel" role="tabpanel" tabIndex={0} aria-labelledby={`dashboard-tab-${tab}`}>
+          {tab === 'overview' && <DashboardModels overview openModels={openModels} openSystem={openSystem} />}
+          {tab === 'models' && (
+            <DashboardModels
+              statusFilter={statusFilter}
+              modelSearch={modelSearch}
+              setStatusFilter={setStatusFilter}
+              setModelSearch={setModelSearch}
+            />
           )}
-        </Panel>
-
-        {/* Top services today */}
-        <Panel
-          icon={<BarChart3 size={14} style={{ color: 'var(--accent-2, #22c55e)' }} />}
-          title="今日 Top 调用服务"
-        >
-          {(summary.data?.top_services_today.length ?? 0) === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
-              今日暂无 LLM 调用
-            </div>
-          ) : (
-            summary.data!.top_services_today.map((s) => (
-              <TopSvcStrip key={s.service_name} svc={s} />
-            ))
-          )}
-        </Panel>
-
-        {/* Runtime observability — process-level counters */}
-        <RuntimePanel />
-
-        {/* vLLM KV cache + scheduler — per active inference instance */}
-        <VLLMPanel />
-
-        {/* System status — collapsible (was the entire v2 dashboard) */}
-        <CollapsibleSystem open={sysOpen} onToggle={() => setSysOpen((v) => !v)} />
+          {tab === 'system' && <SystemStatus />}
+          {tab === 'processes' && <SystemProcesses />}
+          {tab === 'usage' && <DashboardUsage />}
+        </section>
       </div>
     </div>
   )
 }
 
-// ---------- top-level pieces ----------
+function DashboardUsage() {
+  const summary = useDashboardSummary()
+
+  if (summary.isError) return <p role="alert">用量与告警加载失败</p>
+  if (!summary.data) return <p role="status">正在加载用量与告警…</p>
+
+  return (
+    <>
+      {/* Top business stats */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <BizStat
+          label="今日已记录调用"
+          value={fmtN(summary.data?.today_calls)}
+          sub={deltaText(summary.data?.today_calls_delta_pct)}
+          subColor={
+            summary.data?.today_calls_delta_pct == null
+              ? 'var(--muted)'
+              : summary.data.today_calls_delta_pct >= 0
+                ? 'var(--accent-2, #22c55e)'
+                : 'var(--warn, #f59e0b)'
+          }
+        />
+        <BizStat
+          label="近 30 天 Token"
+          value={fmtN(summary.data?.month_tokens)}
+          sub="从 30 天前的 UTC 零点起"
+        />
+        <BizStat
+          label="活跃告警"
+          value={summary.data ? String(summary.data.active_alerts_count) : '—'}
+          valueColor={
+            (summary.data?.active_alerts_count ?? 0) > 0
+              ? 'var(--warn, #f59e0b)'
+              : undefined
+          }
+          sub={summary.data?.active_alerts_top_label ?? '一切正常'}
+        />
+        <BizStat
+          label="API Key · 实例"
+          value={
+            summary.data
+              ? `${summary.data.api_key_count} · ${summary.data.service_count}`
+              : '—'
+          }
+          sub={
+            summary.data && summary.data.unbound_key_count > 0
+              ? `${summary.data.unbound_key_count} key 未绑定`
+              : ''
+          }
+        />
+      </div>
+
+      {/* Alerts feed */}
+      <Panel
+        icon={<AlertTriangle size={14} style={{ color: 'var(--warn, #f59e0b)' }} />}
+        title="活跃告警 · 最近触发"
+      >
+        {(summary.data?.recent_alerts.length ?? 0) === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
+            过去 7 天无告警触发
+          </div>
+        ) : (
+          summary.data!.recent_alerts.map((a) => <AlertRow key={a.id} alert={a} />)
+        )}
+      </Panel>
+
+      {/* Top services today */}
+      <Panel
+        icon={<BarChart3 size={14} style={{ color: 'var(--accent-2, #22c55e)' }} />}
+        title="今日 Top 调用服务"
+      >
+        {(summary.data?.top_services_today.length ?? 0) === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
+            今日暂无 LLM 调用
+          </div>
+        ) : (
+          summary.data!.top_services_today.map((s) => (
+            <TopSvcStrip key={s.service_name} svc={s} />
+          ))
+        )}
+      </Panel>
+
+      <a className="text-sm underline" style={{ color: 'var(--accent)' }} href="/usage">查看完整用量</a>
+    </>
+  )
+}
+
+type DashboardModelsProps =
+  | { overview: true; openModels: (status?: ModelStatus) => void; openSystem: () => void }
+  | {
+      overview?: false
+      statusFilter: ModelStatus | ''
+      modelSearch: string
+      setStatusFilter: (status: ModelStatus | '') => void
+      setModelSearch: (search: string) => void
+    }
+
+function DashboardModels(props: DashboardModelsProps) {
+  const engines = useEngines()
+  const adapters = useLoadedAdapters()
+  const services = useServices()
+  const serviceNames = new Map<string, Set<string>>()
+  for (const service of services.data ?? []) {
+    for (const model of service.models ?? []) {
+      if (!model.engine_key) continue
+      const names = serviceNames.get(model.engine_key) ?? new Set<string>()
+      names.add(service.name)
+      serviceNames.set(model.engine_key, names)
+    }
+  }
+
+  const rows = [
+    ...(engines.data ?? []).map((model) => ({
+      id: `engine-${model.name}`,
+      name: model.display_name || model.name,
+      searchName: model.name,
+      type: model.type,
+      status: model.status,
+      detail: model.status_detail,
+      service: [...(serviceNames.get(model.name) ?? [])].join('、'),
+      gpu: model.loaded_gpus?.length
+        ? model.loaded_gpus.join('+')
+        : model.loaded_gpu ?? model.gpus?.join('+') ?? model.gpu,
+      policy: model.resident ? '常驻' : '按需',
+    })),
+    ...(adapters.data?.entries ?? []).map((model) => ({
+      id: `adapter-${model.group_id}-${model.model_id}`,
+      name: model.display_name,
+      searchName: model.model_id,
+      type: model.model_type,
+      status: 'loaded' as const,
+      detail: null,
+      service: '',
+      gpu: model.gpu_index,
+      policy: '—',
+    })),
+  ].sort((a, b) => MODEL_STATUS[a.status].order - MODEL_STATUS[b.status].order || a.name.localeCompare(b.name))
+
+  const term = props.overview ? '' : props.modelSearch.trim().toLowerCase()
+  const visible = props.overview
+    ? rows.filter((row) => row.status !== 'unloaded').slice(0, 8)
+    : rows.filter((row) =>
+        (!props.statusFilter || row.status === props.statusFilter) &&
+        [row.name, row.searchName, row.service].some((value) => value.toLowerCase().includes(term)),
+      )
+
+  return (
+    <>
+      {props.overview && (
+        <OverviewSummary rows={rows} modelCountsReady={!!engines.data && !!adapters.data} openModels={props.openModels} openSystem={props.openSystem} />
+      )}
+      <Panel icon={<Activity size={14} />} title={props.overview ? '模型运行状态' : '模型列表'}
+        rightSlot={props.overview ? <button type="button" className="text-xs underline" onClick={() => props.openModels()}>查看全部模型</button> : undefined}
+      >
+        {!props.overview && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            <input type="search" aria-label="搜索模型或服务" placeholder="搜索模型或服务"
+              className="rounded border px-2 py-1 text-sm" value={props.modelSearch}
+              onChange={(event) => props.setModelSearch(event.target.value)} />
+            <select aria-label="模型状态" className="rounded border px-2 py-1 text-sm" value={props.statusFilter}
+              onChange={(event) => props.setStatusFilter(event.target.value as ModelStatus | '')}>
+              <option value="">全部状态</option>
+              {Object.entries(MODEL_STATUS).map(([status, info]) => <option key={status} value={status}>{info.label}</option>)}
+            </select>
+          </div>
+        )}
+        {(engines.isError || adapters.isError) && <p role="alert" className="mb-2 text-xs">部分模型状态加载失败</p>}
+        {services.isError && <p role="alert" className="mb-2 text-xs">关联服务加载失败</p>}
+        {visible.length === 0 ? (
+          <p className="py-2 text-xs" style={{ color: 'var(--muted)' }}>
+            {engines.isLoading || adapters.isLoading ? '正在加载模型…' : '没有可显示的模型'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs" aria-label="模型运行状态">
+              <thead style={{ color: 'var(--muted)' }}>
+                <tr>{['模型', '状态', '服务', 'GPU', '加载策略'].map((label) => <th key={label} scope="col" className="px-2 py-2 font-medium">{label}</th>)}</tr>
+              </thead>
+              <tbody>
+                {visible.map((model) => (
+                  <tr key={model.id} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                    <td className="px-2 py-2.5">
+                      <strong className="block font-medium">{model.name}</strong>
+                      <span style={{ color: 'var(--muted)' }}>{model.type}</span>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <span className="whitespace-nowrap" style={{ color: MODEL_STATUS[model.status].color }}>{MODEL_STATUS[model.status].label}</span>
+                      {model.detail && <details className="mt-1 min-w-24">
+                        <summary className="cursor-pointer">状态详情</summary>
+                        <p className="max-w-xs whitespace-pre-wrap break-words">{model.detail}</p>
+                      </details>}
+                    </td>
+                    <td className="px-2 py-2.5">{model.service || '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-2.5">{model.gpu != null ? `GPU ${model.gpu}` : '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-2.5">{model.policy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+    </>
+  )
+}
+
+const HEALTH_LABEL: Record<ComponentStatus, string> = {
+  operational: '正常',
+  idle: '空闲',
+  degraded: '降级',
+  down: '中断',
+}
+
+function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
+  rows: { status: ModelStatus }[]
+  modelCountsReady: boolean
+  openModels: (status: ModelStatus) => void
+  openSystem: () => void
+}) {
+  const status = useStatus()
+  const { data: gpus } = useSysGpus()
+  const { data: system } = useSysStats()
+  const totalFree = gpus?.gpus.reduce((sum, gpu) => sum + gpu.memory_free_mb, 0)
+  const attention = status.data?.components.filter((component) => component.status === 'degraded' || component.status === 'down')
+  return (
+    <>
+      <Panel icon={<Cpu size={14} />} title="系统健康"
+        rightSlot={<button type="button" className="text-xs underline" onClick={openSystem}>查看系统状态</button>}
+      >
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
+          {status.isError ? '状态检查暂不可用' : attention?.length
+            ? attention.map(({ name, status }) => `${name} ${HEALTH_LABEL[status]}`).join(' · ')
+            : status.data ? `组件状态${HEALTH_LABEL[status.data.overall]}` : '正在检查组件状态…'}
+        </p>
+      </Panel>
+      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {(['loaded', 'loading', 'failed'] as const).map((modelStatus) => (
+          <button key={modelStatus} type="button" className="text-left" onClick={() => openModels(modelStatus)}>
+            <BizStat label={MODEL_STATUS[modelStatus].label}
+              value={modelCountsReady ? String(rows.filter((row) => row.status === modelStatus).length) : '—'}
+              valueColor={MODEL_STATUS[modelStatus].color} sub="查看模型" />
+          </button>
+        ))}
+        <button type="button" className="text-left" onClick={openSystem}>
+          <BizStat label="GPU 剩余显存" value={totalFree == null ? '—' : `${(totalFree / 1024).toFixed(1)} GiB`}
+            sub={system ? `物理内存可用 ${system.memory_available_gb.toFixed(1)} GiB` : ''} />
+        </button>
+      </div>
+    </>
+  )
+}
+
+function SystemConnections() {
+  const status = useStatus()
+  const connections = useStatusConnections()
+  const health = useComfyHealth()
+  const sidecar = useHealth().data?.comfy
+  const { data: processes } = useSysProcesses()
+  const [copyMessage, setCopyMessage] = useState('')
+  const bridge = health.data
+  const probe = processes?.net_probe
+  const render = bridge?.running_render
+  const checks = connections.isError ? undefined : connections.data
+  const startedAt = checks?.comfy_unit.started_at
+  const restartCount = checks?.comfy_unit.restart_count
+  const bridgeChecked = !health.isError && !!bridge
+
+  const copyAddress = async (address: string) => {
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopyMessage('已复制地址')
+    } catch {
+      setCopyMessage('复制失败，可手动选中地址')
+    }
+  }
+
+  return (
+    <section aria-labelledby="dashboard-connections">
+      <h2 id="dashboard-connections" className="mb-3 text-base font-semibold">服务与连接</h2>
+      <div className="grid gap-x-3 md:grid-cols-2">
+        <Panel icon={<Activity size={14} />} title="服务健康"
+          rightSlot={<a href="/status" className="text-xs underline">过去 7 天可用率</a>}
+        >
+          {status.isError ? <p role="alert" className="text-xs">组件状态检查失败</p> : !status.data ? (
+            <p role="status" className="text-xs">正在检查组件状态…</p>
+          ) : status.data.components.map((component) => (
+            <div key={component.key} className="flex flex-wrap justify-between gap-2 border-t py-2 text-xs" style={{ borderColor: 'var(--border)' }}>
+              <span>{component.name}</span>
+              <span>{HEALTH_LABEL[component.status]}</span>
+              {component.detail && <p className="w-full" style={{ color: 'var(--muted)' }}>{component.detail}</p>}
+            </div>
+          ))}
+          <div className="flex flex-wrap justify-between gap-2 border-t py-2 text-xs" style={{ borderColor: 'var(--border)' }}>
+            <span>网络采集</span>
+            <span>{probe ? (probe.available ? '采样正常' : '采样不可用') : '等待采样'}</span>
+            {probe?.age_s != null && <p className="w-full" style={{ color: 'var(--muted)' }}>最近采样距今 {Math.round(probe.age_s)} 秒</p>}
+          </div>
+        </Panel>
+        <Panel icon={<Activity size={14} />} title="访问入口">
+          <div className="flex flex-wrap justify-between gap-2 text-xs">
+            <span>后端 → ComfyUI</span>
+            <span>{bridgeChecked ? (bridge.online ? '可达' : '不可达') : '状态未知'}</span>
+          </div>
+          {bridge?.base_url && (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <code className="break-all text-xs">{bridge.base_url}</code>
+              <button type="button" className="text-xs underline" onClick={() => void copyAddress(bridge.base_url)}>复制地址</button>
+            </div>
+          )}
+          <div className="mt-3 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
+            <p style={{ color: 'var(--muted)' }}>
+              Tailscale · 服务器侧探测
+              {checks && ` · ${new Date(checks.checked_at).toLocaleTimeString()}`}
+            </p>
+            {connections.isError && <p role="alert" className="mt-1">Tailscale 探测结果暂不可用</p>}
+            {!checks && !connections.isError && <p role="status" className="mt-1">正在探测…</p>}
+            {checks?.tailscale === null && <p className="mt-1">未配置有效的 Tailscale 地址</p>}
+            {checks?.tailscale?.map((probe) => (
+              <div key={probe.key} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div className="min-w-0">
+                  <span className="block">{probe.key === 'backend' ? '后端 API' : 'ComfyUI'}</span>
+                  <code className="break-all" style={{ color: 'var(--muted)' }}>{probe.url}</code>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: probe.http_status === 200 ? 'var(--ok, #22c55e)' : 'var(--warn, #f59e0b)' }}>
+                    {probe.http_status == null ? '探测失败' : `HTTP ${probe.http_status}`}
+                  </span>
+                  <button type="button" className="underline" aria-label={`复制 ${probe.key === 'backend' ? '后端 API' : 'ComfyUI'} 的 Tailscale 地址`}
+                    onClick={() => void copyAddress(probe.url)}>复制地址</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {copyMessage && <p role="status" className="mt-1 text-xs">{copyMessage}</p>}
+          {sidecar && (
+            <details className="mt-3 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
+              <summary className="cursor-pointer">ComfyUI 监听地址（{sidecar.listens.length}）</summary>
+              <ul className="mt-2 space-y-1">
+                {sidecar.listens.map((address) => <li key={address}><code>{address}</code></li>)}
+                {sidecar.missing_listens.map((address) => <li key={address} style={{ color: 'var(--warn, #f59e0b)' }}>缺少监听 <code>{address}</code></li>)}
+              </ul>
+            </details>
+          )}
+        </Panel>
+      </div>
+      <Panel icon={<Activity size={14} />} title="ComfyUI 运行">
+        <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
+          <span>队列任务 {bridgeChecked && bridge.online ? bridge.queue_depth : '—'}</span>
+          {render && <span>桥接任务 {render.task_id} · 已占用 {render.held_seconds.toFixed(1)} 秒</span>}
+          <span>最近启动 {startedAt == null ? '—' : new Date(startedAt * 1000).toLocaleString()}</span>
+          <span title="systemd 为此单元记录的自动重启次数">自动重启 {restartCount == null ? '—' : `${restartCount} 次`}</span>
+        </div>
+      </Panel>
+    </section>
+  )
+}
+
 
 function BizStat({
   label,
@@ -468,47 +807,17 @@ function TopSvcStrip({ svc }: { svc: TopServiceRow }) {
   )
 }
 
-// ---------- collapsible system status (the v2 dashboard, folded down) ----------
-
-function CollapsibleSystem({
-  open,
-  onToggle,
-}: {
-  open: boolean
-  onToggle: () => void
-}) {
+function SystemStatus() {
   const { data: gpuData } = useSysGpus()
-  const { data: engines } = useEngines()
   const { data: sysStats } = useSysStats()
-  const { data: procData } = useSysProcesses()
-  const [procSort, setProcSort] = useState<{ key: ProcSortKey; dir: ProcSortDir }>({ key: 'cpu', dir: 'desc' })
-  const toggleProcSort = (key: ProcSortKey) =>
-    setProcSort((s) => (s.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
-  const sortedProcs = procData ? sortProcesses(procData.processes, procSort.key, procSort.dir) : []
-  const netProbeOk = procData?.net_probe?.available ?? false
-  const sortMark = (key: ProcSortKey) => (procSort.key === key ? (procSort.dir === 'desc' ? ' ▼' : ' ▲') : '')
-  const thBtn: CSSProperties = { padding: '4px 8px', cursor: 'pointer', userSelect: 'none' }
-  const killProcess = useKillProcess()
   const { data: runners } = useRunners()
-  // image/tts adapter 真加载在 runner 子进程,主进程 engines 看不到 → 必须聚合
-  // /loaded-adapters(各 runner Pong 快照)。否则 Dashboard 系统状态恒显「0 模型常驻 /
-  // 已加载 (0)」而 GPU 卡明明有 Runner: Image 占显存(Bug 3 在 Dashboard 分支的残留;
-  // ModelsOverlay 已用 useLoadedAdapters 聚合,本组件没跟上)。
-  const { data: loadedAdaptersData } = useLoadedAdapters()
-  // GPU 组（configs/hardware.yaml 声明、经 /api/v1/gpu/groups 下发）。返回空 = 本机没有
-  // 声明过多卡组 → 下面的 layout 退化成「每张物理卡一张卡片」，与改造前逐字一致。
   const { data: groupData } = useGpuGroups()
-
-  const loadedModels = (engines ?? []).filter((e) => e.status === 'loaded')
-  const loadedAdapters = loadedAdaptersData?.entries ?? []
-  const totalLoaded = loadedModels.length + loadedAdapters.length
-
+  const killProcess = useKillProcess()
   const cards = layoutGpuCards(gpuData?.gpus ?? [], groupData?.groups ?? [])
-  const groupCount = cards.filter((c) => c.kind === 'group').length
-  const subtitle =
-    `${gpuData?.gpus.length ?? 0}× GPU` +
-    (groupCount > 0 ? `（${groupCount} 组）` : '') +
-    ` · ${totalLoaded} 模型常驻`
+  const groupCount = cards.filter((card) => card.kind === 'group').length
+  const gpuLabel = gpuData
+    ? `${gpuData.gpus.length}× GPU${groupCount ? `（${groupCount} 组）` : ''}`
+    : 'GPU'
 
   const fmt = (n: number, d = 1) => n.toFixed(d)
 
@@ -526,53 +835,46 @@ function CollapsibleSystem({
     (runners ?? []).find((r) => r.gpus.some((g) => indices.includes(g))) ?? null
 
   return (
-    <div
-      style={{
-        background: 'var(--bg-accent)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        marginBottom: 12,
-        overflow: 'hidden',
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        style={{
-          padding: '12px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          width: '100%',
-          background: 'transparent',
-          border: 'none',
-          borderBottom: open ? '1px solid var(--border)' : 'none',
-          cursor: 'pointer',
-          color: 'var(--text)',
-          textAlign: 'left',
-        }}
-      >
-        <ChevronRight
-          size={14}
+    <>
+      <section aria-labelledby="dashboard-resources">
+        <h2 id="dashboard-resources" className="mb-3 text-base font-semibold">资源与运行时</h2>
+        {/* mini system stats */}
+        <div
           style={{
-            transform: open ? 'rotate(90deg)' : 'rotate(0)',
-            transition: 'transform 0.15s',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: 10,
+            marginBottom: 14,
           }}
-        />
-        <Cpu size={14} style={{ color: 'var(--muted)' }} />
-        <h3 style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, flex: 1 }}>
-          系统状态
-        </h3>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{subtitle}</span>
-      </button>
+        >
+          <MiniStat
+            label="CPU"
+            value={sysStats ? `${fmt(sysStats.cpu_usage_percent, 0)}%` : '—'}
+            hint={sysStats ? `${sysStats.cpu_count} cores` : ''}
+          />
+          <MiniStat
+            label="物理内存"
+            value={sysStats ? `${fmt(sysStats.memory_used_gb)}G` : '—'}
+            hint={sysStats ? `可用 ${fmt(sysStats.memory_available_gb)} / 总计 ${fmt(sysStats.memory_total_gb)} GiB` : ''}
+          />
+          <MiniStat
+            label="交换空间"
+            value={sysStats ? `${fmt(sysStats.swap_used_gb)}G` : '—'}
+            hint={sysStats ? `/ ${fmt(sysStats.swap_total_gb)}G` : ''}
+          />
+          <MiniStat
+            label="磁盘"
+            value={sysStats ? `${fmt(sysStats.disk_used_gb)}G` : '—'}
+            hint={sysStats ? `/ ${fmt(sysStats.disk_total_gb)}G` : ''}
+          />
+        </div>
 
-      {open && (
-        <div style={{ padding: '14px 16px' }}>
+        <Panel icon={<Cpu size={14} />} title={gpuLabel}>
           {/* GPU panels */}
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
               gap: 12,
               marginBottom: 14,
             }}
@@ -601,211 +903,120 @@ function CollapsibleSystem({
               </div>
             )}
           </div>
+        </Panel>
+        <VLLMPanel />
+        <RuntimePanel />
+      </section>
+      <SystemConnections />
+    </>
+  )
+}
 
-          {/* mini system stats */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10,
-              marginBottom: 14,
-            }}
-          >
-            <MiniStat
-              label="CPU"
-              value={sysStats ? `${fmt(sysStats.cpu_usage_percent, 0)}%` : '—'}
-              hint={sysStats ? `${sysStats.cpu_count} cores` : ''}
-            />
-            <MiniStat
-              label="RAM"
-              value={sysStats ? `${fmt(sysStats.memory_used_gb)}G` : '—'}
-              hint={sysStats ? `/ ${fmt(sysStats.memory_total_gb)}G` : ''}
-            />
-            <MiniStat
-              label="SWAP"
-              value={sysStats ? `${fmt(sysStats.swap_used_gb)}G` : '—'}
-              hint={sysStats ? `/ ${fmt(sysStats.swap_total_gb)}G` : ''}
-            />
-            <MiniStat
-              label="DISK"
-              value={sysStats ? `${fmt(sysStats.disk_used_gb)}G` : '—'}
-              hint={sysStats ? `/ ${fmt(sysStats.disk_total_gb)}G` : ''}
-            />
-          </div>
+function SystemProcesses() {
+  const query = useSysProcesses()
+  const procData = query.data
+  const [search, setSearch] = useState('')
+  const [procSort, setProcSort] = useState<{ key: ProcSortKey; dir: ProcSortDir }>({ key: 'cpu', dir: 'desc' })
+  const toggleProcSort = (key: ProcSortKey) =>
+    setProcSort((s) => (s.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
+  const term = search.trim().toLowerCase()
+  const visibleProcesses = sortProcesses(procData?.processes ?? [], procSort.key, procSort.dir)
+    .filter((row) => [String(row.pid), row.name, row.command].some((field) => field.toLowerCase().includes(term)))
+  const netProbeOk = procData?.net_probe?.available ?? false
+  const sortMark = (key: ProcSortKey) => (procSort.key === key ? (procSort.dir === 'desc' ? ' ▼' : ' ▲') : '')
 
-          {/* loaded models */}
-          <div
+  return (
+    <Panel icon={<Cpu size={14} />} title="系统进程">
+      <input
+        type="search"
+        aria-label="搜索进程"
+        placeholder="搜索 PID、名称或命令"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        className="mb-2 w-full max-w-xs rounded border px-2 py-1 text-sm"
+        style={{ borderColor: 'var(--border)' }}
+      />
+      {query.isError && <p role="alert" className="text-sm">进程数据加载失败</p>}
+      {query.isLoading && <p role="status" className="text-sm">正在加载进程…</p>}
+      {/* process table */}
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--muted)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          margin: '14px 0 6px',
+        }}
+      >
+        进程 ({visibleProcesses.length})
+      </div>
+      {procData?.processes ? (
+        <div style={{ overflowX: 'auto' }}>
+          <table
             style={{
+              width: '100%',
+              borderCollapse: 'collapse',
               fontSize: 11,
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              margin: '4px 0 6px',
+              fontFamily: 'var(--mono, monospace)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ flex: 1 }}>已加载模型 ({totalLoaded})</span>
-            </div>
-          </div>
-          {totalLoaded === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 0' }}>
-              无常驻模型
-            </div>
-          )}
-          {loadedModels.map((m) => (
-            <div
-              key={m.name}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '6px 0',
-                fontSize: 12,
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: 'var(--ok, #22c55e)',
-                }}
-              />
-              <span style={{ color: 'var(--text)' }}>{m.name}</span>
-              <span
-                style={{
-                  fontSize: 10,
-                  padding: '1px 6px',
-                  borderRadius: 3,
-                  background: 'rgba(34,197,94,0.15)',
-                  color: 'var(--accent-2, #22c55e)',
-                }}
-              >
-                {m.type.toUpperCase()}
-              </span>
-              {m.loaded_gpus && m.loaded_gpus.length > 0 && (
-                <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 11 }}>
-                  GPU {m.loaded_gpus.join('+')} · {m.vram_gb}GB
-                </span>
-              )}
-            </div>
-          ))}
-          {/* runner 子进程加载的 image/tts adapter(主进程 engines 看不到,聚合 Pong 快照)*/}
-          {loadedAdapters.map((a) => (
-            <div
-              key={a.model_id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '6px 0',
-                fontSize: 12,
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: 'var(--ok, #22c55e)',
-                }}
-              />
-              <span style={{ color: 'var(--text)' }}>{a.display_name}</span>
-              <span
-                style={{
-                  fontSize: 10,
-                  padding: '1px 6px',
-                  borderRadius: 3,
-                  background: 'rgba(34,197,94,0.15)',
-                  color: 'var(--accent-2, #22c55e)',
-                }}
-              >
-                {a.model_type.toUpperCase()}
-              </span>
-              <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 11 }}>
-                {a.gpu_index != null ? `GPU ${a.gpu_index}` : ''}
-                {a.vram_mb != null ? ` · ${(a.vram_mb / 1024).toFixed(1)}GB` : ''}
-              </span>
-            </div>
-          ))}
-
-          {/* process table */}
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              margin: '14px 0 6px',
-            }}
-          >
-            进程 ({procData?.processes.length ?? 0})
-          </div>
-          {procData?.processes ? (
-            <div style={{ overflowX: 'auto' }}>
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: 11,
-                  fontFamily: 'var(--mono, monospace)',
-                }}
-              >
-                <thead>
-                  <tr style={{ color: 'var(--muted)', textAlign: 'left' }}>
-                    <th style={{ padding: '4px 8px' }}>PID</th>
-                    <th style={thBtn} onClick={() => toggleProcSort('cpu')}>CPU%{sortMark('cpu')}</th>
-                    <th style={thBtn} onClick={() => toggleProcSort('mem')}>MEM{sortMark('mem')}</th>
-                    <th
-                      style={thBtn}
-                      onClick={() => toggleProcSort('net')}
-                      title={netProbeOk ? '每进程 TCP/UDP 收发速率(采集器 nous-engine-netprobe)' : '采集器未运行:sudo ./infra/systemd/install.sh'}
-                    >
-                      网络{sortMark('net')}
-                    </th>
-                    <th style={{ padding: '4px 8px' }}>NAME</th>
-                    <th style={{ padding: '4px 8px' }}>COMMAND</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedProcs.slice(0, 15).map((p) => (
-                    <tr key={p.pid} style={{ borderTop: '1px solid var(--border)' }}>
-                      <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>{p.pid}</td>
-                      <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>
-                        {p.cpu_percent.toFixed(1)}%
-                      </td>
-                      <td style={{ padding: '3px 8px', color: 'var(--warn, #f59e0b)' }}>
-                        {p.memory_mb}M
-                      </td>
-                      <td style={{ padding: '3px 8px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {p.net_tx_bps === null ? '—' : `▲ ${formatRate(p.net_tx_bps)} ▼ ${formatRate(p.net_rx_bps)}`}
-                      </td>
-                      <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>{p.name}</td>
-                      <td
-                        style={{
-                          padding: '3px 8px',
-                          color: 'var(--accent-2, #22c55e)',
-                          maxWidth: 600,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {p.command}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ fontSize: 11, color: 'var(--muted)', padding: 8 }}>
-              暂无进程数据
-            </div>
-          )}
+            <thead>
+              <tr style={{ color: 'var(--muted)', textAlign: 'left' }}>
+                <th style={{ padding: '4px 8px' }}>PID</th>
+                {([
+                  ['cpu', 'CPU%'],
+                  ['mem', '内存'],
+                  ['net', '网络'],
+                ] as const).map(([key, label]) => (
+                  <th key={key} scope="col" className="px-2 py-1"
+                    aria-sort={procSort.key === key ? (procSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" onClick={() => toggleProcSort(key)}
+                      title={key === 'net' && !netProbeOk ? '网络采集数据不可用' : undefined}>
+                      {label}{sortMark(key)}
+                    </button>
+                  </th>
+                ))}
+                <th style={{ padding: '4px 8px' }}>NAME</th>
+                <th style={{ padding: '4px 8px' }}>COMMAND</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleProcesses.map((p) => (
+                <tr key={p.pid} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>{p.pid}</td>
+                  <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>
+                    {p.cpu_percent.toFixed(1)}%
+                  </td>
+                  <td style={{ padding: '3px 8px', color: 'var(--warn, #f59e0b)' }}>
+                    {p.memory_mb}M
+                  </td>
+                  <td style={{ padding: '3px 8px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    {p.net_tx_bps === null ? '—' : `▲ ${formatRate(p.net_tx_bps)} ▼ ${formatRate(p.net_rx_bps)}`}
+                  </td>
+                  <td style={{ padding: '3px 8px', color: 'var(--muted)' }}>{p.name}</td>
+                  <td
+                    style={{
+                      padding: '3px 8px',
+                      color: 'var(--accent-2, #22c55e)',
+                      maxWidth: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {p.command}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: 'var(--muted)', padding: 8 }}>
+          暂无进程数据
         </div>
       )}
-    </div>
+    </Panel>
   )
 }
 

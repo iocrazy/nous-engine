@@ -236,6 +236,61 @@ async def test_status_endpoint_comfy_detail(app, client, pg_engine, monkeypatch)
     assert comps["database"]["detail"] is None
 
 
+@pytest.mark.asyncio
+async def test_status_connections_reports_independent_server_checks(client, monkeypatch):
+    import httpx
+
+    from src.api import response_cache
+    from src.api.routes import status
+
+    monkeypatch.setattr(status, "tailscale_host", lambda: "100.64.0.42")
+    monkeypatch.setattr(status, "comfy_port", lambda: 8888)
+    original_client = httpx.AsyncClient
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if request.url.path == "/healthz":
+            return httpx.Response(200)
+        raise httpx.ConnectTimeout("probe timeout", request=request)
+
+    def probe_client(**kwargs):
+        assert kwargs == {"trust_env": False, "follow_redirects": False}
+        return original_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    async def restart_info():
+        return {"started_at": 1794978664, "restart_count": 3}
+
+    monkeypatch.setattr(status.httpx, "AsyncClient", probe_client)
+    monkeypatch.setattr(status, "unit_restart_info", restart_info)
+
+    try:
+        response = await client.get("/api/v1/status/connections")
+    finally:
+        response_cache._reset_for_tests()
+
+    assert response.status_code == 200
+    assert set(seen) == {
+        "http://100.64.0.42:8000/healthz",
+        "http://100.64.0.42:8888/system_stats",
+    }
+    body = response.json()
+    assert body["tailscale"] == [
+        {"key": "backend", "http_status": 200, "url": "http://100.64.0.42:8000"},
+        {"key": "comfy", "http_status": None, "url": "http://100.64.0.42:8888"},
+    ]
+    assert body["comfy_unit"] == {"started_at": 1794978664, "restart_count": 3}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("host", ["", "example.com", "127.0.0.1", "fd7a:115c:a1e0::1%eth0"])
+async def test_tailscale_probes_skip_invalid_configuration(monkeypatch, host):
+    from src.api.routes import status
+
+    monkeypatch.setattr(status, "tailscale_host", lambda: host)
+    assert await status._tailscale_probes() is None
+
+
 # ---------- comfy(sidecar 体检 → 组件状态)----------
 
 @pytest.mark.asyncio

@@ -72,6 +72,7 @@ export interface ComfyHealth {
   version: string
   base_url: string
   timeout_s: number
+  running_render?: { task_id: string | number; held_seconds: number } | null
   /** 后端恒返回此键(sidecar 离线时为 [])——不设 optional,否则漏字段的 mock/调用方
    *  不会被类型检查逮到(vram-panel 交付时因文件被占用临时放宽,现收紧)。 */
   devices: ComfyDevice[]
@@ -129,6 +130,16 @@ export function reuploadComfyTemplate(
 
 export function getComfyHealth(): Promise<ComfyHealth> {
   return apiFetch<ComfyHealth>('/api/v1/comfy/health')
+}
+
+export function useComfyHealth() {
+  return useQuery({
+    queryKey: ['comfy-health'],
+    queryFn: getComfyHealth,
+    refetchInterval: 15_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
 }
 
 export function getObjectInfo(): Promise<Record<string, unknown>> {
