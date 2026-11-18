@@ -14,15 +14,20 @@ import { useLightboxStore, type LightboxItem, type LightboxMeta } from '../../st
 export default function HistoryOverlay() {
   const setOverlay = usePanelStore((s) => s.setOverlay)
   const navigate = useNavigate()
-  const { data: tasks, isLoading } = useImageTasks()
+  const history = useImageTasks()
   const { data: services } = useServices()
   const del = useDeleteTask()
   const openItems = useLightboxStore((s) => s.openItems)
 
-  const items = useMemo(
-    () => (tasks ?? []).filter((t) => (t.output_thumbnails?.length ?? 0) > 0),
-    [tasks],
-  )
+  const items = useMemo(() => {
+    const byId = new Map<string, ExecutionTask>()
+    for (const page of history.data?.pages ?? []) {
+      for (const task of page) {
+        if (task.output_thumbnails?.length && !byId.has(task.id)) byId.set(task.id, task)
+      }
+    }
+    return [...byId.values()]
+  }, [history.data])
 
   // 视频产物检测(Task 11):comfy bridge 节点 result 形状是 `{outputs:{node_id:envelope}}`
   // (或旧 fake 测试的 flat `{node_id:envelope}`),envelope 带 video_url 或
@@ -114,7 +119,7 @@ export default function HistoryOverlay() {
         style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}
       >
         <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>历史生成</span>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{items.length} 张</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>已加载 {items.length} 条</span>
         <button
           type="button"
           onClick={() => setOverlay(null)}
@@ -127,12 +132,22 @@ export default function HistoryOverlay() {
 
       {/* grid */}
       <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>
-        {isLoading ? (
+        {history.isError && !history.isFetchNextPageError && (
+          <div role="alert" className="flex items-center justify-center gap-3 py-4 text-sm" style={{ color: 'var(--text)' }}>
+            历史记录加载失败
+            <button type="button" disabled={history.isFetching} onClick={() => void history.refetch()}>
+              重试
+            </button>
+          </div>
+        )}
+        {history.isLoading ? (
           <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 40 }}>加载中…</div>
         ) : items.length === 0 ? (
-          <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 60 }}>
-            还没有出图记录 — 到服务 Playground 跑一次就会出现在这里。
-          </div>
+          !history.isError && (
+            <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 40 }}>
+              {history.hasNextPage ? '已加载的任务中没有出图记录' : '还没有出图记录'}
+            </div>
+          )
         ) : (
           <div
             style={{
@@ -166,6 +181,14 @@ export default function HistoryOverlay() {
             })}
           </div>
         )}
+        {history.hasNextPage && (
+          <div className="flex items-center justify-center gap-3 py-5 text-sm" style={{ color: 'var(--text)' }}>
+            {history.isFetchNextPageError && <span role="alert">更早的记录加载失败</span>}
+            <button type="button" disabled={history.isFetching} onClick={() => void history.fetchNextPage()}>
+              {history.isFetchingNextPage ? '加载中…' : history.isFetchNextPageError ? '重试' : '加载更早'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -196,7 +219,7 @@ function Card({
     >
       <div style={{ position: 'relative', aspectRatio: '1 / 1', background: 'var(--bg)', cursor: 'zoom-in' }} onClick={onOpen}>
         {thumb ? (
-          <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <img src={thumb} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         ) : (
           <div
             role="img"

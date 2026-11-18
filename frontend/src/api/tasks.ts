@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import { useLiveChannel } from './useLiveChannel'
 import { useTaskProgressStore } from '../stores/taskProgress'
@@ -118,13 +118,18 @@ export function useTasksByWorkflow(workflowId: string | null, limit = 50) {
   })
 }
 
-/** 历史出图画廊:拉最近 N 条 task,画廊侧按 output_thumbnails 过滤出图像类
- *  (spec run-history PR-B;type 是计算字段不宜 SQL 过滤,故客户端筛)。 */
-export function useImageTasks(limit = 120) {
-  return useQuery({
+export function useImageTasks(limit = 24) {
+  return useInfiniteQuery({
     queryKey: ['tasks', 'gallery', limit],
-    queryFn: () => apiFetch<ExecutionTask[]>(`/api/v1/tasks?limit=${limit}`),
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      apiFetch<ExecutionTask[]>(`/api/v1/tasks?limit=${limit}&offset=${pageParam}`, {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      }),
+    getNextPageParam: (lastPage, _pages, offset) =>
+      lastPage.length === limit ? offset + limit : undefined,
     staleTime: 10_000,
+    retry: false,
   })
 }
 
