@@ -10,6 +10,7 @@ import type { SysGpuInfo } from '../../api/system'
 const box = vi.hoisted(() => ({
   gpus: [] as SysGpuInfo[],
   groups: [] as GpuGroup[],
+  engines: [] as Partial<import('../../api/engines').EngineInfo>[],
 }))
 
 const mkGpu = (over: Partial<SysGpuInfo> & { index: number }): SysGpuInfo => ({
@@ -62,9 +63,21 @@ vi.mock('../../api/vllm', () => ({
   useVLLMMetrics: () => ({ data: { instances: [] }, isLoading: false, error: null }),
 }))
 vi.mock('../../api/engines', () => ({
-  useEngines: () => ({ data: [] }),
+  useEngines: () => ({ data: box.engines }),
   useLoadedAdapters: () => ({ data: { count: 0, entries: [] } }),
   useGpuGroups: () => ({ data: { groups: box.groups } }),
+}))
+vi.mock('../../api/services', () => ({ useServices: () => ({ data: [] }) }))
+vi.mock('../../api/health', () => ({
+  useHealth: () => ({ data: { comfy: { listens: ['127.0.0.1'], missing_listens: [] } } }),
+}))
+vi.mock('../../api/status', () => ({
+  useStatus: () => ({ data: { overall: 'degraded', components: [{ key: 'comfy', name: 'ComfyUI 桥', status: 'degraded' }] } }),
+}))
+vi.mock('../../api/comfyTemplates', () => ({
+  useComfyHealth: () => ({
+    data: { online: true, queue_depth: 2, base_url: 'http://127.0.0.1:8888', running_render: { task_id: '123', held_seconds: 10 } },
+  }),
 }))
 vi.mock('../../api/system', () => ({
   useSysGpus: () => ({ data: { count: box.gpus.length, gpus: box.gpus } }),
@@ -81,15 +94,39 @@ vi.mock('../../api/runners', () => ({
   }),
 }))
 
-/** 系统状态默认收起 —— 每个用例先点开。 */
 function renderSystemPanel() {
   render(<DashboardOverlay />)
-  fireEvent.click(screen.getByText('系统状态'))
+  fireEvent.click(screen.getByRole('tab', { name: '系统状态' }))
 }
 
 beforeEach(() => {
   box.gpus = THREE_GPUS
   box.groups = []
+  box.engines = []
+})
+
+describe('DashboardOverlay tabs', () => {
+  it('places service and connection health immediately after resources', () => {
+    renderSystemPanel()
+    const resources = screen.getByRole('region', { name: '资源与运行时' })
+    const connections = screen.getByRole('region', { name: '服务与连接' })
+    expect(resources.nextElementSibling).toBe(connections)
+    expect(screen.getByText('队列任务 2')).toBeTruthy()
+    expect(screen.getByText('http://127.0.0.1:8888')).toBeTruthy()
+    expect(screen.getByText('ComfyUI 监听地址（1）').closest('details')?.open).toBe(false)
+  })
+
+  it('opens the model tab filtered to failed models from the overview', () => {
+    box.engines = [
+      { name: 'active-engine', status: 'loaded', type: 'llm' },
+      { name: 'failed-engine', status: 'failed', type: 'llm', status_detail: 'GPU memory exhausted' },
+    ]
+    render(<DashboardOverlay />)
+    fireEvent.click(screen.getByRole('button', { name: /加载失败.*查看模型/ }))
+    expect(screen.getByRole('tab', { name: '模型' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('failed-engine')).toBeTruthy()
+    expect(screen.queryByText('active-engine')).toBeNull()
+  })
 })
 
 describe('DashboardOverlay GPU 卡片区 —— 无组（零回归）', () => {
@@ -101,7 +138,7 @@ describe('DashboardOverlay GPU 卡片区 —— 无组（零回归）', () => {
     expect(screen.queryByText('展开物理卡')).toBeNull()
     expect(screen.queryByText(/llm-tp/)).toBeNull()
     // 顶部统计不带组信息
-    expect(screen.getByText('3× GPU · 0 模型常驻')).toBeTruthy()
+    expect(screen.getByText('3× GPU')).toBeTruthy()
     // 单卡进程行照旧逐条：两张卡各自一条（tp=2 的两个 pid），不做合并
     expect(screen.getAllByText('qwen3_6_35b_a3b_fp8')).toHaveLength(2)
     expect(screen.queryByText(/^tp=/)).toBeNull()
@@ -134,7 +171,7 @@ describe('DashboardOverlay GPU 卡片区 —— 有组 [0,2]', () => {
     expect(screen.queryByText('GPU 0')).toBeNull()
     expect(screen.queryByText('GPU 2')).toBeNull()
     // 顶部统计反映组
-    expect(screen.getByText('3× GPU（1 组） · 0 模型常驻')).toBeTruthy()
+    expect(screen.getByText('3× GPU（1 组）')).toBeTruthy()
   })
 
   it('MEM 条是组内合计，利用率取最大并列出每卡', () => {
