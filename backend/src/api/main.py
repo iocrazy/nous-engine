@@ -73,6 +73,7 @@ _MICRO_MIGRATIONS: tuple[str, ...] = (
     # 启动参数覆盖(spec 2026-09-22)。与 alembic f3b8c1d4e207 双写 —— 没跑 alembic 的
     # 环境(测试临时库 / 老部署)也能有这一列。
     "ALTER TABLE model_runtime_overrides ADD COLUMN IF NOT EXISTS params JSONB",
+    "ALTER TABLE comfy_templates ADD COLUMN IF NOT EXISTS canvas_layout JSONB",
 )
 
 

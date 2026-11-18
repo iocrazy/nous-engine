@@ -49,6 +49,7 @@ vi.mock('../../api/comfyTemplates', () => ({
   getObjectInfo: vi.fn(),
   putMapping: vi.fn(),
   reuploadComfyTemplate: vi.fn(),
+  previewComfyTemplateUpdate: vi.fn(),
 }))
 
 const WORKFLOW = {
@@ -67,6 +68,7 @@ function baseDetail(exposed: api.ComfyExposedParam[] = []): api.ComfyTemplateDet
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   vi.mocked(api.getComfyTemplate).mockResolvedValue(baseDetail())
   vi.mocked(api.getComfyHealth).mockResolvedValue({
     online: true, queue_depth: 0, version: '0.3.1', base_url: 'http://x', timeout_s: 30, devices: [],
@@ -83,6 +85,9 @@ beforeEach(() => {
   })
   vi.mocked(api.putMapping).mockResolvedValue({ ok: true })
   vi.mocked(api.reuploadComfyTemplate).mockResolvedValue({ stale_keys: [] })
+  vi.mocked(api.previewComfyTemplateUpdate).mockResolvedValue({
+    added: [], removed: [], changed_classes: [], changed_inputs: [], stale_keys: [],
+  })
 })
 
 describe('ComfyTemplateEditor', () => {
@@ -110,10 +115,11 @@ describe('ComfyTemplateEditor', () => {
     await waitFor(() => expect(within(preview).getByText('steps')).toBeInTheDocument())
   })
 
-  it('object_info 预填数值类型 min/max(未勾选也先展示,勾选后才可编辑)', async () => {
+  it('object_info 为已暴露参数预填数值范围', async () => {
     renderEditor({ templateId: '7' })
     fireEvent.click(await screen.findByText('KSampler #2'))
     const stepsRow = (await screen.findByText('steps')).closest('[data-input-row]') as HTMLElement
+    fireEvent.click(within(stepsRow).getByRole('checkbox', { name: /暴露/ }))
     expect(within(stepsRow).getByDisplayValue('1')).toBeInTheDocument() // min
     expect(within(stepsRow).getByDisplayValue('150')).toBeInTheDocument() // max
   })
@@ -122,6 +128,7 @@ describe('ComfyTemplateEditor', () => {
     renderEditor({ templateId: '7' })
     fireEvent.click(await screen.findByText('KSampler #2'))
     const seedRow = (await screen.findByText('seed')).closest('[data-input-row]') as HTMLElement
+    fireEvent.click(within(seedRow).getByRole('checkbox', { name: /暴露/ }))
     expect(within(seedRow).getByRole('checkbox', { name: /随机/ })).toBeInTheDocument()
   })
 
@@ -165,9 +172,6 @@ describe('ComfyTemplateEditor', () => {
     fireEvent.change(within(stepsRow).getByRole('combobox'), { target: { value: 'image' } })
     fireEvent.click(screen.getByRole('button', { name: /保存配置/ }))
     await waitFor(() => expect(api.putMapping).toHaveBeenCalled())
-    // .at(-1), not [0]: mocks aren't cleared between tests in this file (no
-    // clearMocks in vitest config), and an earlier test also calls putMapping
-    // — calls[0] would silently grab that other test's payload instead of ours.
     const [, params] = vi.mocked(api.putMapping).mock.calls.at(-1)!
     expect(params).toEqual([
       expect.objectContaining({ key: 'steps', type: 'image' }),
@@ -214,7 +218,7 @@ describe('ComfyTemplateEditor', () => {
     renderEditor({ templateId: '7' })
     fireEvent.click(await screen.findByText('LoadImage #1'))
     const row = (await screen.findByText('image')).closest('[data-input-row]') as HTMLElement
-    expect(within(row).getByRole('checkbox', { name: /暴露/ })).toBeChecked()
+    expect(within(row).getByRole('checkbox', { name: '暴露 image' })).toBeChecked()
     expect(within(row).queryByRole('checkbox', { name: /未传时剪掉/ })).not.toBeInTheDocument()
   })
 
@@ -235,21 +239,34 @@ describe('ComfyTemplateEditor', () => {
     await waitFor(() => expect(within(preview).getByText('步数')).toBeInTheDocument())
   })
 
-  it('上传替换:重新上传后失效字段在上传区列出(汇总表删了,这条可见性不能一起丢)', async () => {
+  it('预览更新后，必须先处理失效字段才可应用', async () => {
     vi.mocked(api.getComfyTemplate).mockResolvedValue(baseDetail([
       { key: 'gone', label: 'gone', type: 'string', comfy_node_id: '99', comfy_input: 'x' },
     ]))
-    vi.mocked(api.reuploadComfyTemplate).mockResolvedValue({ stale_keys: ['gone'] })
     renderEditor({ templateId: '7' })
-    await screen.findByTestId('comfy-reupload-input')
-    expect(screen.queryByTestId('stale-keys-warning')).not.toBeInTheDocument()
 
     const file = new File([JSON.stringify(WORKFLOW)], 'wf.json', { type: 'application/json' })
-    fireEvent.change(screen.getByTestId('comfy-reupload-input'), { target: { files: [file] } })
-    await waitFor(() => expect(api.reuploadComfyTemplate).toHaveBeenCalledWith('7', WORKFLOW))
-    await waitFor(() => {
-      expect(screen.getByTestId('stale-keys-warning')).toHaveTextContent('gone')
-    })
+    fireEvent.change(await screen.findByTestId('comfy-reupload-input'), { target: { files: [file] } })
+    await screen.findByTestId('stale-keys-warning')
+    expect(api.reuploadComfyTemplate).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '应用更新' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '移除参数' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用更新' }))
+    await waitFor(() => expect(api.reuploadComfyTemplate).toHaveBeenCalledWith('7', {
+      workflow: WORKFLOW, mapping: { exposed_params: [] },
+    }))
+  })
+
+  it('移除节点参数后，保存的映射不再包含该字段', async () => {
+    vi.mocked(api.getComfyTemplate).mockResolvedValue(baseDetail([
+      { key: 'steps', label: '步数', type: 'integer', comfy_node_id: '2', comfy_input: 'steps' },
+    ]))
+    renderEditor({ templateId: '7' })
+    fireEvent.click(await screen.findByText('KSampler #2'))
+    fireEvent.click(screen.getByRole('button', { name: '移除参数' }))
+    expect(api.putMapping).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+    await waitFor(() => expect(api.putMapping).toHaveBeenCalledWith('7', [], undefined))
   })
 
   // 事故背景见 workflowModelCheck.ts 头注:导入的工作流可能带着别的机器冻结下来的模型
@@ -275,7 +292,10 @@ describe('ComfyTemplateEditor', () => {
     const fixedWorkflow = { ...WORKFLOW, '1': { class_type: 'LoadImage', inputs: { image: 'a.png' } } }
     const file = new File([JSON.stringify(fixedWorkflow)], 'wf.json', { type: 'application/json' })
     fireEvent.change(screen.getByTestId('comfy-reupload-input'), { target: { files: [file] } })
-    await waitFor(() => expect(api.reuploadComfyTemplate).toHaveBeenCalledWith('7', fixedWorkflow))
+    fireEvent.click(await screen.findByRole('button', { name: '应用更新' }))
+    await waitFor(() => expect(api.reuploadComfyTemplate).toHaveBeenCalledWith('7', {
+      workflow: fixedWorkflow, mapping: { exposed_params: [] },
+    }))
     await waitFor(() => {
       expect(screen.getByText('LoadImage #1').closest('button')).toHaveAttribute('data-invalid-model', 'false')
     })

@@ -31,6 +31,37 @@ async def test_mapping_roundtrip_and_stale_detection(client):
 
 
 @pytest.mark.asyncio
+async def test_reviewed_upgrade_rebinds_reused_node_ids_and_saves_layout_atomically(client):
+    created = await client.post("/api/v1/comfy-templates", json={"name": "nous-review-upgrade", "workflow": WF})
+    path = f"/api/v1/comfy-templates/{created.json()['id']}"
+    original = {"key": "prompt", "comfy_node_id": "138", "comfy_input": "value"}
+    await client.put(f"{path}/mapping", json={"exposed_params": [original]})
+    before = (await client.get(path)).json()
+    upgraded = {
+        **WF, "138": {"class_type": "OtherTextNode", "inputs": {"value": ""}},
+        "139": WF["138"],
+    }
+    layout = {"nodes": [{"id": "139", "type": "PrimitiveStringMultiline", "pos": [72, 80]}],
+              "groups": [{"title": "提示词", "bounding": [60, 50, 300, 200]}]}
+    body = {"workflow": upgraded, "canvas_layout": layout, "revision": before["revision"]}
+    preview = await client.post(f"{path}/preview", json=body)
+    assert preview.json() == {"added": ["139"], "removed": [], "changed_classes": ["138"],
+                              "changed_inputs": [], "stale_keys": ["prompt"]}
+    assert (await client.put(path, json=body)).status_code == 409
+    assert (await client.get(path)).json() == before
+
+    body["mapping"] = {"exposed_params": [{**original, "comfy_node_id": "139"}]}
+    applied = await client.put(path, json=body)
+    assert applied.status_code == 200, applied.text
+    after = (await client.get(path)).json()
+    assert after["workflow_json"] == upgraded
+    assert after["canvas_layout"] == layout
+    assert after["exposed_params"][0]["comfy_node_id"] == "139"
+    assert after["revision"] != before["revision"]
+    assert (await client.put(path, json=body)).status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_mapping_constraints_surface_in_service_schema(client):
     """I3 fix:min/max/step/options 存进 exposed_inputs 时嵌套在 `constraints` 下
     (comfy_templates.py::_mapping_to_exposed_input),`/v1/services/{name}/schema`

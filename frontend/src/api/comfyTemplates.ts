@@ -38,11 +38,34 @@ export interface ComfyTemplateRow {
   exposed_count: number
 }
 
+export interface ComfyCanvasLayout {
+  nodes: { id: string; type: string; pos: [number, number] }[]
+  groups: { title: string; bounding: [number, number, number, number] }[]
+}
+
+export interface ComfyTemplateUpdate {
+  workflow?: Record<string, unknown>
+  canvas_layout?: ComfyCanvasLayout
+  revision?: string
+  mapping?: { exposed_params: ComfyExposedParam[] }
+}
+
+export interface ComfyTemplateChanges {
+  added: string[]
+  removed: string[]
+  changed_classes: string[]
+  changed_inputs: string[]
+  stale_keys: string[]
+}
+
 export interface ComfyTemplateDetail {
   id: string
   name: string
   service_name: string
   workflow_json: Record<string, unknown>
+  canvas_layout?: ComfyCanvasLayout | null
+  revision?: string
+  stale_keys?: string[]
   exposed_params: ComfyExposedParam[]
 }
 
@@ -103,10 +126,11 @@ export function createComfyTemplate(
 export function putMapping(
   id: string | number,
   exposedParams: ComfyExposedParam[],
-): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>(`/api/v1/comfy-templates/${id}/mapping`, {
+  revision?: string,
+): Promise<{ ok: boolean; revision?: string }> {
+  return apiFetch<{ ok: boolean; revision?: string }>(`/api/v1/comfy-templates/${id}/mapping`, {
     method: 'PUT',
-    body: JSON.stringify({ exposed_params: exposedParams }),
+    body: JSON.stringify({ exposed_params: exposedParams, revision }),
   })
 }
 
@@ -118,13 +142,23 @@ export function listComfyTemplates(): Promise<ComfyTemplateRow[]> {
   return apiFetch<ComfyTemplateRow[]>('/api/v1/comfy-templates')
 }
 
+export function previewComfyTemplateUpdate(
+  id: string | number,
+  update: ComfyTemplateUpdate,
+): Promise<ComfyTemplateChanges> {
+  return apiFetch(`/api/v1/comfy-templates/${id}/preview`, {
+    method: 'POST',
+    body: JSON.stringify(update),
+  })
+}
+
 export function reuploadComfyTemplate(
   id: string | number,
-  workflow: Record<string, unknown>,
-): Promise<{ stale_keys: string[] }> {
-  return apiFetch<{ stale_keys: string[] }>(`/api/v1/comfy-templates/${id}`, {
+  update: ComfyTemplateUpdate,
+): Promise<{ stale_keys: string[]; revision?: string }> {
+  return apiFetch(`/api/v1/comfy-templates/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ workflow }),
+    body: JSON.stringify(update),
   })
 }
 

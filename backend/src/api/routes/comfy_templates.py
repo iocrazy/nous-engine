@@ -15,11 +15,12 @@ import asyncio
 import os
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, StrictBool, StrictStr, field_validator, model_validator
+from pydantic import BaseModel, Field, FiniteFloat, StrictBool, StrictStr, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -145,6 +146,7 @@ class ExposedParamMapping(BaseModel):
 
 class MappingBody(BaseModel):
     exposed_params: list[ExposedParamMapping]
+    revision: datetime | None = None
 
     @model_validator(mode="after")
     def _check_options_depends_on(self) -> MappingBody:
@@ -218,17 +220,60 @@ class MappingBody(BaseModel):
         return self
 
 
+class CanvasNode(BaseModel):
+    id: str
+    type: str
+    pos: tuple[FiniteFloat, FiniteFloat]
+
+
+class CanvasGroup(BaseModel):
+    title: str = Field(max_length=250)
+    bounding: tuple[FiniteFloat, FiniteFloat, FiniteFloat, FiniteFloat]
+
+    @field_validator("bounding")
+    @classmethod
+    def _check_size(cls, value):
+        if min(value[2:]) <= 0:
+            raise ValueError("canvas group must have positive size")
+        return value
+
+
+class CanvasLayout(BaseModel):
+    nodes: list[CanvasNode] = Field(min_length=1, max_length=3000)
+    groups: list[CanvasGroup] = Field(default_factory=list, max_length=300)
+
+
 class ReuploadBody(BaseModel):
-    workflow: dict[str, Any]
+    workflow: dict[str, Any] | None = None
+    canvas_layout: CanvasLayout | None = None
+    revision: datetime | None = None
+    mapping: MappingBody | None = None
+
+    @field_validator("workflow")
+    @classmethod
+    def _check_workflow(cls, value):
+        if value is not None and (not value or not all(
+            key and isinstance(node, dict) and isinstance(node.get("class_type"), str)
+            and isinstance(node.get("inputs", {}), dict)
+            for key, node in value.items()
+        )):
+            raise ValueError("expected a ComfyUI API workflow")
+        return value
+
+    @model_validator(mode="after")
+    def _check_payload(self) -> ReuploadBody:
+        if self.workflow is None and self.canvas_layout is None:
+            raise ValueError("provide a workflow or a canvas layout")
+        return self
 
 
 # ---------- Helpers ----------
 
 
 async def _get_template_and_service(
-    session: AsyncSession, template_id: int,
+    session: AsyncSession, template_id: int, *, lock: bool = False,
 ) -> tuple[ComfyTemplate, ServiceInstance]:
-    tpl = await session.get(ComfyTemplate, template_id)
+    tpl = await session.get(ComfyTemplate, template_id, with_for_update=lock)
     if tpl is None:
         raise HTTPException(404, detail="template not found")
     stmt = (
@@ -380,15 +425,63 @@ def _exposed_input_to_param(item: dict) -> dict:
     }
 
 
-def _stale_keys(exposed_inputs: list[dict], workflow: dict) -> list[str]:
+def _node_inputs(workflow: dict, node_id: str) -> dict:
+    node = workflow.get(node_id)
+    return (node.get("inputs") or {}) if isinstance(node, dict) else {}
+
+
+def _node_class(workflow: dict, node_id: str) -> str | None:
+    node = workflow.get(node_id)
+    return node.get("class_type") if isinstance(node, dict) else None
+
+
+def _input_kind(value, workflow: dict):
+    if (isinstance(value, list) and len(value) == 2 and isinstance(value[0], str)
+            and type(value[1]) is int and value[0] in workflow):
+        return "link"
+    return type(value)
+
+
+def _stale_keys(exposed_inputs: list[dict], workflow: dict, previous: dict | None = None) -> list[str]:
     stale = []
     for item in exposed_inputs:
         node_id = item.get("comfy_node_id")
         input_name = item.get("comfy_input")
-        node = workflow.get(node_id)
-        if node is None or input_name not in (node.get("inputs") or {}):
+        inputs = _node_inputs(workflow, node_id)
+        if input_name not in inputs or _input_kind(inputs[input_name], workflow) == "link":
             stale.append(item.get("key"))
+            continue
+        if previous is not None:
+            old_inputs = _node_inputs(previous, node_id)
+            if (_node_class(previous, node_id) != _node_class(workflow, node_id) or input_name not in old_inputs
+                    or _input_kind(old_inputs[input_name], previous) != _input_kind(inputs[input_name], workflow)):
+                stale.append(item.get("key"))
     return stale
+
+
+def _workflow_changes(previous: dict, workflow: dict, mapping: list[dict]) -> dict:
+    common = previous.keys() & workflow.keys()
+    changed_classes = sorted(key for key in common if _node_class(previous, key) != _node_class(workflow, key))
+    changed_inputs = []
+    for key in sorted(common - set(changed_classes)):
+        before, after = _node_inputs(previous, key), _node_inputs(workflow, key)
+        if before.keys() != after.keys() or any(
+            before[name] != after[name] or _input_kind(before[name], previous) != _input_kind(after[name], workflow)
+            for name in before
+        ):
+            changed_inputs.append(key)
+    return {
+        "added": sorted(workflow.keys() - previous.keys()),
+        "removed": sorted(previous.keys() - workflow.keys()),
+        "changed_classes": changed_classes,
+        "changed_inputs": changed_inputs,
+        "stale_keys": _stale_keys(mapping, workflow, previous),
+    }
+
+
+def _check_revision(template: ComfyTemplate, revision: datetime | None) -> None:
+    if revision is not None and template.updated_at != revision:
+        raise HTTPException(409, detail="工作流或映射已在别处修改，请刷新后重试")
 
 
 # ---------- Routes ----------
@@ -486,6 +579,9 @@ async def get_template(
         "name": tpl.name,
         "service_name": svc.name,
         "workflow_json": tpl.workflow_json,
+        "canvas_layout": tpl.canvas_layout,
+        "revision": tpl.updated_at.isoformat(),
+        "stale_keys": _stale_keys(svc.exposed_inputs or [], tpl.workflow_json),
         "exposed_params": [_exposed_input_to_param(i) for i in (svc.exposed_inputs or [])],
     }
 
@@ -496,11 +592,29 @@ async def update_mapping(
     body: MappingBody,
     session: AsyncSession = Depends(get_async_session),
 ):
-    _tpl, svc = await _get_template_and_service(session, template_id)
-    svc.exposed_inputs = [_mapping_to_exposed_input(m) for m in body.exposed_params]
+    tpl, svc = await _get_template_and_service(session, template_id, lock=True)
+    _check_revision(tpl, body.revision)
+    mapping = [_mapping_to_exposed_input(m) for m in body.exposed_params]
+    if body.revision is not None:
+        stale = _stale_keys(mapping, tpl.workflow_json)
+        if stale:
+            raise HTTPException(400, detail=f"无效的字段绑定：{', '.join(stale)}")
+    svc.exposed_inputs = mapping
+    tpl.updated_at = datetime.now(timezone.utc)
     await session.commit()
     invalidate("services")
-    return {"ok": True}
+    return {"ok": True, "revision": tpl.updated_at.isoformat()}
+
+
+@router.post("/{template_id}/preview", dependencies=[Depends(require_admin)])
+async def preview_template_update(
+    template_id: int,
+    body: ReuploadBody,
+    session: AsyncSession = Depends(get_async_session),
+):
+    tpl, svc = await _get_template_and_service(session, template_id, lock=True)
+    _check_revision(tpl, body.revision)
+    return _workflow_changes(tpl.workflow_json, body.workflow or tpl.workflow_json, svc.exposed_inputs or [])
 
 
 @router.put("/{template_id}", dependencies=[Depends(require_admin)])
@@ -509,12 +623,27 @@ async def reupload_template(
     body: ReuploadBody,
     session: AsyncSession = Depends(get_async_session),
 ):
-    tpl, svc = await _get_template_and_service(session, template_id)
-    tpl.workflow_json = body.workflow
-    stale = _stale_keys(svc.exposed_inputs or [], body.workflow)
+    tpl, svc = await _get_template_and_service(session, template_id, lock=True)
+    _check_revision(tpl, body.revision)
+    workflow = body.workflow or tpl.workflow_json
+    previous = svc.exposed_inputs or []
+    stale = _stale_keys(previous, workflow, tpl.workflow_json)
+    if body.mapping is not None:
+        proposed = [_mapping_to_exposed_input(param) for param in body.mapping.exposed_params]
+        stale = _stale_keys(proposed, workflow)
+        if stale:
+            raise HTTPException(400, detail=f"无效的字段绑定：{', '.join(stale)}")
+        svc.exposed_inputs = proposed
+    elif body.revision is not None and body.workflow is not None and stale:
+        raise HTTPException(409, detail="请重新绑定或移除失效字段")
+    if body.workflow is not None:
+        tpl.workflow_json = workflow
+    if body.canvas_layout is not None:
+        tpl.canvas_layout = body.canvas_layout.model_dump(mode="json")
+    tpl.updated_at = datetime.now(timezone.utc)
     await session.commit()
     invalidate("services")
-    return {"stale_keys": stale}
+    return {"stale_keys": stale, "revision": tpl.updated_at.isoformat()}
 
 
 @router.delete("/{template_id}", status_code=204, dependencies=[Depends(require_admin)])
