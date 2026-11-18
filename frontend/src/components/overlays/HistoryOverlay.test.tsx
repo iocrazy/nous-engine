@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
+import { render, fireEvent, screen } from '@testing-library/react'
 import { useLightboxStore } from '../../stores/lightbox'
 
 // mock 数据 hooks + 路由
@@ -54,8 +54,9 @@ const videoNoThumbTask = {
     },
   },
 }
+const galleryQuery = vi.hoisted(() => vi.fn())
 vi.mock('../../api/tasks', () => ({
-  useImageTasks: () => ({ data: [task, videoTask, videoNoThumbTask], isLoading: false }),
+  useImageTasks: galleryQuery,
   useDeleteTask: () => ({ mutate: vi.fn() }),
 }))
 vi.mock('../../api/services', () => ({
@@ -68,7 +69,32 @@ vi.mock('../../stores/panel', () => ({ usePanelStore: (sel: (s: { setOverlay: ()
 import HistoryOverlay from './HistoryOverlay'
 
 describe('HistoryOverlay → 共享灯箱', () => {
-  beforeEach(() => { useLightboxStore.setState({ open: false, images: [], metas: [], kinds: [], index: 0 }) })
+  beforeEach(() => {
+    useLightboxStore.setState({ open: false, images: [], metas: [], kinds: [], index: 0 })
+    galleryQuery.mockReturnValue({ data: { pages: [[task, videoTask, videoNoThumbTask]] }, isLoading: false })
+  })
+
+  it('加载失败时显示错误和可操作的重试入口', () => {
+    const refetch = vi.fn()
+    galleryQuery.mockReturnValue({ isError: true, refetch })
+    render(<HistoryOverlay />)
+    expect(screen.getByRole('alert').textContent).toContain('历史记录加载失败')
+    expect(screen.queryByText('还没有出图记录')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+
+  it('当前页没有媒体时仍可加载更早任务', () => {
+    const fetchNextPage = vi.fn()
+    galleryQuery.mockReturnValue({
+      data: { pages: [[{ id: 4, output_thumbnails: [] }]] },
+      hasNextPage: true,
+      fetchNextPage,
+    })
+    render(<HistoryOverlay />)
+    fireEvent.click(screen.getByRole('button', { name: '加载更早' }))
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+  })
 
   it('点卡片用 openItems 打开共享灯箱,meta 带 prompt + 重跑', () => {
     const { container } = render(<HistoryOverlay />)
