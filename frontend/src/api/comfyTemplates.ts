@@ -15,6 +15,7 @@ export interface ComfyExposedParam {
   required?: boolean
   random?: boolean
   visible_when?: Record<string, boolean | string | (boolean | string)[]> | null
+  required_when?: Record<string, boolean | string | (boolean | string)[]> | null
   widget?: 'radio' | null
   hidden?: boolean
   multiple?: boolean

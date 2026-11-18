@@ -1,0 +1,1999 @@
+{
+  "1": {
+    "inputs": {
+      "unet_name": "Qwen/qwen_image_2.1_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "2": {
+    "inputs": {
+      "clip_name": "qwen3vl_8b_fp8_heretic.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "3": {
+    "inputs": {
+      "vae_name": "qwen21/texture_fix_vae_for_qwen_image_2.1_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "9": {
+    "inputs": {
+      "prompt": [
+        "410",
+        0
+      ],
+      "negative_prompt": "",
+      "resolution": 0,
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21",
+    "_meta": {
+      "title": "Text Encode Qwen Image 2.1",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "11": {
+    "inputs": {
+      "width": [
+        "39",
+        1
+      ],
+      "height": [
+        "39",
+        2
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "14": {
+    "inputs": {
+      "samples": [
+        "24",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "15": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSampler Select (euler)",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "16": {
+    "inputs": {
+      "noise_seed": [
+        "406",
+        0
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Random Noise",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "17": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "339",
+        0
+      ],
+      "positive": [
+        "9",
+        0
+      ],
+      "negative": [
+        "9",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Guider",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "19": {
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "Sigmas (Qwen2.1-Turbo 8step)",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "24": {
+    "inputs": {
+      "noise": [
+        "16",
+        0
+      ],
+      "guider": [
+        "17",
+        0
+      ],
+      "sampler": [
+        "15",
+        0
+      ],
+      "sigmas": [
+        "19",
+        0
+      ],
+      "latent_image": [
+        "11",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Sampler Custom Advanced",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "33": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "提示词输入",
+      "cnr_id": "comfy-core",
+      "ver": "0.42.5"
+    }
+  },
+  "34": {
+    "inputs": {
+      "用户提示词": [
+        "33",
+        0
+      ],
+      "文生图模型": "pe_t2i_heretic-Q4_K_M.gguf",
+      "图生图模型": "pe_i2i_heretic-Q4_K_M.gguf",
+      "视觉模型": "pe_i2i_heretic.mmproj-bf16.gguf",
+      "输出语言": "自动",
+      "透明背景": false,
+      "种子值": 9527,
+      "种子模式": "固定",
+      "卸载模型": "自动",
+      "图像_01": [
+        "344",
+        0
+      ]
+    },
+    "class_type": "QwenImagePromptOptimizer",
+    "_meta": {
+      "title": "Qwen image 2.1 提示词优化",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "35": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "文字提示词优化"
+    },
+    "inputs": {
+      "switch": [
+        "407",
+        0
+      ],
+      "on_true": [
+        "409",
+        0
+      ],
+      "on_false": [
+        "33",
+        0
+      ]
+    }
+  },
+  "39": {
+    "inputs": {
+      "比例": "原始比例",
+      "模式": "总像素",
+      "固定边像素": 1024,
+      "百万像素": 2,
+      "长边最小": 512,
+      "长边最大": 2048,
+      "自定宽度": 1024,
+      "自定高度": 1024,
+      "倍数取整": 32,
+      "图像": [
+        "411",
+        0
+      ]
+    },
+    "class_type": "GoohaiRatioAndResolution",
+    "_meta": {
+      "title": "比例与分辨率",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "3beedd4d4bab28d941a1bdb0113d7800081455a8"
+    }
+  },
+  "54": {
+    "inputs": {
+      "image": "__nous_upload__.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "60": {
+    "inputs": {
+      "sampler_name": "euler_ancestral"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSampler Select (euler)",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "62": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "166",
+        0
+      ],
+      "positive": [
+        "125",
+        0
+      ],
+      "negative": [
+        "125",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Guider",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "67": {
+    "inputs": {
+      "noise_seed": [
+        "406",
+        0
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Random Noise",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "68": {
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.954180, 0.926626, 0.895080, 0.845148, 0.704534, 0.414568, 0.150000, 0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "69": {
+    "inputs": {
+      "samples": [
+        "70",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "70": {
+    "inputs": {
+      "noise": [
+        "67",
+        0
+      ],
+      "guider": [
+        "62",
+        0
+      ],
+      "sampler": [
+        "60",
+        0
+      ],
+      "sigmas": [
+        "68",
+        0
+      ],
+      "latent_image": [
+        "125",
+        2
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Sampler Custom Advanced",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "82": {
+    "inputs": {
+      "switch": [
+        "407",
+        0
+      ],
+      "on_false": [
+        "33",
+        0
+      ],
+      "on_true": [
+        "375",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "flase=手动 true=自动",
+      "cnr_id": "comfy-core",
+      "ver": "0.42.5"
+    }
+  },
+  "122": {
+    "inputs": {
+      "比例": "原始比例",
+      "模式": "总像素",
+      "固定边像素": 1024,
+      "百万像素": 3,
+      "长边最小": 512,
+      "长边最大": 2048,
+      "自定宽度": 1024,
+      "自定高度": 1024,
+      "倍数取整": 32,
+      "图像": [
+        "318",
+        0
+      ]
+    },
+    "class_type": "GoohaiRatioAndResolution",
+    "_meta": {
+      "title": "比例与分辨率",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "3beedd4d4bab28d941a1bdb0113d7800081455a8"
+    }
+  },
+  "124": {
+    "inputs": {
+      "是否阻断": false,
+      "阻断模式": "仅输出空值",
+      "any": [
+        "318",
+        1
+      ]
+    },
+    "class_type": "GoohaiRouteBlocker",
+    "_meta": {
+      "title": "是否禁用遮罩",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "125": {
+    "inputs": {
+      "prompt": [
+        "82",
+        0
+      ],
+      "negative_prompt": "",
+      "latent_width": [
+        "122",
+        1
+      ],
+      "latent_height": [
+        "122",
+        2
+      ],
+      "mode": "填充",
+      "ref_image_size": "自动",
+      "clip": [
+        "166",
+        1
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "mask": [
+        "124",
+        0
+      ],
+      "image_01": [
+        "318",
+        0
+      ],
+      "image_02": [
+        "412",
+        0
+      ],
+      "image_03": [
+        "413",
+        0
+      ],
+      "image_04": [
+        "414",
+        0
+      ],
+      "image_05": [
+        "415",
+        0
+      ],
+      "image_06": [
+        "416",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21GH",
+    "_meta": {
+      "title": "Qwen Image 2.1 文本编码 GH",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "3beedd4d4bab28d941a1bdb0113d7800081455a8"
+    }
+  },
+  "127": {
+    "inputs": {
+      "image": "__nous_upload__.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "129": {
+    "inputs": {
+      "image": "__nous_upload__.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "137": {
+    "inputs": {
+      "image": "__nous_upload__.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "138": {
+    "inputs": {
+      "image": "__nous_upload__.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "141": {
+    "inputs": {
+      "image": "__nous_upload__.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.36.0"
+    }
+  },
+  "166": {
+    "class_type": "Lora Loader Stack (rgthree)",
+    "_meta": {
+      "title": "编辑 LoRA"
+    },
+    "inputs": {
+      "model": [
+        "339",
+        0
+      ],
+      "clip": [
+        "2",
+        0
+      ],
+      "lora_01": "Qwen-功能2.1/Qwen2.1 一致性无偏移_GH_V1.0.safetensors",
+      "strength_01": 0.5,
+      "lora_02": "None",
+      "strength_02": 0.9,
+      "lora_03": "None",
+      "strength_03": 1,
+      "lora_04": "None",
+      "strength_04": 1
+    }
+  },
+  "173": {
+    "inputs": {
+      "lora_name": "Qwen-功能2.1/Qwen2.1_扩图_GH_3750.safetensors",
+      "strength_model": 0.7,
+      "model": [
+        "339",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.2"
+    }
+  },
+  "176": {
+    "inputs": {
+      "value": "移除图像中的灰色区域，无缝自然延展为完整图像。"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "固定提示词",
+      "cnr_id": "comfy-core",
+      "ver": "0.16.3"
+    }
+  },
+  "178": {
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "最大采样尺寸（长边）"
+    },
+    "inputs": {
+      "value": 2560
+    }
+  },
+  "179": {
+    "inputs": {
+      "单位": "百分比",
+      "左": 108,
+      "右": 108,
+      "上": 0,
+      "下": 0,
+      "最大输出长边": 5120,
+      "整除数": 0,
+      "外补颜色": "#808080",
+      "图像": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "孤海外补画板可视化",
+    "_meta": {
+      "title": "外补画板（可视化）",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "181": {
+    "inputs": {
+      "遮罩填充": false,
+      "扩展系数上": [
+        "184",
+        1
+      ],
+      "扩展系数下": [
+        "184",
+        1
+      ],
+      "扩展系数左": [
+        "184",
+        3
+      ],
+      "扩展系数右": [
+        "184",
+        3
+      ],
+      "输出尺寸": "原像素",
+      "自定义宽": 1024,
+      "自定义高": 1024,
+      "倍数取整": 0,
+      "图像": [
+        "179",
+        0
+      ],
+      "遮罩": [
+        "179",
+        1
+      ]
+    },
+    "class_type": "GH_MaskCropV2",
+    "_meta": {
+      "title": "孤海-遮罩裁剪V2",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "182": {
+    "inputs": {
+      "值1": "min(max(1024,b),a)",
+      "值2": "",
+      "a": [
+        "178",
+        0
+      ],
+      "b": [
+        "183",
+        0
+      ]
+    },
+    "class_type": "数学运算_孤海",
+    "_meta": {
+      "title": "数学运算 孤海",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "183": {
+    "inputs": {
+      "图像": [
+        "181",
+        1
+      ]
+    },
+    "class_type": "长边短边",
+    "_meta": {
+      "title": "长边短边",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "184": {
+    "inputs": {
+      "值1": "1.0 if b==d else (2/3*(b-d))/min(c,d)+1.0",
+      "值2": "1.0 if a==c else (2/3*(a-c))/min(c,d)+1.0",
+      "a": [
+        "185",
+        1
+      ],
+      "b": [
+        "185",
+        2
+      ],
+      "c": [
+        "185",
+        3
+      ],
+      "d": [
+        "185",
+        4
+      ]
+    },
+    "class_type": "数学运算_孤海",
+    "_meta": {
+      "title": "数学运算 孤海",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "185": {
+    "inputs": {
+      "上扩百分比": 0,
+      "下扩百分比": 0,
+      "左扩百分比": 0,
+      "右扩百分比": 0,
+      "遮罩": [
+        "179",
+        1
+      ]
+    },
+    "class_type": "孤海遮罩分析",
+    "_meta": {
+      "title": "孤海-遮罩分析",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "186": {
+    "inputs": {
+      "宽度": 512,
+      "高度": 512,
+      "缩放方法": "按长边等比例",
+      "将边缩放到": [
+        "182",
+        0
+      ],
+      "缩放插值": "Lanczos",
+      "缩放模式": "拉伸",
+      "固定方向": "居中",
+      "执行条件": "总是",
+      "填充颜色": "#808080",
+      "整除数": 32,
+      "图像": [
+        "181",
+        1
+      ]
+    },
+    "class_type": "图像缩放V2_孤海",
+    "_meta": {
+      "title": "图像缩放V2 孤海",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "188": {
+    "inputs": {
+      "model": [
+        "173",
+        0
+      ],
+      "conditioning": [
+        "189",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "Basic Guider",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "189": {
+    "inputs": {
+      "prompt": [
+        "204",
+        0
+      ],
+      "negative_prompt": "",
+      "latent_width": [
+        "186",
+        1
+      ],
+      "latent_height": [
+        "186",
+        2
+      ],
+      "mode": "填充",
+      "ref_image_size": "自动",
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "image_01": [
+        "186",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21GH",
+    "_meta": {
+      "title": "Qwen Image 2.1 文本编码 GH",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "190": {
+    "inputs": {
+      "noise_seed": [
+        "406",
+        0
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "191": {
+    "inputs": {
+      "遮罩扩展百分比": 3,
+      "遮罩羽化百分比": 3,
+      "颜色还原强度": 1,
+      "接缝": [
+        "181",
+        0
+      ],
+      "裁剪图像": [
+        "196",
+        0
+      ]
+    },
+    "class_type": "GH_CropRestore",
+    "_meta": {
+      "title": "孤海-裁剪恢复",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "192": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "193": {
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.954180, 0.926626, 0.895080, 0.845148, 0.704534, 0.414568, 0.150000, 0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "196": {
+    "inputs": {
+      "samples": [
+        "197",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode",
+      "cnr_id": "comfy-core",
+      "ver": "0.37.0"
+    }
+  },
+  "197": {
+    "inputs": {
+      "noise": [
+        "190",
+        0
+      ],
+      "guider": [
+        "188",
+        0
+      ],
+      "sampler": [
+        "192",
+        0
+      ],
+      "sigmas": [
+        "193",
+        0
+      ],
+      "latent_image": [
+        "189",
+        2
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "204": {
+    "inputs": {
+      "separator": " ",
+      "prompt1": [
+        "176",
+        0
+      ],
+      "prompt2": [
+        "33",
+        0
+      ]
+    },
+    "class_type": "easy promptConcat",
+    "_meta": {
+      "title": "PromptConcat",
+      "cnr_id": "comfyui-easy-use",
+      "ver": "b0b47ca1372117fce575d9e744655344ebff6bef"
+    }
+  },
+  "250": {
+    "inputs": {
+      "prompt": "移除图像中的绿色区域",
+      "negative_prompt": "",
+      "latent_width": [
+        "288",
+        1
+      ],
+      "latent_height": [
+        "288",
+        2
+      ],
+      "mode": "填充",
+      "ref_image_size": "自动",
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "image_01": [
+        "288",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21GH",
+    "_meta": {
+      "title": "Qwen Image 2.1 文本编码 GH",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "255": {
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.954180, 0.926626, 0.895080, 0.845148, 0.704534, 0.414568, 0.150000, 0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "259": {
+    "inputs": {
+      "noise": [
+        "273",
+        0
+      ],
+      "guider": [
+        "267",
+        0
+      ],
+      "sampler": [
+        "260",
+        0
+      ],
+      "sigmas": [
+        "255",
+        0
+      ],
+      "latent_image": [
+        "250",
+        2
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "260": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "267": {
+    "inputs": {
+      "model": [
+        "274",
+        0
+      ],
+      "conditioning": [
+        "250",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "Basic Guider",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "268": {
+    "inputs": {
+      "遮罩扩展百分比": 4,
+      "遮罩羽化百分比": 5,
+      "颜色还原强度": 1,
+      "接缝": [
+        "282",
+        0
+      ],
+      "裁剪图像": [
+        "275",
+        0
+      ]
+    },
+    "class_type": "GH_CropRestore",
+    "_meta": {
+      "title": "孤海-裁剪恢复",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "273": {
+    "inputs": {
+      "noise_seed": [
+        "406",
+        0
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.0"
+    }
+  },
+  "274": {
+    "inputs": {
+      "lora_name": "Qwen-功能2.1/Qwen2.1_万物移除Remove_GH.safetensors",
+      "strength_model": 1,
+      "model": [
+        "339",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA",
+      "cnr_id": "comfy-core",
+      "ver": "0.39.2"
+    }
+  },
+  "275": {
+    "inputs": {
+      "samples": [
+        "259",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode",
+      "cnr_id": "comfy-core",
+      "ver": "0.37.0"
+    }
+  },
+  "280": {
+    "class_type": "LoadImageMask",
+    "_meta": {
+      "title": "黑白移除遮罩"
+    },
+    "inputs": {
+      "image": "__nous_upload__.png",
+      "channel": "red"
+    }
+  },
+  "281": {
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "最大采样尺寸（长边）"
+    },
+    "inputs": {
+      "value": 2560
+    }
+  },
+  "282": {
+    "inputs": {
+      "遮罩填充": true,
+      "扩展系数上": 1.3,
+      "扩展系数下": 1.4,
+      "扩展系数左": 1.4,
+      "扩展系数右": 1.4,
+      "输出尺寸": "原像素",
+      "自定义宽": 1024,
+      "自定义高": 1024,
+      "倍数取整": 0,
+      "图像": [
+        "54",
+        0
+      ],
+      "遮罩": [
+        "280",
+        0
+      ]
+    },
+    "class_type": "GH_MaskCropV2",
+    "_meta": {
+      "title": "孤海-遮罩裁剪V2",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "283": {
+    "inputs": {
+      "透明度": 0.4,
+      "遮罩扩展": 0,
+      "模糊半径": 0,
+      "匹配图像大小": true,
+      "背景图": [
+        "282",
+        1
+      ],
+      "覆盖图": [
+        "284",
+        0
+      ],
+      "遮罩": [
+        "282",
+        2
+      ]
+    },
+    "class_type": "GulfSeaImageMergeMask",
+    "_meta": {
+      "title": "孤海-图像合并（遮罩）",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "284": {
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "color": "#00ff00"
+    },
+    "class_type": "LayerUtility: ColorImage",
+    "_meta": {
+      "title": "LayerUtility: ColorImage",
+      "cnr_id": "comfyui_layerstyle",
+      "aux_id": "chflame163/ComfyUI_LayerStyle",
+      "ver": "2.0.37"
+    }
+  },
+  "285": {
+    "inputs": {
+      "限制模式": "长边",
+      "最小尺寸": 768,
+      "最大尺寸": [
+        "281",
+        0
+      ],
+      "整除数": 32,
+      "图像": [
+        "283",
+        0
+      ]
+    },
+    "class_type": "图像缩放范围孤海",
+    "_meta": {
+      "title": "图像缩放（范围）孤海",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "286": {
+    "inputs": {
+      "image": [
+        "285",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Get Image Size",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "288": {
+    "inputs": {
+      "宽度": [
+        "286",
+        0
+      ],
+      "高度": [
+        "286",
+        1
+      ],
+      "缩放方法": "自定义宽高",
+      "将边缩放到": 1024,
+      "缩放插值": "Lanczos",
+      "缩放模式": "拉伸",
+      "固定方向": "居中",
+      "执行条件": "总是",
+      "填充颜色": "#364254",
+      "整除数": 0,
+      "图像": [
+        "283",
+        0
+      ],
+      "遮罩": [
+        "282",
+        2
+      ]
+    },
+    "class_type": "图像缩放V2_孤海",
+    "_meta": {
+      "title": "图像缩放V2 孤海",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "318": {
+    "inputs": {
+      "限制模式": "长边",
+      "最小尺寸": 768,
+      "最大尺寸": [
+        "328",
+        0
+      ],
+      "整除数": 32,
+      "图像": [
+        "54",
+        0
+      ],
+      "遮罩": [
+        "54",
+        1
+      ]
+    },
+    "class_type": "图像缩放范围孤海",
+    "_meta": {
+      "title": "图像缩放（范围）孤海",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "3beedd4d4bab28d941a1bdb0113d7800081455a8"
+    }
+  },
+  "328": {
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "最大尺寸"
+    },
+    "inputs": {
+      "value": 2048
+    }
+  },
+  "339": {
+    "inputs": {
+      "device": "gpu",
+      "dtype": "default",
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "QwenImage21Cache",
+    "_meta": {
+      "title": "Qwen Image 2.1 Cache",
+      "cnr_id": "comfy-core",
+      "ver": "0.43.0"
+    }
+  },
+  "344": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "54",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Image to Total Pixels",
+      "cnr_id": "comfy-core",
+      "ver": "0.44.2"
+    }
+  },
+  "373": {
+    "inputs": {
+      "api_url": "https://api.deepseek.com/chat/completions",
+      "api_token": "",
+      "model_select": "deepseek-flash",
+      "config_file": "mie_llm_keys.json",
+      "config_key": "deepseek-flash",
+      "prefer_local_config": true,
+      "timeout": 176
+    },
+    "class_type": "SetGeneralLLMServiceConnector|Mie",
+    "_meta": {
+      "title": "DeepSeek",
+      "cnr_id": "comfyui_mienodes",
+      "ver": "1.2.7"
+    }
+  },
+  "374": {
+    "inputs": {
+      "skill": "Qwen-Image-2.1/Qwen-Image-2.1-图像编辑.md",
+      "include_references": true,
+      "uploaded_name": "",
+      "uploaded_content": ""
+    },
+    "class_type": "NousSkillLoader|Mie",
+    "_meta": {
+      "title": "Nous Skill 加载器",
+      "cnr_id": "comfyui_mienodes",
+      "ver": "1.4.4"
+    }
+  },
+  "375": {
+    "inputs": {
+      "input_text": [
+        "33",
+        0
+      ],
+      "system_prompt_name": "none",
+      "seed": 8,
+      "video_frames": 3,
+      "reference_video_frames": 3,
+      "image_detail": "high",
+      "temperature": 0.6,
+      "max_tokens": 10000,
+      "llm_service_connector": [
+        "393",
+        0
+      ],
+      "skill": [
+        "374",
+        0
+      ],
+      "images.image1": [
+        "318",
+        0
+      ],
+      "images.image2": [
+        "412",
+        0
+      ],
+      "images.image3": [
+        "413",
+        0
+      ],
+      "images.image4": [
+        "414",
+        0
+      ],
+      "images.image5": [
+        "415",
+        0
+      ],
+      "images.image6": [
+        "416",
+        0
+      ]
+    },
+    "class_type": "CustomSystemPromptGenerator|Mie",
+    "_meta": {
+      "title": "Qwen Image 2.1 图片反推",
+      "cnr_id": "comfyui_mienodes",
+      "ver": "1.2.7"
+    }
+  },
+  "383": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 0.30000000000000004,
+      "resolution_steps": 1,
+      "image": [
+        "69",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Image to Total Pixels",
+      "cnr_id": "comfy-core",
+      "ver": "0.3.62"
+    }
+  },
+  "384": {
+    "inputs": {
+      "model": "seedvr2_ema_7b-Q8_0.gguf",
+      "device": "cuda:0",
+      "blocks_to_swap": 32,
+      "swap_io_components": true,
+      "offload_device": "cpu",
+      "cache_model": false,
+      "attention_mode": "sdpa"
+    },
+    "class_type": "SeedVR2LoadDiTModel",
+    "_meta": {
+      "title": "SeedVR2 (Down)Load DiT Model",
+      "cnr_id": "seedvr2_videoupscaler",
+      "ver": "912ab4a5da8bb3590c4659f8f19160a7bd88a656"
+    }
+  },
+  "387": {
+    "inputs": {
+      "seed": [
+        "406",
+        0
+      ],
+      "resolution": [
+        "424",
+        0
+      ],
+      "max_resolution": 6000,
+      "batch_size": 5,
+      "uniform_batch_size": false,
+      "color_correction": "lab",
+      "temporal_overlap": 0,
+      "prepend_frames": 0,
+      "input_noise_scale": 0,
+      "latent_noise_scale": 0,
+      "offload_device": "cpu",
+      "enable_debug": false,
+      "image": [
+        "417",
+        0
+      ],
+      "dit": [
+        "384",
+        0
+      ],
+      "vae": [
+        "388",
+        0
+      ]
+    },
+    "class_type": "SeedVR2VideoUpscaler",
+    "_meta": {
+      "title": "SeedVR2 Video Upscaler (v2.5.24)",
+      "cnr_id": "seedvr2_videoupscaler",
+      "ver": "912ab4a5da8bb3590c4659f8f19160a7bd88a656"
+    }
+  },
+  "388": {
+    "inputs": {
+      "model": "seedvr2_ema_vae_fp16.safetensors",
+      "device": "cuda:0",
+      "encode_tiled": true,
+      "encode_tile_size": 1024,
+      "encode_tile_overlap": 128,
+      "decode_tiled": true,
+      "decode_tile_size": 1024,
+      "decode_tile_overlap": 128,
+      "tile_debug": "false",
+      "offload_device": "cpu",
+      "cache_model": false
+    },
+    "class_type": "SeedVR2LoadVAEModel",
+    "_meta": {
+      "title": "SeedVR2 (Down)Load VAE Model",
+      "cnr_id": "seedvr2_videoupscaler",
+      "ver": "912ab4a5da8bb3590c4659f8f19160a7bd88a656"
+    }
+  },
+  "389": {
+    "inputs": {
+      "filename_prefix": "nous-qwen21-all-in-one",
+      "images": [
+        "422",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image",
+      "cnr_id": "comfy-core",
+      "ver": "0.3.75"
+    }
+  },
+  "391": {
+    "inputs": {
+      "value": 2560
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "INT Constant",
+      "cnr_id": "comfyui-kjnodes",
+      "ver": "4dfb85dcc52e4315c33170d97bb987baa46d128b"
+    }
+  },
+  "392": {
+    "inputs": {
+      "api_url": "http://127.0.0.1:8000/v1/chat/completions",
+      "api_token": "",
+      "model_select": "nous-qwen3-8-27b-twolven",
+      "config_file": "mie_llm_keys.json",
+      "config_key": "nous-qwen3-8-27b-twolven",
+      "prefer_local_config": true,
+      "timeout": 176
+    },
+    "class_type": "SetGeneralLLMServiceConnector|Mie",
+    "_meta": {
+      "title": "nous-engine 本地 Qwen3.8",
+      "cnr_id": "comfyui_mienodes",
+      "ver": "1.2.7"
+    }
+  },
+  "393": {
+    "inputs": {
+      "switch": false,
+      "on_false": [
+        "392",
+        0
+      ],
+      "on_true": [
+        "373",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "flase=破限 true=Deepseek",
+      "cnr_id": "comfy-core",
+      "ver": "0.42.5"
+    }
+  },
+  "400": {
+    "class_type": "PrimitiveString",
+    "_meta": {
+      "title": "功能模式"
+    },
+    "inputs": {
+      "value": "text"
+    }
+  },
+  "401": {
+    "class_type": "StringCompare",
+    "_meta": {
+      "title": "图片反推"
+    },
+    "inputs": {
+      "string_a": [
+        "400",
+        0
+      ],
+      "string_b": "reference",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "402": {
+    "class_type": "StringCompare",
+    "_meta": {
+      "title": "单图／多图编辑"
+    },
+    "inputs": {
+      "string_a": [
+        "400",
+        0
+      ],
+      "string_b": "edit",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "403": {
+    "class_type": "StringCompare",
+    "_meta": {
+      "title": "扩图"
+    },
+    "inputs": {
+      "string_a": [
+        "400",
+        0
+      ],
+      "string_b": "outpaint",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "404": {
+    "class_type": "StringCompare",
+    "_meta": {
+      "title": "遮罩移除"
+    },
+    "inputs": {
+      "string_a": [
+        "400",
+        0
+      ],
+      "string_b": "remove",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "405": {
+    "class_type": "StringCompare",
+    "_meta": {
+      "title": "仅图片放大"
+    },
+    "inputs": {
+      "string_a": [
+        "400",
+        0
+      ],
+      "string_b": "upscale",
+      "mode": "Equal",
+      "case_sensitive": true
+    }
+  },
+  "406": {
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "种子"
+    },
+    "inputs": {
+      "value": 42
+    }
+  },
+  "407": {
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "优化提示词"
+    },
+    "inputs": {
+      "value": true
+    }
+  },
+  "408": {
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "编辑后放大"
+    },
+    "inputs": {
+      "value": false
+    }
+  },
+  "409": {
+    "inputs": {
+      "用户提示词": [
+        "33",
+        0
+      ],
+      "文生图模型": "pe_t2i_heretic-Q4_K_M.gguf",
+      "图生图模型": "pe_i2i_heretic-Q4_K_M.gguf",
+      "视觉模型": "pe_i2i_heretic.mmproj-bf16.gguf",
+      "输出语言": "自动",
+      "透明背景": false,
+      "种子值": 9527,
+      "种子模式": "固定",
+      "卸载模型": "自动"
+    },
+    "class_type": "QwenImagePromptOptimizer",
+    "_meta": {
+      "title": "Qwen image 2.1 提示词优化",
+      "aux_id": "goohai/Goohaitools-comfyui",
+      "ver": "83abca47fa10d47a1ffd0c7cb62b7fa2a9dc0ddc"
+    }
+  },
+  "410": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "反推或文生图提示词"
+    },
+    "inputs": {
+      "switch": [
+        "401",
+        0
+      ],
+      "on_true": [
+        "34",
+        0
+      ],
+      "on_false": [
+        "35",
+        0
+      ]
+    }
+  },
+  "411": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "反推参考画幅"
+    },
+    "inputs": {
+      "switch": [
+        "401",
+        0
+      ],
+      "on_true": [
+        "344",
+        0
+      ]
+    }
+  },
+  "412": {
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "参考图 2 预缩放"
+    },
+    "inputs": {
+      "image": [
+        "127",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.5,
+      "resolution_steps": 1
+    }
+  },
+  "413": {
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "参考图 3 预缩放"
+    },
+    "inputs": {
+      "image": [
+        "129",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.5,
+      "resolution_steps": 1
+    }
+  },
+  "414": {
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "参考图 4 预缩放"
+    },
+    "inputs": {
+      "image": [
+        "141",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.5,
+      "resolution_steps": 1
+    }
+  },
+  "415": {
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "参考图 5 预缩放"
+    },
+    "inputs": {
+      "image": [
+        "138",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.5,
+      "resolution_steps": 1
+    }
+  },
+  "416": {
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "参考图 6 预缩放"
+    },
+    "inputs": {
+      "image": [
+        "137",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.5,
+      "resolution_steps": 1
+    }
+  },
+  "417": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "独立放大或编辑后放大"
+    },
+    "inputs": {
+      "switch": [
+        "405",
+        0
+      ],
+      "on_true": [
+        "54",
+        0
+      ],
+      "on_false": [
+        "383",
+        0
+      ]
+    }
+  },
+  "418": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "编辑成图或高清放大"
+    },
+    "inputs": {
+      "switch": [
+        "408",
+        0
+      ],
+      "on_true": [
+        "387",
+        0
+      ],
+      "on_false": [
+        "69",
+        0
+      ]
+    }
+  },
+  "419": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "图像编辑"
+    },
+    "inputs": {
+      "switch": [
+        "402",
+        0
+      ],
+      "on_true": [
+        "418",
+        0
+      ],
+      "on_false": [
+        "14",
+        0
+      ]
+    }
+  },
+  "420": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "扩图"
+    },
+    "inputs": {
+      "switch": [
+        "403",
+        0
+      ],
+      "on_true": [
+        "191",
+        0
+      ],
+      "on_false": [
+        "419",
+        0
+      ]
+    }
+  },
+  "421": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "遮罩移除"
+    },
+    "inputs": {
+      "switch": [
+        "404",
+        0
+      ],
+      "on_true": [
+        "268",
+        0
+      ],
+      "on_false": [
+        "420",
+        0
+      ]
+    }
+  },
+  "422": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "仅图片放大"
+    },
+    "inputs": {
+      "switch": [
+        "405",
+        0
+      ],
+      "on_true": [
+        "387",
+        0
+      ],
+      "on_false": [
+        "421",
+        0
+      ]
+    }
+  },
+  "423": {
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "编辑后放大短边"
+    },
+    "inputs": {
+      "value": 2560
+    }
+  },
+  "424": {
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "放大短边"
+    },
+    "inputs": {
+      "switch": [
+        "405",
+        0
+      ],
+      "on_true": [
+        "391",
+        0
+      ],
+      "on_false": [
+        "423",
+        0
+      ]
+    }
+  }
+}
