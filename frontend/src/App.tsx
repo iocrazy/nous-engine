@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, useLocation, useParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useLocation, useParams } from 'react-router-dom'
 import GlobalTopbar from './components/layout/GlobalTopbar'
 import StartupBanner from './components/layout/StartupBanner'
 import IconRail from './components/layout/IconRail'
@@ -127,7 +127,7 @@ export default function App() {
     <BrowserRouter>
       <AuthGate>
         <Routes>
-          <Route path="/" element={<MainLayout />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/workflows" element={<MainLayout />} />
           <Route path="/workflows/:id" element={<MainLayout workflowRoute />} />
           {/* PR-2c:删原 /image /tts /llm placeholder 路由 — 所有功能通过 workflow
