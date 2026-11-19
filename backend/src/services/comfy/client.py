@@ -52,8 +52,13 @@ class ComfyClient:
     async def health(self) -> dict:
         try:
             r = await self._client.get("/queue", timeout=3)
+            r.raise_for_status()
             q = r.json()
-            depth = len(q.get("queue_running", [])) + len(q.get("queue_pending", []))
+            if not isinstance(q, dict) or not all(
+                isinstance(q.get(key), list) for key in ("queue_running", "queue_pending")
+            ):
+                return {"online": False, "queue_depth": 0, "version": ""}
+            depth = len(q["queue_running"]) + len(q["queue_pending"])
             ver = ""
             try:
                 ver = (await self._client.get("/system_stats", timeout=3)).json() \

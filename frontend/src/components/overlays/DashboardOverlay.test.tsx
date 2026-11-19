@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import DashboardOverlay from './DashboardOverlay'
 import type { GpuGroup } from '../../api/engines'
 import type { VLLMInstance } from '../../api/vllm'
@@ -10,6 +10,10 @@ import type { SysGpuInfo } from '../../api/system'
 // import 之前，不能直接闭包捕获 describe 内的变量）。
 const box = vi.hoisted(() => ({
   gpus: [] as SysGpuInfo[],
+  comfyQueue: 0,
+  comfyOnline: true,
+  clearCache: vi.fn(),
+  confirmDialog: vi.fn(),
   vllm: [] as VLLMInstance[],
   groups: [] as GpuGroup[],
   engines: [] as Partial<import('../../api/engines').EngineInfo>[],
@@ -86,9 +90,12 @@ vi.mock('../../api/status', () => ({
     },
   }),
 }))
+vi.mock('../../stores/confirm', () => ({ confirmDialog: box.confirmDialog }))
 vi.mock('../../api/comfyTemplates', () => ({
+  useFreeComfyCache: () => ({ mutate: box.clearCache }),
   useComfyHealth: () => ({
-    data: { online: true, queue_depth: 2, base_url: 'http://127.0.0.1:8888', running_render: { task_id: '123', held_seconds: 10 } },
+    data: { online: box.comfyOnline, queue_depth: box.comfyQueue, process_rss_bytes: 4 * 1024 ** 3,
+      base_url: 'http://127.0.0.1:8888', running_render: null },
   }),
 }))
 vi.mock('../../api/system', () => ({
@@ -113,12 +120,38 @@ function renderSystemPanel() {
 
 beforeEach(() => {
   box.gpus = THREE_GPUS
+  box.comfyQueue = 0
+  box.comfyOnline = true
+  box.clearCache.mockReset()
+  box.confirmDialog.mockReset()
   box.vllm = []
   box.groups = []
   box.engines = []
 })
 
 describe('DashboardOverlay tabs', () => {
+  it('requires confirmation before clearing the idle ComfyUI cache', async () => {
+    box.confirmDialog.mockResolvedValue(true)
+    renderSystemPanel()
+    expect(screen.getByText('ComfyUI 主进程内存 4.0 GiB')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清理 ComfyUI 缓存' }))
+    await waitFor(() => expect(box.clearCache).toHaveBeenCalledOnce())
+    expect(box.confirmDialog).toHaveBeenCalledOnce()
+  })
+
+  it.each([{ queue: 1, online: true }, { queue: 0, online: false }])(
+    'blocks clearing when ComfyUI cannot confirm an idle queue (%o)',
+    ({ queue, online }) => {
+      box.comfyQueue = queue
+      box.comfyOnline = online
+      renderSystemPanel()
+      const button = screen.getByRole<HTMLButtonElement>('button', { name: '清理 ComfyUI 缓存' })
+      expect(button.disabled).toBe(true)
+      fireEvent.click(button)
+      expect(box.confirmDialog).not.toHaveBeenCalled()
+    },
+  )
+
   it('keeps vLLM capacity, scheduling and prefix metrics explicit', () => {
     box.vllm = [
       {
@@ -157,7 +190,7 @@ describe('DashboardOverlay tabs', () => {
     const resources = screen.getByRole('region', { name: '资源与运行时' })
     const connections = screen.getByRole('region', { name: '服务与连接' })
     expect(resources.nextElementSibling).toBe(connections)
-    expect(screen.getByText('队列任务 2')).toBeTruthy()
+    expect(screen.getByText('队列任务 0')).toBeTruthy()
     expect(screen.getByText('http://127.0.0.1:8888')).toBeTruthy()
     expect(screen.getByText('ComfyUI 监听地址（1）').closest('details')?.open).toBe(false)
     expect(screen.getByText('HTTP 200')).toBeTruthy()

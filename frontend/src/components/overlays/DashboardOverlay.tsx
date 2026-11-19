@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Activity, AlertTriangle, BarChart3, Cpu, X } from 'lucide-react'
 import {
   useSysGpus, useSysStats, useSysProcesses, useKillProcess,
@@ -14,7 +14,7 @@ import { useVLLMMetrics, type VLLMInstance } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { useHealth } from '../../api/health'
 import { useStatus, useStatusConnections, type ComponentStatus } from '../../api/status'
-import { useComfyHealth } from '../../api/comfyTemplates'
+import { useComfyHealth, useFreeComfyCache } from '../../api/comfyTemplates'
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { sortProcesses, formatRate, type ProcSortKey, type ProcSortDir } from './processSort'
@@ -374,10 +374,9 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
   )
 }
 
-function SystemConnections() {
+function SystemConnections({ health }: { health: ReturnType<typeof useComfyHealth> }) {
   const status = useStatus()
   const connections = useStatusConnections()
-  const health = useComfyHealth()
   const sidecar = useHealth().data?.comfy
   const { data: processes } = useSysProcesses()
   const [copyMessage, setCopyMessage] = useState('')
@@ -801,6 +800,7 @@ function TopSvcStrip({ svc }: { svc: TopServiceRow }) {
 }
 
 function SystemStatus() {
+  const comfyHealth = useComfyHealth()
   const { data: gpuData } = useSysGpus()
   const { data: sysStats } = useSysStats()
   const { data: runners } = useRunners()
@@ -849,7 +849,9 @@ function SystemStatus() {
             label="物理内存"
             value={sysStats ? `${fmt(sysStats.memory_used_gb)}G` : '—'}
             hint={sysStats ? `可用 ${fmt(sysStats.memory_available_gb)} / 总计 ${fmt(sysStats.memory_total_gb)} GiB` : ''}
-          />
+          >
+            <ComfyCacheControls health={comfyHealth} />
+          </MiniStat>
           <MiniStat
             label="交换空间"
             value={sysStats ? `${fmt(sysStats.swap_used_gb)}G` : '—'}
@@ -900,7 +902,7 @@ function SystemStatus() {
         <VLLMPanel />
         <RuntimePanel />
       </section>
-      <SystemConnections />
+      <SystemConnections health={comfyHealth} />
     </>
   )
 }
@@ -1013,14 +1015,58 @@ function SystemProcesses() {
   )
 }
 
+function ComfyCacheControls({ health }: { health: ReturnType<typeof useComfyHealth> }) {
+  const clear = useFreeComfyCache()
+  const [confirming, setConfirming] = useState(false)
+  const comfy = health.data
+  const busy = !!comfy?.running_render || (comfy?.queue_depth ?? 0) > 0
+  const ready = !health.isError && comfy?.online === true && comfy.queue_depth === 0 && !busy
+  const rss = comfy?.process_rss_bytes
+  let unavailable = '正在读取 ComfyUI 队列'
+  if (health.isError) unavailable = '暂时无法确认队列状态'
+  else if (comfy?.online === false) unavailable = 'ComfyUI 离线'
+  else if (busy) unavailable = '有任务正在执行或排队'
+
+  const requestClear = async () => {
+    setConfirming(true)
+    const confirmed = await confirmDialog({
+      title: '清理 ComfyUI 缓存',
+      message: '卸载 ComfyUI 缓存模型并清理节点执行缓存。下次生成可能需要重新加载模型。',
+      confirmText: '清理缓存',
+    })
+    setConfirming(false)
+    if (confirmed) clear.mutate()
+  }
+
+  return (
+    <div className="mt-3 space-y-2 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
+      <p style={{ color: 'var(--muted)' }}>
+        ComfyUI 主进程内存 {rss == null ? '—' : `${(rss / 1024 ** 3).toFixed(1)} GiB`}
+      </p>
+      <button type="button"
+        className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+        style={{ borderColor: 'var(--border-strong)', color: 'var(--accent)' }}
+        disabled={!ready || confirming || clear.isPending}
+        onClick={() => void requestClear()}>
+        {clear.isPending ? '正在请求清理…' : '清理 ComfyUI 缓存'}
+      </button>
+      {!ready && <p style={{ color: 'var(--muted)' }}>{unavailable}</p>}
+      {clear.isSuccess && <p role="status">已提交清理请求，内存读数会继续刷新。</p>}
+      {clear.isError && <p role="alert" style={{ color: 'var(--error)' }}>{clear.error.message}</p>}
+    </div>
+  )
+}
+
 function MiniStat({
   label,
   value,
   hint,
+  children,
 }: {
   label: string
   value: string
   hint?: string
+  children?: ReactNode
 }) {
   return (
     <div className="console-card px-4 py-3">
@@ -1043,6 +1089,7 @@ function MiniStat({
           </span>
         )}
       </div>
+      {children}
     </div>
   )
 }

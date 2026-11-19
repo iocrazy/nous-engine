@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
 // ---------- shared types ----------
@@ -95,6 +95,7 @@ export interface ComfyHealth {
   version: string
   base_url: string
   timeout_s: number
+  process_rss_bytes?: number | null
   running_render?: { task_id: string | number; held_seconds: number } | null
   /** 后端恒返回此键(sidecar 离线时为 [])——不设 optional,否则漏字段的 mock/调用方
    *  不会被类型检查逮到(vram-panel 交付时因文件被占用临时放宽,现收紧)。 */
@@ -180,10 +181,22 @@ export function getObjectInfo(): Promise<Record<string, unknown>> {
   return apiFetch<Record<string, unknown>>('/api/v1/comfy/object-info')
 }
 
-export function freeComfyVram(): Promise<FreeComfyVramResult> {
-  return apiFetch<FreeComfyVramResult>('/api/v1/comfy/free', { method: 'POST' })
+export function freeComfyVram(options?: { idleOnly: boolean }): Promise<FreeComfyVramResult> {
+  const query = options?.idleOnly ? '?idle_only=true' : ''
+  return apiFetch<FreeComfyVramResult>(`/api/v1/comfy/free${query}`, { method: 'POST' })
 }
 
+
+export function useFreeComfyCache() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => freeComfyVram({ idleOnly: true }),
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['comfy-health'] }),
+      queryClient.invalidateQueries({ queryKey: ['monitor', 'stats'] }),
+    ]),
+  })
+}
 
 // ---------- 动态选项(选项依赖)----------
 
