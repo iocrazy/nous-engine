@@ -119,7 +119,8 @@ function isSeedLike(inputName: string, type: string): boolean {
 
 const EMPTY_WORKFLOW: ComfyWorkflow = {}
 const QWEN_MODE_NODES: Record<string, string> = {
-  text: '33', reference: '344', edit: '125', outpaint: '179', remove: '282', upscale: '387',
+  moss_text: '404', text: '9', reference: '344', edit: '125', oldx: '534', character_card: '534',
+  outpaint: '179', remove: '282', upscale: '387',
 }
 
 function loadPositions(id: string): ComfyNodePositions {

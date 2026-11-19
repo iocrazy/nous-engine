@@ -42,3 +42,28 @@ it('立即随机生成种子，运行时提交屏幕上显示的值', () => {
   fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
   expect(onRun).toHaveBeenCalledWith({ input_mode: 'text', seed })
 })
+
+it('OLDX 提示姿势与场景参考，人物资产卡沿用固定版式', () => {
+  const assets: ExposedParam[] = [
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'oldx',
+      constraints: { widget: 'radio', enum: ['oldx', 'character_card'], option_meta: [
+        { value: 'oldx', label: 'OLDX 人物替换' },
+        { value: 'character_card', label: '人物资产卡' },
+      ] } },
+    { node_id: 'bridge', key: 'image', type: 'image', required: true },
+    { node_id: 'bridge', key: 'oldx_target', type: 'image', label: '姿势与场景参考',
+      constraints: { visible_when: { input_mode: 'oldx' }, required_when: { input_mode: 'oldx' } } },
+  ]
+  const onRun = vi.fn()
+  render(<QwenImagePlayground inputs={assets}
+    initialInputs={{ input_mode: 'oldx', image: 'data:image/png;base64,AA==' }} running={false} onRun={onRun} />)
+  expect(screen.getByRole('button', { name: /^人物源图/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /姿势与场景参考/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '替换人物' }))
+  expect(onRun).not.toHaveBeenCalled()
+  expect(screen.getByRole('status')).toHaveTextContent('姿势与场景参考')
+  fireEvent.click(screen.getByRole('radio', { name: '人物资产卡' }))
+  expect(screen.queryByRole('button', { name: /姿势与场景参考/ })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '生成人物资产卡' }))
+  expect(onRun).toHaveBeenCalledWith({ input_mode: 'character_card', image: 'data:image/png;base64,AA==' })
+})
