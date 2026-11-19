@@ -94,3 +94,7 @@
 @media (max-width: 740px) {
   .qwen-workspace { grid-template-columns: minmax(0, 1fr); }
 }
+
+.qwen-mode-help { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+
+.qwen-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; padding-block: 3px; }

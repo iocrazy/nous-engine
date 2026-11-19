@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Brush, Dices, Expand, Focus, Image, Play, ScanLine, Sparkles, Upload, WandSparkles, X } from 'lucide-react'
+import { Brush, Dices, Expand, Focus, Image, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from './SchemaDrivenForm'
 import { classifyField, defaultFor, isFieldRequired, isFieldVisible, optionDependency, staticOptions } from './fieldKind'
@@ -8,18 +8,21 @@ import OutpaintFrame, { type OutpaintValues, type SourceDimensions } from './Out
 import './QwenImagePlayground.css'
 
 const MODE_DETAILS = {
-  text: { icon: Sparkles, action: '生成图片' },
-  reference: { icon: ScanLine, action: '反推并生图' },
-  edit: { icon: WandSparkles, action: '编辑图片' },
-  outpaint: { icon: Expand, action: '扩展画面' },
-  remove: { icon: Brush, action: '移除遮罩区域' },
-  upscale: { icon: Focus, action: '放大图片' },
+  moss_text: { icon: Sparkles, action: '用 MOSS 生图', help: '输入场景描述，设置 MOSS 画幅与生成像素。' },
+  text: { icon: Sparkles, action: '生成图片', help: '用 Qwen Image 2.1 从提示词生图。' },
+  reference: { icon: ScanLine, action: '反推并生图', help: '上传一张原图，再选择反推后用 MOSS 或 Qwen 重新生图。' },
+  edit: { icon: WandSparkles, action: '编辑图片', help: '上传一至六张参考图，说明哪些元素要保留、替换或合并。' },
+  oldx: { icon: ScanFace, action: '替换人物', help: '人物源图提供身份，姿势与场景参考提供构图、姿势和光线。' },
+  character_card: { icon: UserRound, action: '生成人物资产卡', help: '上传人物源图，沿用内置资产卡的版式生成人物头肩与全身视图。' },
+  outpaint: { icon: Expand, action: '扩展画面', help: '上传原图后拖动边框，可锁定宽度或高度。' },
+  remove: { icon: Brush, action: '移除遮罩区域', help: '涂抹要移除的区域，也可上传同尺寸的黑白遮罩。' },
+  upscale: { icon: Focus, action: '放大图片', help: '设置目标短边，使用 SeedVR2 放大原图。' },
 } as const
 
 type Preview = 'source' | 'result' | 'compare'
 type SeedPolicy = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-const advancedField = /^(?:seed|lora_|strength_|use_deepseek|ignore_edit_mask)/
+const advancedField = /^(?:seed|lora_|strength_|use_deepseek|ignore_edit_mask|moss_(steps|cfg|lora)|oldx_(strength|cfg))/
 const referenceImage = /^image_[2-6]$/
 const toImageUrl = (value: unknown) => typeof value === 'string' &&
   /^(data:image\/|\/|https?:\/\/)/i.test(value) ? value : undefined
@@ -74,13 +77,21 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const fileSlots = useRef<string[]>([])
   const queuedSeed = useRef<number | null>(null)
 
-  const active = inputs.filter(param => paramKey(param) && isFieldVisible(param, values))
-  const modeParam = active.find(param => paramKey(param) === 'input_mode')
   const mode = typeof values.input_mode === 'string' ? values.input_mode : 'text'
+  const active = inputs.filter(param => {
+    const key = paramKey(param)
+    if (!key || !isFieldVisible(param, values)) return false
+    if (mode !== 'reference' || !Object.hasOwn(values, 'reference_engine')) return true
+    if (key === 'moss_megapixels' || key === 'moss_aspect_ratio') return values.reference_engine === 'moss'
+    if (key === 'megapixels' || key === 'aspect_ratio') return values.reference_engine !== 'moss'
+    return true
+  })
+  const modeParam = active.find(param => paramKey(param) === 'input_mode')
   const modeDetail = MODE_DETAILS[mode as keyof typeof MODE_DETAILS]
   const candidates = active.flatMap(param => {
     const key = paramKey(param)!
-    return key === 'image' || referenceImage.test(key) || key === 'mask' ? [{ key, param }] : []
+    return key === 'image' || referenceImage.test(key) || key === 'mask' ||
+      key === 'oldx_target' || key === 'oldx_reference' ? [{ key, param }] : []
   })
   const source = candidates.some(item => item.key === 'image') ? toImageUrl(values.image) : undefined
   const dims = natural?.url === source ? natural?.size : undefined
@@ -191,6 +202,13 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         </div>
       )
     }
+    if (classifyField(param) === 'boolean') {
+      return <label key={key} className="qwen-toggle">
+        <input type="checkbox" checked={Boolean(values[key])}
+          onChange={event => update(key, event.currentTarget.checked)} />
+        {param.label || key}
+      </label>
+    }
     const dependency = optionDependency(param)
     return <Field key={key} param={{ ...param, required: isFieldRequired(param, values) }} value={values[key]}
       dependsValue={dependency ? String(values[dependency.dependsOn] ?? '') : undefined}
@@ -202,6 +220,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     : preview === 'result' && resultUrl ? 'result' : 'source'
   const advance = controls.filter(param => advancedField.test(paramKey(param)!))
   const primary = controls.filter(param => !advancedField.test(paramKey(param)!))
+    .sort((a, b) => Number(paramKey(b) === 'reference_engine') - Number(paramKey(a) === 'reference_engine'))
 
   return (
     <form className="qwen-playground" onSubmit={submit}>
@@ -223,10 +242,12 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         <section className="qwen-panel" aria-label="运行参数">
           <header><strong>运行参数</strong></header>
           <fieldset disabled={!enabled} className="qwen-settings">
+            {modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
             {!!candidates.length && <div className="qwen-assets">
               {candidates.map(({ key, param }) => {
                 const image = toImageUrl(values[key])
-                const title = key === 'image' ? '原图' : key === 'mask' ? '遮罩' : `参考图 ${key.split('_')[1]}`
+                const title = key === 'image' ? (mode === 'oldx' || mode === 'character_card' ? '人物源图' : '原图')
+                  : key === 'mask' ? '遮罩' : referenceImage.test(key) ? `参考图 ${key.split('_')[1]}` : param.label || key
                 return (
                   <div className="qwen-asset" key={key}>
                     <button type="button" aria-pressed={key === asset && !!image}
@@ -268,7 +289,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
             if (!enabled || !candidates.some(item => item.key === 'image')) return
             event.preventDefault()
             const keys = candidates.filter(item => item.key !== 'mask').map(item => item.key)
-            void loadFiles(Array.from(event.dataTransfer.files), keys)
+            const empty = keys.filter(key => !toImageUrl(values[key]))
+            void loadFiles(Array.from(event.dataTransfer.files), empty.length ? empty : keys)
           }}>
             {showPlan ? <OutpaintFrame key={source} image={source} dimensions={dims} values={Object.fromEntries(outpaintFields.map(param => [paramKey(param)!.slice(9), Number(values[paramKey(param)!]) || 0])) as OutpaintValues}
               limits={Object.fromEntries(outpaintFields.map(param => [paramKey(param)!.slice(9), Number(param.constraints?.max ?? 200)])) as OutpaintValues}
@@ -284,7 +306,9 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
               : previewSource ? <img src={previewSource} alt={asset === 'mask' ? '遮罩' : '输入图片'} />
               : <div className="qwen-stage-empty"><Image size={24} />
                 {candidates.some(item => item.key === 'image')
-                  ? <button type="button" disabled={!enabled} onClick={() => chooseAsset(['image'])}>上传原图，或拖放到此处</button>
+                  ? <button type="button" disabled={!enabled} onClick={() => chooseAsset(['image'])}>
+                    {mode === 'oldx' || mode === 'character_card' ? '上传人物源图，或拖放到此处' : '上传原图，或拖放到此处'}
+                  </button>
                   : <span>运行后在此查看图片</span>}
               </div>}
           </div>

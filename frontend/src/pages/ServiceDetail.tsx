@@ -459,11 +459,17 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
     [svc.workflow_snapshot],
   )
   const [mode, setMode] = useState<'run' | 'edit'>('run')
-  const [imageMode, setImageMode] = useState(
-    typeof initialInputs?.input_mode === 'string' ? initialInputs.input_mode : undefined,
-  )
-  const m = canEdit ? mode : 'run'
   const qwen = isQwenImageWorkflow(svc)
+  const modeParam = svc.exposed_inputs.find(input => input.key === 'input_mode')
+  const [imageMode, setImageMode] = useState(() => {
+    if (initialInputs) {
+      const requested = initialInputs.input_mode ?? modeParam?.default
+      return typeof requested === 'string' ? requested : undefined
+    }
+    const modes = modeParam?.constraints?.enum
+    return qwen && Array.isArray(modes) && modes.includes('moss_text') ? 'moss_text' : undefined
+  })
+  const m = canEdit ? mode : 'run'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {canEdit && (
@@ -473,7 +479,8 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
         </div>
       )}
       {qwen && <div hidden={m !== 'run'}>
-        <PlaygroundTab svc={svc} initialInputs={initialInputs} onImageModeChange={setImageMode} />
+        <PlaygroundTab svc={svc} initialInputs={imageMode ? { ...initialInputs, input_mode: imageMode } : initialInputs}
+          onImageModeChange={setImageMode} />
       </div>}
       {m === 'edit' ? (
         svc.source_type === 'comfy_template' && svc.source_id ? (
