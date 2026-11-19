@@ -157,6 +157,31 @@ async def test_image_route_serves_valid_signed_url(storage_tmp, with_signing_sec
 
 
 @pytest.mark.asyncio
+async def test_image_route_signed_preview_preserves_original(
+    storage_tmp, with_signing_secret, with_login_required, client,
+):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from src.services.image_output_storage import write_image
+
+    buffer = BytesIO()
+    Image.new("RGB", (1920, 1080), "navy").save(buffer, format="PNG")
+    original = buffer.getvalue()
+    rec = write_image(original, ext="png")
+    url = rec["url"]
+
+    preview = await client.get(url + "&preview=1")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"] == "image/webp"
+    assert Image.open(BytesIO(preview.content)).size == (384, 216)
+    assert len(preview.content) < len(original)
+    assert (await client.get(url)).content == original
+    assert (await client.get(url.split("?")[0] + "?preview=1")).status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_image_route_403_on_expired_token(
     storage_tmp, with_signing_secret, with_login_required, client,
 ):

@@ -19,7 +19,7 @@ import {
   RefreshCw, Copy, Play,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useTasks, type ExecutionTask } from '../../api/tasks'
+import { useTaskDetail, type ExecutionTask } from '../../api/tasks'
 import { useServices } from '../../api/services'
 import { useExecutionStore } from '../../stores/execution'
 import { copyTextOrToast } from '../../utils/clipboard'
@@ -92,8 +92,7 @@ function durationLabel(ms: number | null): string {
 export default function TaskDetailModal() {
   const taskId = useExecutionStore((s) => s.detailModalTaskId)
   const close = useExecutionStore((s) => s.closeDetailModal)
-  const { data: tasks } = useTasks()
-  const task = tasks?.find((t) => t.id === taskId) ?? null
+  const { data: task } = useTaskDetail(taskId)
 
   // Esc 关闭
   useEffect(() => {

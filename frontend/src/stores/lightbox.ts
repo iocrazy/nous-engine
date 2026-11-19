@@ -16,6 +16,7 @@ export interface LightboxMeta {
   /** "W×H";缺省时灯箱用 <img> naturalWidth×naturalHeight 兜底。 */
   resolution?: string
   durationMs?: number | null
+  historyTaskId?: string
   /** 「重跑」回调(有则面板显示重跑按钮)。 */
   onRerun?: () => void
   /** 前后对比的基准图 url(对齐 Infinite-Canvas:生成图 vs 输入/源图)。有值则

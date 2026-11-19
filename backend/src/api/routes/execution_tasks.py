@@ -1,13 +1,21 @@
+import base64
+import binascii
+from io import BytesIO
 import logging
+import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select, desc
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
+from anyio import to_thread
+from sqlalchemy import case, select, desc, func
+from sqlalchemy.orm import with_expression
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.database import get_async_session
 from src.models.execution_task import ExecutionTask
 from src.utils.constants import VALID_TASK_STATUSES
 from src.api.websocket import ws_manager
+from src.api.routes.image_files import preview_limiter, render_preview
 # 序列化器下沉到 services 层(打破 workflow_runner→本模块 的反向依赖)。reaper
 # collect_referenced_image_uuids 仍在本文件(用 session),向下 import 抽 url 的纯 helper。
 from src.services.execution_task_serialize import (  # noqa: F401
@@ -33,6 +41,7 @@ async def list_tasks(
     offset: int = 0,
     status: str | None = None,
     workflow_id: str | None = None,
+    include_input: bool = True,
     session: AsyncSession = Depends(get_async_session),
 ):
     # workflow_id 过滤要在 limit/offset 之前 where,否则先截断再过滤会漏。
@@ -46,10 +55,122 @@ async def list_tasks(
             stmt = stmt.where(ExecutionTask.workflow_id == int(workflow_id))
         except (TypeError, ValueError):
             return []
+    if not include_input:
+        params = ExecutionTask.input_json
+        asr_parameters = case((
+            ExecutionTask.workflow_id.is_(None),
+            func.json_build_object("kind", params["kind"], "audio_seconds", params["audio_seconds"]),
+        ))
+        stmt = stmt.options(with_expression(params, asr_parameters))
     stmt = stmt.limit(limit).offset(offset)
     result = await session.execute(stmt)
     tasks = result.scalars().all()
-    return [_task_to_dict(t) for t in tasks]
+    return [_task_to_dict(t, include_input=include_input) for t in tasks]
+
+
+def _video_url(result: object) -> str | None:
+    for node in _iter_node_outputs(result):
+        if not isinstance(node, dict):
+            continue
+        if isinstance(node.get("video_url"), str) and node["video_url"]:
+            return node["video_url"]
+        for item in node.get("items") or []:
+            if isinstance(item, dict) and item.get("kind") == "video":
+                url = item.get("url")
+                if isinstance(url, str) and url:
+                    return url
+    return None
+
+
+@router.get("/gallery")
+async def list_gallery(
+    limit: int = Query(24, ge=1, le=48),
+    before: int | None = Query(None, ge=1, le=2**63 - 1),
+    session: AsyncSession = Depends(get_async_session),
+):
+    t = ExecutionTask
+    scan_limit = limit * 4
+    stmt = (
+        select(t.id, t.workflow_id, t.workflow_name, t.created_at, t.duration_ms, t.result)
+        .where(t.status == "completed", t.result.is_not(None))
+        .order_by(t.id.desc())
+        .limit(scan_limit + 1)
+    )
+    if before is not None:
+        stmt = stmt.where(t.id < before)
+    rows = (await session.execute(stmt)).all()
+    items = []
+    next_before = None
+    for index, row in enumerate(rows[:scan_limit]):
+        urls = _image_urls(row.result)
+        if urls:
+            items.append({
+                "id": str(row.id),
+                "workflow_id": str(row.workflow_id) if row.workflow_id else None,
+                "workflow_name": row.workflow_name,
+                "created_at": row.created_at.isoformat(),
+                "duration_ms": row.duration_ms,
+                "output_thumbnails": [
+                    f"/api/v1/tasks/gallery/{row.id}/image/{slot}" if url.startswith("data:") else url
+                    for slot, url in enumerate(urls)
+                ],
+                "video_url": _video_url(row.result),
+            })
+        if index + 1 < len(rows):
+            next_before = str(row.id)
+        else:
+            next_before = None
+        if len(items) == limit:
+            break
+    return {"items": items, "next_before": next_before}
+
+
+@router.get("/gallery/{task_id}/image/{slot}")
+async def get_gallery_image(
+    task_id: int,
+    slot: int,
+    preview: bool = False,
+    session: AsyncSession = Depends(get_async_session),
+):
+    result = await session.scalar(select(ExecutionTask.result).where(ExecutionTask.id == task_id))
+    urls = _image_urls(result)
+    if not 0 <= slot < len(urls):
+        raise HTTPException(404, "Image not found")
+    header, _, payload = urls[slot].partition(",")
+    match = re.fullmatch(r"data:(image/(?:png|jpeg|webp|gif|bmp|avif));base64", header)
+    if not match:
+        raise HTTPException(404, "Image not found")
+    try:
+        data = base64.b64decode(payload, validate=True)
+    except binascii.Error:
+        raise HTTPException(404, "Image not found") from None
+    headers = {"Cache-Control": "private, max-age=60"}
+    if preview:
+        thumbnail = await to_thread.run_sync(render_preview, BytesIO(data), limiter=preview_limiter)
+        if thumbnail is not None:
+            return Response(thumbnail, media_type="image/webp", headers=headers)
+        raise HTTPException(422, "Image preview unavailable")
+    return Response(data, media_type=match[1], headers=headers)
+
+
+@router.get("/gallery/{task_id}/metadata")
+async def get_gallery_metadata(task_id: int, session: AsyncSession = Depends(get_async_session)):
+    inputs = await session.scalar(select(ExecutionTask.input_json).where(ExecutionTask.id == task_id))
+    entries = [
+        (key, value) for key, value in (inputs or {}).items()
+        if isinstance(value, (str, int, float))
+        and not (isinstance(value, str) and value.startswith("data:"))
+    ]
+    named = [(key, value) for key, value in entries
+             if isinstance(value, str) and value and re.search(r"prompt|提示|描述", key, re.I)]
+    fallback = [(key, value) for key, value in entries
+                if isinstance(value, str) and 20 <= len(value) <= 16_000]
+    prompt_key, prompt = max(named or fallback, key=lambda pair: len(pair[1]), default=(None, ""))
+    fields = [
+        {"label": key, "value": str(value).lower() if isinstance(value, bool) else str(value)[:1000]}
+        for key, value in entries if key != prompt_key
+    ][:64]
+    return {"prompt": prompt[:16_000], "fields": fields}
 
 
 @router.post("/record")

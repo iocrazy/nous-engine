@@ -16,11 +16,18 @@ work), HMAC second (still required for non-admin URLs).
 """
 from __future__ import annotations
 
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
+from typing import BinaryIO
+
 import mimetypes
 import re
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse
+from anyio import CapacityLimiter, to_thread
+from fastapi.responses import FileResponse, Response
+from PIL import Image, ImageOps
 
 from src.api.admin_session import request_is_authed
 from src.errors import NotFoundError, NousError
@@ -28,6 +35,7 @@ from src.services.comfy.outputs import SERVABLE_EXTS as _EXT_WHITELIST
 from src.services.image_output_storage import resolve_path, verify_token
 
 router = APIRouter(tags=["image-files"])
+preview_limiter = CapacityLimiter(4)
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -57,6 +65,24 @@ def _mime_for_ext(ext: str) -> str:
     return guessed or "application/octet-stream"
 
 
+def render_preview(source: Path | BinaryIO) -> bytes | None:
+    try:
+        with Image.open(source) as image:
+            image.draft("RGB", (384, 384))
+            ImageOps.exif_transpose(image, in_place=True)
+            image.thumbnail((384, 384), Image.Resampling.LANCZOS)
+            buffer = BytesIO()
+            image.save(buffer, format="WEBP", quality=78)
+            return buffer.getvalue()
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return None
+
+
+@lru_cache(maxsize=128)
+def _file_preview(path: Path, mtime_ns: int) -> bytes | None:
+    return render_preview(path)
+
+
 @router.get("/files/images/{date}/{uuid_filename}")
 async def get_image(
     request: Request,
@@ -64,6 +90,7 @@ async def get_image(
     uuid_filename: str,
     token: str = "",
     expires: int = 0,
+    preview: bool = False,
 ):
     # Validate URL components BEFORE touching disk so a malformed request
     # can't be used to probe the filesystem layout. These checks run
@@ -114,9 +141,16 @@ async def get_image(
     else:
         cache_header = f"private, max-age={max(0, expires - _now_ts())}"
 
+    media_type = _mime_for_ext(ext)
+    if preview and media_type.startswith("image/"):
+        data = await to_thread.run_sync(_file_preview, path, path.stat().st_mtime_ns, limiter=preview_limiter)
+        if data is None:
+            raise NotFoundError("image preview unavailable", code="image_preview_unavailable")
+        return Response(data, media_type="image/webp", headers={"Cache-Control": cache_header})
+
     return FileResponse(
         path=str(path),
-        media_type=_mime_for_ext(ext),
+        media_type=media_type,
         headers={"Cache-Control": cache_header},
     )
 

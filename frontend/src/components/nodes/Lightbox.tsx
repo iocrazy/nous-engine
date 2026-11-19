@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X, Copy, RefreshCw, Download, DownloadCloud, Columns2 } from 'lucide-react'
 import { useLightboxStore, type LightboxMeta } from '../../stores/lightbox'
 import { IDENTITY, clampPan, zoomAt, type ZoomState } from './lightboxZoom'
+import { apiFetch } from '../../api/client'
 import { copyTextOrToast } from '../../utils/clipboard'
 
 // 全屏图片预览(对齐 Infinite-Canvas):←/→ 切上/下一张,Esc/点击空白关闭。
@@ -225,9 +226,25 @@ export default function Lightbox() {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, close, next, prev])
 
+  const currentMeta = metas[index]
+  const historyTaskId = open ? currentMeta?.historyTaskId : undefined
+  const [historyMeta, setHistoryMeta] = useState<{ id: string; info: Pick<LightboxMeta, 'prompt' | 'fields'> }>()
+  useEffect(() => {
+    if (!historyTaskId) return
+    const controller = new AbortController()
+    apiFetch<Pick<LightboxMeta, 'prompt' | 'fields'>>(
+      `/api/v1/tasks/gallery/${encodeURIComponent(historyTaskId)}/metadata`, { signal: controller.signal },
+    ).then((info) => {
+      if (!controller.signal.aborted) setHistoryMeta({ id: historyTaskId, info })
+    }).catch(() => undefined)
+    return () => controller.abort()
+  }, [historyTaskId])
+
   if (!open || !images.length) return null
   const url = images[index]
-  const meta = metas[index]
+  const meta = historyMeta && historyMeta.id === historyTaskId
+    ? { ...currentMeta, ...historyMeta.info }
+    : currentMeta
   const kind = kinds[index] ?? 'image'
   const isVideo = kind === 'video'
   const multi = images.length > 1

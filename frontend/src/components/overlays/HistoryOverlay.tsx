@@ -1,110 +1,62 @@
-// 历史出图画廊(spec 2026-06-09 run-history PR-B,借鉴 Infinite-Canvas history)。
-// 拉最近 task,筛出带 output_thumbnails 的出图记录 → 网格画廊;hover 卡片可「重跑」
-// (复用 PR-A:按 workflow_id 找服务跳 Playground 回填 input_json)/「删除」;点图开共享灯箱
-// (缩放/平移 + 元信息面板:prompt/参数/时长/重跑;spec 2026-06-10)。
-import { useMemo, useState } from 'react'
+import { useRef, useState } from 'react'
 import { X, RefreshCw, Trash2, Play } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { usePanelStore } from '../../stores/panel'
 import { confirmDialog } from '../../stores/confirm'
-import { useImageTasks, useDeleteTask, type ExecutionTask } from '../../api/tasks'
+import { getTask, useImageTasks, useDeleteTask, type GalleryTask } from '../../api/tasks'
+import { useToastStore } from '../../stores/toast'
 import { useServices } from '../../api/services'
 import { useLightboxStore, type LightboxItem, type LightboxMeta } from '../../stores/lightbox'
 
 export default function HistoryOverlay() {
   const setOverlay = usePanelStore((s) => s.setOverlay)
   const navigate = useNavigate()
-  const { data: tasks, isLoading } = useImageTasks()
+  const [cursors, setCursors] = useState<(string | null)[]>([null])
+  const { data, isPending, isError, refetch } = useImageTasks(cursors[cursors.length - 1])
+  const items = data?.items
   const { data: services } = useServices()
   const del = useDeleteTask()
   const openItems = useLightboxStore((s) => s.openItems)
 
-  const items = useMemo(
-    () => (tasks ?? []).filter((t) => (t.output_thumbnails?.length ?? 0) > 0),
-    [tasks],
-  )
+  const serviceFor = (task: GalleryTask) =>
+    services?.find((service) => service.workflow_id && service.workflow_id === task.workflow_id)
 
-  // 视频产物检测(Task 11):comfy bridge 节点 result 形状是 `{outputs:{node_id:envelope}}`
-  // (或旧 fake 测试的 flat `{node_id:envelope}`),envelope 带 video_url 或
-  // items[].kind==='video'(见 execution_task_serialize.py _iter_node_outputs/_image_urls)。
-  // 卡片缩略图仍走 output_thumbnails[0](ffmpeg 首帧 PNG),灯箱条目则要换成这个视频 url。
-  const findVideoUrl = (result: unknown): string | undefined => {
-    if (!result || typeof result !== 'object') return undefined
-    const r = result as Record<string, unknown>
-    const outputsField = r.outputs
-    const nodeOutputs = outputsField && typeof outputsField === 'object'
-      ? Object.values(outputsField as Record<string, unknown>)
-      : Object.values(r)
-    for (const v of nodeOutputs) {
-      if (!v || typeof v !== 'object') continue
-      const vv = v as Record<string, unknown>
-      if (typeof vv.video_url === 'string' && vv.video_url) return vv.video_url
-      for (const item of (Array.isArray(vv.items) ? vv.items : [])) {
-        if (item && typeof item === 'object') {
-          const it = item as Record<string, unknown>
-          if (it.kind === 'video' && typeof it.url === 'string' && it.url) return it.url
-        }
+  const rerun = async (task: GalleryTask) => {
+    const service = serviceFor(task)
+    if (!service) return
+    try {
+      const detail = await getTask(task.id)
+      setOverlay(null)
+      navigate(`/services/${service.id}`, { state: { rerunInputs: detail.input_json } })
+    } catch {
+      useToastStore.getState().add('读取任务参数失败，请重试', 'error')
+    }
+  }
+
+  const openTask = (task: GalleryTask) => {
+    const gallery: LightboxItem[] = []
+    let startIndex = 0
+    for (const item of items ?? []) {
+      if (item.id === task.id) startIndex = gallery.length
+      const meta: LightboxMeta = {
+        historyTaskId: item.id,
+        durationMs: item.duration_ms,
+        onRerun: serviceFor(item) ? () => rerun(item) : undefined,
       }
-    }
-    return undefined
-  }
-
-  const canRerun = (t: ExecutionTask) =>
-    !!services?.find((s) => !!s.workflow_id && s.workflow_id === t.workflow_id)
-
-  const rerun = (t: ExecutionTask) => {
-    const svc = services?.find((s) => !!s.workflow_id && s.workflow_id === t.workflow_id)
-    if (!svc) return
-    setOverlay(null)
-    navigate(`/services/${svc.id}`, { state: { rerunInputs: t.input_json } })
-  }
-
-  // 一个 task 的元信息:prompt(input_json 里最长字符串/带 prompt 关键字)+ 其余字段 + 时长 + 重跑。
-  const taskMeta = (t: ExecutionTask): LightboxMeta => {
-    const inp = (t.input_json ?? {}) as Record<string, unknown>
-    const entries = Object.entries(inp).filter(
-      ([, v]) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean',
-    )
-    let prompt: string | undefined
-    let promptKey: string | undefined
-    for (const [k, v] of entries) {
-      if (typeof v === 'string' && (/prompt|提示|描述/i.test(k) || v.length >= 20)) {
-        if (!prompt || v.length > prompt.length) { prompt = v; promptKey = k }
-      }
-    }
-    const fields = entries
-      .filter(([k]) => k !== promptKey)
-      .map(([k, v]) => ({ label: k, value: String(v) }))
-    return {
-      prompt,
-      fields,
-      durationMs: (t.duration_ms as number | null | undefined) ?? null,
-      onRerun: canRerun(t) ? () => rerun(t) : undefined,
-    }
-  }
-
-  // 全画廊扁平图集(跨 task 多图)+ 每 task 首图的全局索引(点卡片定位)+ 每 task 检出的
-  // 视频 url(Card 判 isVideo/占位缩略同一份数据,免得渲染时再调一遍 findVideoUrl)。
-  const { gallery, startIndex, videoUrlByTaskId } = useMemo(() => {
-    const g: LightboxItem[] = []
-    const start = new Map<string | number, number>()
-    const videoMap = new Map<string | number, string>()
-    for (const t of items) {
-      start.set(t.id, g.length)
-      const meta = taskMeta(t)
-      const videoUrl = findVideoUrl(t.result)
-      if (videoUrl) {
-        // 视频任务:灯箱条目是视频 url(不是 PNG 首帧缩略),kind='video' 让 Lightbox
-        // 切到 <video> 分支;卡片缩略图仍走 output_thumbnails[0](见下方 Card 调用)。
-        videoMap.set(t.id, videoUrl)
-        g.push({ url: videoUrl, meta, kind: 'video' })
+      if (item.video_url) {
+        gallery.push({ url: item.video_url, meta, kind: 'video' })
       } else {
-        for (const url of t.output_thumbnails ?? []) g.push({ url, meta })
+        for (const url of item.output_thumbnails) gallery.push({ url, meta })
       }
     }
-    return { gallery: g, startIndex: start, videoUrlByTaskId: videoMap }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, services])
+    openItems(gallery, startIndex)
+  }
+
+  const gridRef = useRef<HTMLDivElement>(null)
+  const changePage = (next: (string | null)[]) => {
+    setCursors(next)
+    gridRef.current?.scrollTo({ top: 0 })
+  }
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
@@ -114,7 +66,7 @@ export default function HistoryOverlay() {
         style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}
       >
         <h1 className="console-title">历史生成</h1>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{items.length} 张</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{items?.length ?? 0} 条</span>
         <button
           type="button"
           onClick={() => setOverlay(null)}
@@ -126,12 +78,16 @@ export default function HistoryOverlay() {
       </div>
 
       {/* grid */}
-      <div className="console-page flex-1 overflow-auto">
-        {isLoading ? (
+      <div ref={gridRef} className="console-page flex-1 overflow-auto">
+        {isPending ? (
           <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 40 }}>加载中…</div>
-        ) : items.length === 0 ? (
+        ) : isError ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            加载历史失败 <button type="button" onClick={() => refetch()}>重试</button>
+          </div>
+        ) : !items?.length ? (
           <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 60 }}>
-            还没有出图记录 — 到服务 Playground 跑一次就会出现在这里。
+            {data?.next_before || cursors.length > 1 ? '这一页没有图像或视频。' : '还没有出图记录。'}
           </div>
         ) : (
           <div
@@ -142,21 +98,15 @@ export default function HistoryOverlay() {
             }}
           >
             {items.map((t) => {
-              const thumb = t.output_thumbnails![0]
-              const videoUrl = videoUrlByTaskId.get(t.id)
-              const isVideo = !!videoUrl
-              // ffmpeg 缺省/抽帧失败(thumbnail.py extract_first_frame → None)时
-              // output_thumbnails[0] 退化成 video_url 本身(见 _image_urls)—— 这种情况没有
-              // 独立 PNG 缩略,不能拿视频文件当 <img src> 渲染(碎图),Card 走占位图标分支。
-              const hasDistinctThumb = !isVideo || thumb !== videoUrl
+              const thumb = t.output_thumbnails[0]
               return (
                 <Card
                   key={t.id}
                   task={t}
-                  thumb={hasDistinctThumb ? thumb : undefined}
-                  isVideo={isVideo}
-                  canRerun={canRerun(t)}
-                  onOpen={() => openItems(gallery, startIndex.get(t.id) ?? 0)}
+                  thumb={thumb === t.video_url ? undefined : thumb}
+                  isVideo={!!t.video_url}
+                  canRerun={!!serviceFor(t)}
+                  onOpen={() => openTask(t)}
                   onRerun={() => rerun(t)}
                   onDelete={async () => {
                     if (await confirmDialog({ message: '删除这条出图记录?', danger: true, confirmText: '删除' })) del.mutate(t.id)
@@ -166,6 +116,17 @@ export default function HistoryOverlay() {
             })}
           </div>
         )}
+        {(cursors.length > 1 || data?.next_before) && (
+          <nav aria-label="历史分页" className="flex items-center justify-center gap-3 p-4">
+            <button type="button" disabled={cursors.length === 1}
+              onClick={() => changePage(cursors.slice(0, -1))}>上一页</button>
+            <span>第 {cursors.length} 页</span>
+            <button type="button" disabled={!data?.next_before}
+              onClick={() => {
+                if (data?.next_before) changePage([...cursors, data.next_before])
+              }}>下一页</button>
+          </nav>
+        )}
       </div>
     </div>
   )
@@ -174,7 +135,7 @@ export default function HistoryOverlay() {
 function Card({
   task, thumb, isVideo, canRerun, onOpen, onRerun, onDelete,
 }: {
-  task: ExecutionTask
+  task: GalleryTask
   /** 缺省 → 无独立 PNG 缩略(ffmpeg 缺省/抽帧失败),渲染占位视频图标而非 <img>。 */
   thumb: string | undefined
   isVideo: boolean
@@ -184,7 +145,9 @@ function Card({
   onDelete: () => void
 }) {
   const [hover, setHover] = useState(false)
-  const summary = task.input_json ? JSON.stringify(task.input_json) : (task.workflow_name || '—')
+  const previewUrl = thumb && /^\/(?:files\/images\/|api\/v1\/tasks\/gallery\/)/.test(thumb)
+    ? `${thumb}${thumb.includes('?') ? '&' : '?'}preview=1`
+    : thumb
   return (
     <div
       onMouseEnter={() => setHover(true)}
@@ -196,7 +159,7 @@ function Card({
     >
       <div style={{ position: 'relative', aspectRatio: '1 / 1', background: 'var(--bg)', cursor: 'zoom-in' }} onClick={onOpen}>
         {thumb ? (
-          <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <img src={previewUrl} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         ) : (
           <div
             role="img"
@@ -260,11 +223,11 @@ function Card({
       <div style={{ padding: '7px 9px' }}>
         <div style={{
           fontSize: 11, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }} title={summary}>
-          {summary}
+        }} title={task.workflow_name}>
+          {task.workflow_name || '—'}
         </div>
         <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
-          {task.workflow_name} · {new Date(task.created_at).toLocaleString()}
+          {new Date(task.created_at).toLocaleString()}
         </div>
       </div>
     </div>
