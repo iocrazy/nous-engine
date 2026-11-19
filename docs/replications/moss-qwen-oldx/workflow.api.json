@@ -1570,10 +1570,10 @@
       ],
       "lora_01": "moss/KOOK-MOSS-SFT-观澜.safetensors",
       "strength_01": 1,
-      "lora_02": "moss/TJFilmMossV2.safetensors",
-      "strength_02": 0.7,
+      "lora_02": "moss/feverdream-epoch-07.safetensors",
+      "strength_02": 0.5,
       "lora_03": "None",
-      "strength_03": 1,
+      "strength_03": 0.7,
       "lora_04": "None",
       "strength_04": 1
     }

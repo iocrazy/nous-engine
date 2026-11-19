@@ -22,7 +22,15 @@ const MODE_DETAILS = {
 type Preview = 'source' | 'result' | 'compare'
 type SeedPolicy = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-const advancedField = /^(?:seed|lora_|strength_|use_deepseek|ignore_edit_mask|moss_(steps|cfg|lora)|oldx_(strength|cfg))/
+const advancedField = /^(?:seed|lora_|strength_|ignore_edit_mask|moss_(steps|cfg|lora)|oldx_(strength|cfg))/
+const controlOrder: Record<string, number> = {
+  reference_engine: 0,
+  prompt: 1,
+  enable_optimization: 2,
+  use_deepseek: 3,
+  enable_upscale: 5,
+  edit_upscale_resolution: 6,
+}
 const referenceImage = /^image_[2-6]$/
 const toImageUrl = (value: unknown) => typeof value === 'string' &&
   /^(data:image\/|\/|https?:\/\/)/i.test(value) ? value : undefined
@@ -66,6 +74,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   }))
   const [natural, setNatural] = useState<{ url: string; size: SourceDimensions }>()
   const [preview, setPreview] = useState<Preview>('result')
+  const [comparison, setComparison] = useState<'side-by-side' | 'slider'>('side-by-side')
+  const [split, setSplit] = useState(50)
   const [asset, setAsset] = useState('image')
   const [maskOpen, setMaskOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -81,6 +91,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const active = inputs.filter(param => {
     const key = paramKey(param)
     if (!key || !isFieldVisible(param, values)) return false
+    if (key === 'use_deepseek' && mode !== 'reference' && values.enable_optimization === false) return false
     if (mode !== 'reference' || !Object.hasOwn(values, 'reference_engine')) return true
     if (key === 'moss_megapixels' || key === 'moss_aspect_ratio') return values.reference_engine === 'moss'
     if (key === 'megapixels' || key === 'aspect_ratio') return values.reference_engine !== 'moss'
@@ -202,6 +213,16 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         </div>
       )
     }
+    if (key === 'use_deepseek') {
+      return <label key={key} className="qwen-optimizer">
+        <span>提示词优化模型</span>
+        <select value={values[key] === true ? 'deepseek' : 'local'}
+          onChange={event => update(key, event.currentTarget.value === 'deepseek')}>
+          <option value="local">本机 Qwen</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+      </label>
+    }
     if (classifyField(param) === 'boolean') {
       return <label key={key} className="qwen-toggle">
         <input type="checkbox" checked={Boolean(values[key])}
@@ -220,7 +241,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     : preview === 'result' && resultUrl ? 'result' : 'source'
   const advance = controls.filter(param => advancedField.test(paramKey(param)!))
   const primary = controls.filter(param => !advancedField.test(paramKey(param)!))
-    .sort((a, b) => Number(paramKey(b) === 'reference_engine') - Number(paramKey(a) === 'reference_engine'))
+    .sort((a, b) => (controlOrder[paramKey(a)!] ?? 4) - (controlOrder[paramKey(b)!] ?? 4))
 
   return (
     <form className="qwen-playground" onSubmit={submit}>
@@ -283,6 +304,12 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   onClick={() => setPreview(id)}>{title}</button>)}
             </div>
           </header>
+          {view === 'compare' && <div className="qwen-compare-modes" aria-label="对照方式">
+            <button type="button" aria-pressed={comparison === 'side-by-side'}
+              onClick={() => setComparison('side-by-side')}>并排</button>
+            <button type="button" aria-pressed={comparison === 'slider'}
+              onClick={() => setComparison('slider')}>滑动对比</button>
+          </div>}
           <div className="qwen-stage" onDragOver={event => {
             if (enabled && candidates.some(item => item.key === 'image') && event.dataTransfer.types.includes('Files')) event.preventDefault()
           }} onDrop={event => {
@@ -298,11 +325,25 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                 ...previous,
                 ...Object.fromEntries(Object.entries(extent).map(([key, value]) => [`outpaint_${key}`, value])),
               }))} /> : view === 'compare' && source && resultUrl ? (
+              comparison === 'slider' ? (
+                <div className="qwen-compare-slider">
+                  <img src={resultUrl} alt="生成结果" draggable={false} />
+                  <img src={source} alt="原图" draggable={false} style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }} />
+                  <span className="qwen-compare-label source">原图</span>
+                  <span className="qwen-compare-label result">结果</span>
+                  <div className="qwen-compare-divider" style={{ left: `${split}%` }} aria-hidden="true">
+                    <span>↔</span>
+                  </div>
+                  <input className="qwen-compare-range" aria-label="拖动分隔线比较原图与结果" type="range"
+                    min={0} max={100} value={split} onChange={event => setSplit(Number(event.currentTarget.value))} />
+                </div>
+              ) : (
                 <div className="qwen-compare">
                   <figure><img src={source} alt="原图" /><figcaption>原图</figcaption></figure>
                   <figure><img src={resultUrl} alt="生成结果" /><figcaption>结果</figcaption></figure>
                 </div>
-              ) : view === 'result' && resultUrl ? <img src={resultUrl} alt="生成结果" />
+              )
+            ) : view === 'result' && resultUrl ? <img src={resultUrl} alt="生成结果" />
               : previewSource ? <img src={previewSource} alt={asset === 'mask' ? '遮罩' : '输入图片'} />
               : <div className="qwen-stage-empty"><Image size={24} />
                 {candidates.some(item => item.key === 'image')

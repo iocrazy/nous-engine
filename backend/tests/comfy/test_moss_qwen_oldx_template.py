@@ -127,3 +127,18 @@ async def test_replace_existing_service_without_changing_its_route(client):
     assert schema["input_schema"]["properties"]["input_mode"]["default"] == "text"
     assert set(schema["input_schema"]["properties"]["input_mode"]["enum"]) == set(SCHEMA["properties"]["input_mode"]["enum"])
     assert set(schema["output_schema"]["properties"]) == {"image_url"}
+
+
+def test_moss_loras_follow_the_canvas_order_and_enabled_state():
+    inputs = WORKFLOW["397"]["inputs"]
+    assert [
+        (inputs[f"lora_{index:02d}"], inputs[f"strength_{index:02d}"]) for index in range(1, 4)
+    ] == [
+        ("moss/KOOK-MOSS-SFT-观澜.safetensors", 1),
+        ("moss/feverdream-epoch-07.safetensors", 0.5),
+        ("None", 0.7),
+    ]
+    params = {param.key: param for param in PARAMS}
+    assert params["moss_lora_film_strength"].comfy_input == "strength_03"
+    assert "moss/TJFilmMossV2.safetensors" in SCHEMA["properties"]["moss_lora_film"]["enum"]
+    assert "reference" in SCHEMA["properties"]["use_deepseek"]["x-visible-when"]["input_mode"]

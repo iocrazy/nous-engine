@@ -121,6 +121,7 @@ def build(export, canvas):
         inputs(node)["image"] = "example.png"
 
     scalar_loras(166, "Qwen 编辑 LoRA", 471, previous_graph["166"]["inputs"])
+    moss_loras = {index: inputs(397).get(f"lora_{index}") for index in range(1, 5)}
     scalar_loras(397, "MOSS 风格 LoRA", 396)
     scalar_loras(514, "OLDX 人物替换 LoRA", 471)
     for node in (166, 173, 274, 514):
@@ -199,7 +200,9 @@ def build(export, canvas):
     for key in ("image", "mask"):
         fields[key].pop("omit_when_empty", None)
     fields["enable_optimization"]["visible_when"]["input_mode"] += ["moss_text"]
-    fields["use_deepseek"]["visible_when"]["input_mode"] = ["edit", "text", "moss_text", *OLDX_MODES]
+    fields["use_deepseek"].update(label="提示词优化模型", visible_when={
+        "input_mode": ["edit", "text", "reference", "moss_text", *OLDX_MODES],
+    })
     postprocess_modes = [key for key in MODE_OPTIONS if key != "upscale"]
     fields["enable_upscale"].update(label="处理后高清放大", visible_when={"input_mode": postprocess_modes})
     fields["edit_upscale_resolution"].update(label="放大短边（px）", visible_when={
@@ -218,10 +221,6 @@ def build(export, canvas):
          {"min": 1, "max": 60, "step": 1}),
         ("moss_cfg", "MOSS 提示词引导（CFG）", "number", 404, "cfg", inputs(404)["cfg"], "moss_text",
          {"min": 1, "max": 10, "step": 0.1}),
-        ("moss_lora_main_strength", "MOSS 观澜 LoRA 强度", "number", 397, "strength_01",
-         inputs(397)["strength_01"], "moss_text", {"min": 0, "max": 2, "step": 0.05}),
-        ("moss_lora_film_strength", "MOSS 电影风格 LoRA 强度", "number", 397, "strength_02",
-         inputs(397)["strength_02"], "moss_text", {"min": 0, "max": 2, "step": 0.05}),
         ("oldx_target", "姿势与场景参考", "image", 711, "image", None, "oldx",
          {"required_when": {"input_mode": "oldx"}}),
         ("oldx_reference", "补充参考图", "image", 713, "image", None, OLDX_MODES, {"omit_when_empty": True}),
@@ -234,6 +233,25 @@ def build(export, canvas):
     ]
     for key, label, kind, node, arg, default, modes, options in maps:
         map_field(key, label, kind, node, arg, default, modes, **options)
+
+    moss_slots = {
+        "KOOK-MOSS-SFT-观澜.safetensors": ("main", "观澜"),
+        "feverdream-epoch-07.safetensors": ("dream", "FeverDream"),
+        "TJFilmMossV2.safetensors": ("film", "TJFilmMossV2"),
+    }
+    for index, preset in moss_loras.items():
+        if not preset or not preset.get("lora"):
+            continue
+        file = preset["lora"]
+        slug, label = moss_slots.get(file.rsplit("/", 1)[-1], (f"slot_{index}", file.rsplit("/", 1)[-1]))
+        key = f"moss_lora_{slug}"
+        slot = f"lora_{index:02d}"
+        strength = f"strength_{index:02d}"
+        map_field(key, f"{index}. {label} LoRA", "string", 397, slot, inputs(397)[slot], "moss_text",
+                  options=[{"value": file, "label": "启用"}, {"value": "None", "label": "关闭"}])
+        map_field(f"{key}_strength", f"{label} 强度", "number", 397, strength, inputs(397)[strength], "moss_text",
+                  min=0, max=2, step=0.05)
+        fields[f"{key}_strength"]["visible_when"][key] = file
 
     active = {}
 
