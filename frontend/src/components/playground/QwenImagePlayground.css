@@ -24,6 +24,7 @@
 .qwen-playground button:disabled, .qwen-mask button:disabled { opacity: .55; }
 .qwen-workspace { display: grid; grid-template-columns: minmax(260px, 310px) minmax(0, 1fr); gap: 10px; align-items: start; }
 .qwen-panel { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.qwen-parameters { overflow: visible; }
 .qwen-panel > header, .qwen-panel > footer, .qwen-mask > header, .qwen-mask > footer {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
   padding: 9px 10px;

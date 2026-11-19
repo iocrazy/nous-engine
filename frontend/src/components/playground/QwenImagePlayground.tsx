@@ -239,7 +239,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         })}
       </div>}
       <div className="qwen-workspace">
-        <section className="qwen-panel" aria-label="运行参数">
+        <section className="qwen-panel qwen-parameters" aria-label="运行参数">
           <header><strong>运行参数</strong></header>
           <fieldset disabled={!enabled} className="qwen-settings">
             {modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
