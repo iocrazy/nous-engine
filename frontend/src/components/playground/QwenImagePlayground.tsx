@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Brush, Dices, Expand, Focus, Image, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from './SchemaDrivenForm'
 import { classifyField, defaultFor, isFieldRequired, isFieldVisible, optionDependency, staticOptions } from './fieldKind'
@@ -7,7 +7,10 @@ import ImageMaskDialog from './ImageMaskDialog'
 import OutpaintFrame, { type OutpaintValues, type SourceDimensions } from './OutpaintFrame'
 import './QwenImagePlayground.css'
 
+const COMIC_MODE = { value: 'comic_real', label: '漫｜真互转' } as const
+
 const MODE_DETAILS = {
+  [COMIC_MODE.value]: { icon: ArrowLeftRight, action: '转换图片', help: '在漫画风格和真人风格间转换。' },
   moss_text: { icon: Sparkles, action: '用 MOSS 生图', help: '输入场景描述，设置 MOSS 画幅与生成像素。' },
   text: { icon: Sparkles, action: '生成图片', help: '用 Qwen Image 2.1 从提示词生图。' },
   reference: { icon: ScanLine, action: '反推并生图', help: '上传一张原图，再选择反推后用 MOSS 或 Qwen 重新生图。' },
@@ -74,6 +77,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   }))
   const [natural, setNatural] = useState<{ url: string; size: SourceDimensions }>()
   const [preview, setPreview] = useState<Preview>('result')
+  const [showComicPlaceholder, setShowComicPlaceholder] = useState(false)
   const [comparison, setComparison] = useState<'side-by-side' | 'slider'>('side-by-side')
   const [split, setSplit] = useState(50)
   const [asset, setAsset] = useState('image')
@@ -98,6 +102,9 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     return true
   })
   const modeParam = active.find(param => paramKey(param) === 'input_mode')
+  const modeOptions = modeParam ? staticOptions(modeParam) : []
+  const comicAvailable = modeOptions.some(option => option.value === COMIC_MODE.value)
+  const comicPlaceholder = showComicPlaceholder && !comicAvailable
   const modeDetail = MODE_DETAILS[mode as keyof typeof MODE_DETAILS]
   const candidates = active.flatMap(param => {
     const key = paramKey(param)!
@@ -153,7 +160,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!enabled) return
+    if (!enabled || comicPlaceholder) return
     const payload: Record<string, unknown> = {}
     let usedSeed: { param: ExposedParam; value: number } | undefined
     for (const param of active) {
@@ -254,20 +261,34 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   return (
     <form className="qwen-playground" onSubmit={submit}>
       {modeParam && <div className="qwen-modes" role="radiogroup" aria-label="功能模式">
-        {staticOptions(modeParam).map(option => {
+        {(comicAvailable ? modeOptions : [...modeOptions, COMIC_MODE]).map(option => {
+          const isComic = option.value === COMIC_MODE.value
           const Glyph = MODE_DETAILS[option.value as keyof typeof MODE_DETAILS]?.icon ?? Image
           return <label key={String(option.value)}>
-            <input type="radio" name="qwen-mode" checked={option.value === mode} disabled={!enabled}
+            <input type="radio" name="qwen-mode" checked={comicPlaceholder ? isComic : option.value === mode} disabled={!enabled}
               onChange={() => {
+                const placeholder = isComic && !comicAvailable
+                setShowComicPlaceholder(placeholder)
+                if (placeholder || option.value === mode) return
                 update('input_mode', option.value)
                 onModeChange?.(String(option.value))
                 setPreview('source')
               }} />
-            <Glyph size={15} />{option.label ?? String(option.value)}
+            <Glyph size={15} />{isComic ? COMIC_MODE.label : option.label ?? String(option.value)}
           </label>
         })}
       </div>}
-      <div className="qwen-workspace">
+      {comicPlaceholder ? (
+        <section className="qwen-panel" aria-label={COMIC_MODE.label}>
+          <header><strong>{COMIC_MODE.label}</strong></header>
+          <div className="qwen-stage">
+            <div className="qwen-stage-empty">
+              <ArrowLeftRight size={24} aria-hidden="true" />
+              <span>等待 ComfyUI 工作流接入</span>
+            </div>
+          </div>
+        </section>
+      ) : <div className="qwen-workspace">
         <section className="qwen-panel qwen-parameters" aria-label="运行参数">
           <header><strong>运行参数</strong></header>
           <fieldset disabled={!enabled} className="qwen-settings">
@@ -368,7 +389,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
             {resultUrl && <a href={resultUrl} download>下载结果</a>}
           </div>}
         </section>
-      </div>
+      </div>}
       {source && <img key={source} src={source} alt="" hidden onLoad={event => {
         setNatural({ url: source, size: { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight } })
       }} />}
@@ -377,7 +398,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         event.currentTarget.value = ''
         void loadFiles(chosen, fileSlots.current)
       }} />
-      {maskOpen && source && dims && hasMask && <ImageMaskDialog source={source} dimensions={dims} existing={mask}
+      {!comicPlaceholder && maskOpen && source && dims && hasMask && <ImageMaskDialog source={source} dimensions={dims} existing={mask}
         onClose={() => setMaskOpen(false)} onSave={value => { update('mask', value); setMaskOpen(false) }} />}
     </form>
   )

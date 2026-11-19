@@ -111,3 +111,32 @@ it('对照可以在并排与滑动之间切换', () => {
   fireEvent.click(screen.getByRole('button', { name: '并排' }))
   expect(screen.queryByRole('slider', { name: '拖动分隔线比较原图与结果' })).not.toBeInTheDocument()
 })
+
+it('漫｜真互转待接入时不提交任务或改变工作流模式', () => {
+  const onRun = vi.fn()
+  const onModeChange = vi.fn()
+  const { container } = render(<QwenImagePlayground inputs={fields}
+    initialInputs={{ seed: 42 }} resultUrl="/result.png" running={false} onRun={onRun} onModeChange={onModeChange} />)
+
+  fireEvent.click(screen.getByRole('radio', { name: '漫｜真互转' }))
+  expect(screen.getByRole('radio', { name: '漫｜真互转' })).toBeChecked()
+  expect(screen.getByText('等待 ComfyUI 工作流接入')).toBeVisible()
+  expect(screen.queryByRole('button', { name: '生成图片' })).not.toBeInTheDocument()
+  fireEvent.submit(container.querySelector('form')!)
+  expect(onRun).not.toHaveBeenCalled()
+  expect(onModeChange).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('radio', { name: 'text' }))
+  expect(screen.getByRole('link', { name: '下载结果' })).toHaveAttribute('href', '/result.png')
+  fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
+  expect(onRun).toHaveBeenCalledWith({ input_mode: 'text', seed: 42 })
+})
+
+it('工作流提供漫｜真互转模式后，使用后端模式提交', () => {
+  const onRun = vi.fn()
+  const configured = [{ ...fields[0], constraints: { enum: ['text', 'comic_real'] } }, ...fields.slice(1)]
+  render(<QwenImagePlayground inputs={configured} initialInputs={{ seed: 42 }} running={false} onRun={onRun} />)
+  fireEvent.click(screen.getByRole('radio', { name: '漫｜真互转' }))
+  fireEvent.click(screen.getByRole('button', { name: '转换图片' }))
+  expect(onRun).toHaveBeenCalledWith({ input_mode: 'comic_real', seed: 42 })
+})
