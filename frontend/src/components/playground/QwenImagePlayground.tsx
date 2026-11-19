@@ -202,6 +202,13 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         </div>
       )
     }
+    if (classifyField(param) === 'boolean') {
+      return <label key={key} className="qwen-toggle">
+        <input type="checkbox" checked={Boolean(values[key])}
+          onChange={event => update(key, event.currentTarget.checked)} />
+        {param.label || key}
+      </label>
+    }
     const dependency = optionDependency(param)
     return <Field key={key} param={{ ...param, required: isFieldRequired(param, values) }} value={values[key]}
       dependsValue={dependency ? String(values[dependency.dependsOn] ?? '') : undefined}
@@ -213,6 +220,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     : preview === 'result' && resultUrl ? 'result' : 'source'
   const advance = controls.filter(param => advancedField.test(paramKey(param)!))
   const primary = controls.filter(param => !advancedField.test(paramKey(param)!))
+    .sort((a, b) => Number(paramKey(b) === 'reference_engine') - Number(paramKey(a) === 'reference_engine'))
 
   return (
     <form className="qwen-playground" onSubmit={submit}>
