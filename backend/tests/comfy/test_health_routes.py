@@ -118,6 +118,52 @@ async def test_free_propagates_comfy_error(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_health_reports_comfy_main_process_memory(client, monkeypatch):
+    from src.services.comfy import sidecar_status
+
+    async def local_sidecar():
+        return {"main_pid": 1234}
+
+    def rss(pid):
+        assert pid == 1234
+        return 4 * 1024 ** 3
+
+    monkeypatch.setattr(sidecar_status, "sidecar_status", local_sidecar)
+    monkeypatch.setattr(ct_mod, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(ct_mod, "_process_rss_bytes", rss)
+    response = await client.get("/api/v1/comfy/health")
+    assert response.json()["process_rss_bytes"] == 4 * 1024 ** 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("online", "depth", "render", "status"), [
+    (True, 0, None, 200),
+    (True, 1, None, 409),
+    (True, 0, {"task_id": "123", "held_seconds": 4}, 409),
+    (False, 0, None, 503),
+])
+async def test_idle_only_free_checks_queue_and_active_render(client, monkeypatch, online, depth, render, status):
+    from src.services.nodes import comfy_bridge
+
+    released = []
+
+    class Sidecar(FakeClient):
+        async def health(self):
+            return {"online": online, "queue_depth": depth}
+
+        async def free(self):
+            released.append(True)
+
+    monkeypatch.setattr(ct_mod, "get_client", Sidecar)
+    monkeypatch.setattr(ct_mod, "_FREE_POLL_INTERVAL", 0)
+    monkeypatch.setattr(comfy_bridge, "get_running_render", lambda: render)
+
+    response = await client.post("/api/v1/comfy/free?idle_only=true")
+    assert response.status_code == status
+    assert bool(released) == (status == 200)
+
+
+@pytest.mark.asyncio
 async def test_object_info_cached(client, monkeypatch):
     calls = {"n": 0}
     class Counting(FakeClient):

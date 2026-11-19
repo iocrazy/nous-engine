@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
+import psutil
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field, FiniteFloat, StrictBool, StrictStr, field_validator, model_validator
 from sqlalchemy import select
@@ -699,6 +700,13 @@ def _devices_from_stats(stats: dict) -> list[dict]:
     return out
 
 
+def _process_rss_bytes(pid: int) -> int | None:
+    try:
+        return psutil.Process(pid).memory_info().rss
+    except psutil.Error:
+        return None
+
+
 @health_router.get("/health")
 async def comfy_health():
     """Proxy ComfyUI health status + resolved configuration + per-device VRAM."""
@@ -718,6 +726,11 @@ async def comfy_health():
     # 路由模块在 import 期就拉进节点层(predictions.py 里同样的写法)。
     from src.services.nodes import comfy_bridge  # noqa: PLC0415
     health_result["running_render"] = comfy_bridge.get_running_render()
+    from src.services.comfy.sidecar_status import sidecar_status
+    main_pid = (await sidecar_status()).get("main_pid") if health_result.get("online") else None
+    health_result["process_rss_bytes"] = (
+        await asyncio.to_thread(_process_rss_bytes, main_pid) if main_pid else None
+    )
     return health_result
 
 
@@ -735,7 +748,7 @@ _FREE_NOOP_THRESHOLD = 1_000_000_000
 
 
 @health_router.post("/free", dependencies=[Depends(require_admin)])
-async def comfy_free():
+async def comfy_free(idle_only: bool = False):
     """释放 ComfyUI 侧缓存模型占用的显存(POST /free,unload_models+free_memory)。
 
     ComfyUI 的 /free **是异步的**:server.py 只 `prompt_queue.set_flag(...)`,真正的
@@ -747,6 +760,14 @@ async def comfy_free():
     client = get_client()
     try:
         before = _used_of(_devices_from_stats(await client.system_stats()))
+        if idle_only:
+            from src.services.nodes import comfy_bridge
+
+            health = await client.health()
+            if not health.get("online") or health.get("queue_depth") is None:
+                raise HTTPException(503, detail="暂时无法确认 ComfyUI 队列状态")
+            if health["queue_depth"] > 0 or comfy_bridge.get_running_render() is not None:
+                raise HTTPException(409, detail="ComfyUI 有任务正在执行或排队")
         await client.free()
     except ComfyError as e:
         raise HTTPException(e.status_code, detail=e.message)
