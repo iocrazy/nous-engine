@@ -1131,9 +1131,9 @@ def _mount_frontend(app: FastAPI) -> None:
         if any(path == p or path.startswith(p + "/") for p in _API_PREFIXES):
             raise HTTPException(status_code=404)
         candidate = dist / full_path
-        if full_path and candidate.is_file():
+        if full_path and candidate != index_html and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(index_html)
+        return FileResponse(index_html, headers={"Cache-Control": "no-cache"})
 
 
 # --------------------------------------------------------------------------- #

@@ -11,6 +11,13 @@ describe('overlayForPath', () => {
     expect(overlayForPath('/status')).toBe('status')
   })
 
+  it('识别 React Router 接受的尾斜杠和大小写变体', () => {
+    expect(overlayForPath('/dashboard/')).toBe('dashboard')
+    expect(overlayForPath('/Dashboard')).toBe('dashboard')
+    expect(overlayForPath('/services/')).toBe('services')
+    expect(overlayForPath('/workflows/')).toBe('workflows-list')
+  })
+
   it('详情页走各自独立的 overlay slot', () => {
     expect(overlayForPath('/services/abc')).toBe('service-detail')
     expect(overlayForPath('/api-keys/abc')).toBe('api-key-detail')

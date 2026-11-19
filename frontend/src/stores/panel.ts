@@ -38,14 +38,15 @@ const ROUTE_TO_OVERLAY: Record<string, OverlayId> = {
 
 /** 纯函数:给定 pathname 得到应显示的 overlay(null = 工作流画布)。 */
 export function overlayForPath(pathname: string): OverlayId | null {
+  const path = pathname.replace(/\/+$/, '').toLowerCase()
   // `/workflows/:id` 是画布编辑器(无 overlay);`/workflows`(无 id)是 v3 m08 列表页。
-  if (pathname === '/workflows') return 'workflows-list'
-  if (pathname.startsWith('/workflows/')) return null
+  if (path === '/workflows') return 'workflows-list'
+  if (path.startsWith('/workflows/')) return null
   // `/services/:id`、`/api-keys/:id` 详情页各走独立 overlay slot,
   // NodeEditor 据此决定挂哪个视图。
-  if (pathname.startsWith('/services/')) return 'service-detail'
-  if (pathname.startsWith('/api-keys/')) return 'api-key-detail'
-  return ROUTE_TO_OVERLAY[pathname] ?? null
+  if (path.startsWith('/services/')) return 'service-detail'
+  if (path.startsWith('/api-keys/')) return 'api-key-detail'
+  return ROUTE_TO_OVERLAY[path] ?? null
 }
 
 /** TaskPanel 模式:dock=右侧抽屉(全高,modal-ish),float=右下角浮窗(可拖拽,不阻塞操作)。
