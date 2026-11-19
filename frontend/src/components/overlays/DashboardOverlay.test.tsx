@@ -130,6 +130,39 @@ beforeEach(() => {
 })
 
 describe('DashboardOverlay tabs', () => {
+  it('reports each physical GPU free memory separately', () => {
+    box.gpus = [
+      mkGpu({ index: 0, memory_free_mb: 1024 }),
+      mkGpu({ index: 1, memory_free_mb: 3072 }),
+    ]
+    render(<DashboardOverlay />)
+    expect(screen.getByRole('button', { name: /GPU 0 剩余显存 1\.0 GiB/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /GPU 1 剩余显存 3\.0 GiB/ })).toBeTruthy()
+    expect(screen.queryByText('4.0 GiB')).toBeNull()
+  })
+
+  it('exposes one release control on the GPU hosting ComfyUI and shares confirmation with RAM', async () => {
+    box.gpus = [
+      mkGpu({ index: 0 }),
+      mkGpu({ index: 1, processes: [{
+        pid: 897, gpu: 1, used_gpu_memory_mb: 1024, name: 'python', command: 'python main.py',
+        managed: true, model_name: 'ComfyUI',
+      }] }),
+    ]
+    let confirm!: (value: boolean) => void
+    box.confirmDialog.mockReturnValue(new Promise<boolean>((resolve) => { confirm = resolve }))
+    renderSystemPanel()
+    const release = screen.getByRole<HTMLButtonElement>('button', { name: '释放 ComfyUI 显存' })
+    const ram = screen.getByRole<HTMLButtonElement>('button', { name: '清理 ComfyUI 缓存' })
+    expect(release.disabled).toBe(false)
+    expect(release.closest('.console-gpu-processes')).toBeNull()
+    fireEvent.click(release)
+    expect(ram.disabled).toBe(true)
+    expect(box.confirmDialog.mock.calls[0][0].title).toBe('释放 ComfyUI 显存')
+    confirm(true)
+    await waitFor(() => expect(box.clearCache).toHaveBeenCalledOnce())
+  })
+
   it('requires confirmation before clearing the idle ComfyUI cache', async () => {
     box.confirmDialog.mockResolvedValue(true)
     renderSystemPanel()

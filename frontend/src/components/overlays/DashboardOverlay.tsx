@@ -342,9 +342,8 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
   openSystem: () => void
 }) {
   const status = useStatus()
-  const { data: gpus } = useSysGpus()
+  const gpus = useSysGpus()
   const { data: system } = useSysStats()
-  const totalFree = gpus?.gpus.reduce((sum, gpu) => sum + gpu.memory_free_mb, 0)
   const attention = status.data?.components.filter((component) => component.status === 'degraded' || component.status === 'down')
   return (
     <>
@@ -355,9 +354,10 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
           {status.isError ? '状态检查暂不可用' : attention?.length
             ? attention.map(({ name, status }) => `${name} ${HEALTH_LABEL[status]}`).join(' · ')
             : status.data ? `组件状态${HEALTH_LABEL[status.data.overall]}` : '正在检查组件状态…'}
+          {system && <span className="ml-3">物理内存可用 {system.memory_available_gb.toFixed(1)} GiB</span>}
         </p>
       </Panel>
-      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))' }}>
         {(['loaded', 'loading', 'failed'] as const).map((modelStatus) => (
           <button key={modelStatus} type="button" className="text-left" onClick={() => openModels(modelStatus)}>
             <BizStat label={MODEL_STATUS[modelStatus].label}
@@ -365,10 +365,15 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
               valueColor={MODEL_STATUS[modelStatus].color} sub="查看模型" />
           </button>
         ))}
-        <button type="button" className="text-left" onClick={openSystem}>
-          <BizStat label="GPU 剩余显存" value={totalFree == null ? '—' : `${(totalFree / 1024).toFixed(1)} GiB`}
-            sub={system ? `物理内存可用 ${system.memory_available_gb.toFixed(1)} GiB` : ''} />
-        </button>
+        {(gpus.data?.gpus ?? []).map((gpu) => (
+          <button key={gpu.index} type="button" className="text-left" onClick={openSystem}>
+            <BizStat label={`GPU ${gpu.index} 剩余显存`} value={`${g1(gpu.memory_free_mb)} GiB`}
+              sub={`总计 ${g1(gpu.memory_total_mb)} GiB`} />
+          </button>
+        ))}
+        {!gpus.data && (
+          <BizStat label="GPU 剩余显存" value="—" sub={gpus.isError ? '显存读数暂不可用' : '正在读取 GPU 状态'} />
+        )}
       </div>
     </>
   )
@@ -801,6 +806,7 @@ function TopSvcStrip({ svc }: { svc: TopServiceRow }) {
 
 function SystemStatus() {
   const comfyHealth = useComfyHealth()
+  const cache = useComfyCacheClear(comfyHealth)
   const { data: gpuData } = useSysGpus()
   const { data: sysStats } = useSysStats()
   const { data: runners } = useRunners()
@@ -827,6 +833,15 @@ function SystemStatus() {
   const runnerOf = (indices: number[]) =>
     (runners ?? []).find((r) => r.gpus.some((g) => indices.includes(g))) ?? null
 
+  const gpuCacheControls = (gpus: SysGpuInfo[]) => {
+    const target = `gpu-${gpus.map((gpu) => gpu.index).join('+')}`
+    const hostsComfy = gpus.some((gpu) =>
+      gpu.processes?.some((proc) => proc.managed && proc.model_name === 'ComfyUI'),
+    )
+    if (!hostsComfy && cache.target !== target) return undefined
+    return <ComfyCacheControls cache={cache} target={target} canRequest={hostsComfy} />
+  }
+
   return (
     <>
       <section aria-labelledby="dashboard-resources">
@@ -850,7 +865,11 @@ function SystemStatus() {
             value={sysStats ? `${fmt(sysStats.memory_used_gb)}G` : '—'}
             hint={sysStats ? `可用 ${fmt(sysStats.memory_available_gb)} / 总计 ${fmt(sysStats.memory_total_gb)} GiB` : ''}
           >
-            <ComfyCacheControls health={comfyHealth} />
+            <ComfyCacheControls cache={cache} target="memory">
+              <p style={{ color: 'var(--muted)' }}>
+                ComfyUI 主进程内存 {cache.rss == null ? '—' : `${(cache.rss / 1024 ** 3).toFixed(1)} GiB`}
+              </p>
+            </ComfyCacheControls>
           </MiniStat>
           <MiniStat
             label="交换空间"
@@ -882,6 +901,7 @@ function SystemStatus() {
                   gpus={card.gpus}
                   runner={runnerOf(card.gpus.map((g) => g.index))}
                   onKill={onKill}
+                  cacheControls={gpuCacheControls(card.gpus)}
                 />
               ) : (
                 <GpuCard
@@ -889,6 +909,7 @@ function SystemStatus() {
                   gpu={card.gpu}
                   runner={runnerOf([card.gpu.index])}
                   onKill={onKill}
+                  cacheControls={gpuCacheControls([card.gpu])}
                 />
               ),
             )}
@@ -1015,44 +1036,69 @@ function SystemProcesses() {
   )
 }
 
-function ComfyCacheControls({ health }: { health: ReturnType<typeof useComfyHealth> }) {
+function useComfyCacheClear(health: ReturnType<typeof useComfyHealth>) {
   const clear = useFreeComfyCache()
   const [confirming, setConfirming] = useState(false)
+  const [target, setTarget] = useState<string>()
   const comfy = health.data
   const busy = !!comfy?.running_render || (comfy?.queue_depth ?? 0) > 0
   const ready = !health.isError && comfy?.online === true && comfy.queue_depth === 0 && !busy
-  const rss = comfy?.process_rss_bytes
   let unavailable = '正在读取 ComfyUI 队列'
   if (health.isError) unavailable = '暂时无法确认队列状态'
   else if (comfy?.online === false) unavailable = 'ComfyUI 离线'
   else if (busy) unavailable = '有任务正在执行或排队'
 
-  const requestClear = async () => {
+  const requestClear = async (actionTarget: string) => {
+    if (!ready || confirming || clear.isPending) return
     setConfirming(true)
     const confirmed = await confirmDialog({
-      title: '清理 ComfyUI 缓存',
+      title: actionTarget === 'memory' ? '清理 ComfyUI 缓存' : '释放 ComfyUI 显存',
       message: '卸载 ComfyUI 缓存模型并清理节点执行缓存。下次生成可能需要重新加载模型。',
       confirmText: '清理缓存',
     })
     setConfirming(false)
-    if (confirmed) clear.mutate()
+    if (confirmed) {
+      setTarget(actionTarget)
+      clear.mutate()
+    }
   }
+
+  return { clear, confirming, target, ready, unavailable, requestClear, rss: comfy?.process_rss_bytes }
+}
+
+function ComfyCacheControls({ cache, target, canRequest = true, children }: {
+  cache: ReturnType<typeof useComfyCacheClear>
+  target: string
+  canRequest?: boolean
+  children?: ReactNode
+}) {
+  const { clear, ready, confirming, unavailable, requestClear } = cache
+  const active = target === cache.target
+  const isMemory = target === 'memory'
+  const label = isMemory ? '清理 ComfyUI 缓存' : '释放 ComfyUI 显存'
+  const freed = clear.data?.freed_bytes ?? 0
 
   return (
     <div className="mt-3 space-y-2 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
-      <p style={{ color: 'var(--muted)' }}>
-        ComfyUI 主进程内存 {rss == null ? '—' : `${(rss / 1024 ** 3).toFixed(1)} GiB`}
-      </p>
-      <button type="button"
-        className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ borderColor: 'var(--border-strong)', color: 'var(--accent)' }}
-        disabled={!ready || confirming || clear.isPending}
-        onClick={() => void requestClear()}>
-        {clear.isPending ? '正在请求清理…' : '清理 ComfyUI 缓存'}
-      </button>
-      {!ready && <p style={{ color: 'var(--muted)' }}>{unavailable}</p>}
-      {clear.isSuccess && <p role="status">已提交清理请求，内存读数会继续刷新。</p>}
-      {clear.isError && <p role="alert" style={{ color: 'var(--error)' }}>{clear.error.message}</p>}
+      {children}
+      {canRequest && (
+        <button type="button"
+          className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ borderColor: 'var(--border-strong)', color: 'var(--accent)' }}
+          disabled={!ready || confirming || clear.isPending}
+          onClick={() => void requestClear(target)}>
+          {active && clear.isPending ? '正在请求清理…' : label}
+        </button>
+      )}
+      {canRequest && !ready && <p style={{ color: 'var(--muted)' }}>{unavailable}</p>}
+      {active && clear.isSuccess && (
+        <p role="status">{isMemory
+          ? '已提交清理请求，内存读数会继续刷新。'
+          : freed > 0
+            ? `已观察到 ComfyUI 归还 ${(freed / 1024 ** 3).toFixed(1)} GiB 显存。`
+            : '已提交清理请求，暂未观察到显存下降。'}</p>
+      )}
+      {active && clear.isError && <p role="alert" style={{ color: 'var(--error)' }}>{clear.error.message}</p>}
     </div>
   )
 }
@@ -1206,11 +1252,13 @@ function GpuGroupCard({
   gpus,
   runner,
   onKill,
+  cacheControls,
 }: {
   group: GpuGroup
   gpus: SysGpuInfo[]
   runner: RunnerInfo | null
   onKill: (pid: number, mem: number) => void
+  cacheControls?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const indices = gpus.map((g) => g.index)
@@ -1316,6 +1364,7 @@ function GpuGroupCard({
           pct={memPct}
           warn={lowMemory}
         />
+        {cacheControls}
         {procs.length > 0 && (
           <details className="console-gpu-processes">
             <summary>GPU 进程（{procs.length}）</summary>
@@ -1410,10 +1459,12 @@ function GpuCard({
   gpu,
   runner,
   onKill,
+  cacheControls,
 }: {
   gpu: SysGpuInfo
   runner: RunnerInfo | null
   onKill: (pid: number, mem: number) => void
+  cacheControls?: ReactNode
 }) {
   const memPct =
     gpu.memory_total_mb > 0 ? (gpu.memory_used_mb / gpu.memory_total_mb) * 100 : 0
@@ -1470,6 +1521,7 @@ function GpuCard({
         pct={memPct}
         warn={gpu.low_memory}
       />
+      {cacheControls}
       {gpu.processes && gpu.processes.length > 0 && (
         <details className="console-gpu-processes">
           <summary>GPU 进程（{gpu.processes.length}）</summary>
