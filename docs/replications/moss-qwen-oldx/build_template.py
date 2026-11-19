@@ -191,7 +191,7 @@ def build(export, canvas):
                            ("seed", 701, "value"), ("enable_upscale", 706, "value"),
                            ("edit_upscale_resolution", 719, "value")):
         target(key, node, arg)
-    fields["prompt"]["visible_when"]["input_mode"] += ["moss_text", *OLDX_MODES]
+    fields["prompt"]["visible_when"]["input_mode"] += ["moss_text", "remove", *OLDX_MODES]
     fields["prompt"]["required_when"]["input_mode"] += ["moss_text"]
     for field in ("image", "enable_optimization"):
         modes = fields[field]["visible_when"]["input_mode"]

@@ -868,7 +868,10 @@
   },
   "250": {
     "inputs": {
-      "prompt": "移除图像中的绿色区域",
+      "prompt": [
+        "678",
+        0
+      ],
       "negative_prompt": "",
       "latent_width": [
         "288",
@@ -2610,6 +2613,32 @@
       "title": "Text Concatenate",
       "cnr_id": "was-ns",
       "ver": "3.0.0"
+    }
+  },
+  "678": {
+    "class_type": "easy promptConcat",
+    "_meta": {
+      "title": "移除提示词合并"
+    },
+    "inputs": {
+      "prompt1": [
+        "680",
+        0
+      ],
+      "prompt2": [
+        "564",
+        0
+      ],
+      "separator": ""
+    }
+  },
+  "680": {
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "移除固定提示词"
+    },
+    "inputs": {
+      "value": "移除图像中的绿色区域"
     }
   },
   "700": {

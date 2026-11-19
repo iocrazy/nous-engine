@@ -15,7 +15,7 @@ const MODE_DETAILS = {
   oldx: { icon: ScanFace, action: '替换人物', help: '人物源图提供身份，姿势与场景参考提供构图、姿势和光线。' },
   character_card: { icon: UserRound, action: '生成人物资产卡', help: '上传人物源图，沿用内置资产卡的版式生成人物头肩与全身视图。' },
   outpaint: { icon: Expand, action: '扩展画面', help: '上传原图后拖动边框，可锁定宽度或高度。' },
-  remove: { icon: Brush, action: '移除遮罩区域', help: '涂抹要移除的区域，也可上传同尺寸的黑白遮罩。' },
+  remove: { icon: Brush, action: '移除遮罩区域', help: '标出要移除的区域，可附加提示词说明要清除什么。' },
   upscale: { icon: Focus, action: '放大图片', help: '设置目标短边，使用 SeedVR2 放大原图。' },
 } as const
 
@@ -230,6 +230,14 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         {param.label || key}
       </label>
     }
+    if (key === 'prompt' && mode === 'remove') {
+      return <label key={key} className="qwen-optimizer">
+        <span>移除要求（选填）</span>
+        <textarea rows={3} value={typeof values[key] === 'string' ? values[key] : ''}
+          placeholder="例如：移除手中的物品，保留人物和光影"
+          onChange={event => update(key, event.currentTarget.value)} />
+      </label>
+    }
     const dependency = optionDependency(param)
     return <Field key={key} param={{ ...param, required: isFieldRequired(param, values) }} value={values[key]}
       dependsValue={dependency ? String(values[dependency.dependsOn] ?? '') : undefined}
@@ -273,8 +281,11 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   <div className="qwen-asset" key={key}>
                     <button type="button" aria-pressed={key === asset && !!image}
                       onClick={() => { if (image) { setAsset(key); setPreview('source') } else chooseAsset([key]) }}>
-                      {image ? <img src={image} alt="" /> : <Upload size={16} />}{title}
-                      {isFieldRequired(param, values) && <span aria-label="必填">*</span>}
+                      {image ? <img src={image} alt="" /> : <Upload size={16} />}
+                      <span className="qwen-asset-label">
+                        <span>{title}</span>
+                        {isFieldRequired(param, values) && <span className="qwen-asset-required">必填</span>}
+                      </span>
                     </button>
                     {image && <button type="button" title={`移除${title}`} aria-label={`移除${title}`}
                       onClick={() => update(key, undefined)}><X size={12} /></button>}
