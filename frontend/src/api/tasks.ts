@@ -97,7 +97,7 @@ export function useTasks() {
 
   return useQuery({
     queryKey: ['tasks'],
-    queryFn: () => apiFetch<ExecutionTask[]>('/api/v1/tasks?limit=50'),
+    queryFn: () => apiFetch<ExecutionTask[]>('/api/v1/tasks?limit=50&include_input=false'),
     // WebSocket handles real-time updates; this is a safety net for the
     // half-open-socket case the browser may not surface.
     refetchInterval: 60_000,
@@ -118,13 +118,33 @@ export function useTasksByWorkflow(workflowId: string | null, limit = 50) {
   })
 }
 
-/** 历史出图画廊:拉最近 N 条 task,画廊侧按 output_thumbnails 过滤出图像类
- *  (spec run-history PR-B;type 是计算字段不宜 SQL 过滤,故客户端筛)。 */
-export function useImageTasks(limit = 120) {
+export type GalleryTask = Pick<ExecutionTask, 'id' | 'workflow_id' | 'workflow_name' | 'created_at' | 'duration_ms'> & {
+  output_thumbnails: string[]
+  video_url: string | null
+}
+
+type GalleryPage = { items: GalleryTask[]; next_before: string | null }
+
+export function useImageTasks(before: string | null) {
   return useQuery({
-    queryKey: ['tasks', 'gallery', limit],
-    queryFn: () => apiFetch<ExecutionTask[]>(`/api/v1/tasks?limit=${limit}`),
+    queryKey: ['tasks', 'gallery', before],
+    queryFn: ({ signal }) => apiFetch<GalleryPage>(
+      before ? `/api/v1/tasks/gallery?before=${encodeURIComponent(before)}` : '/api/v1/tasks/gallery',
+      { signal },
+    ),
     staleTime: 10_000,
+  })
+}
+
+export function getTask(id: string, signal?: AbortSignal) {
+  return apiFetch<ExecutionTask>(`/api/v1/tasks/${encodeURIComponent(id)}`, { signal })
+}
+
+export function useTaskDetail(id: string | null) {
+  return useQuery({
+    queryKey: ['tasks', 'detail', id],
+    queryFn: ({ signal }) => getTask(id!, signal),
+    enabled: !!id,
   })
 }
 

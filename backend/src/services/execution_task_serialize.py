@@ -182,7 +182,7 @@ def _detect_asr_meta(result: object, input_json: object = None) -> dict:
     return out
 
 
-def _task_to_dict(t: ExecutionTask) -> dict:
+def _task_to_dict(t: ExecutionTask, *, include_input: bool = True) -> dict:
     d = {
         "id": str(t.id),
         "workflow_id": str(t.workflow_id) if t.workflow_id else None,
@@ -194,13 +194,13 @@ def _task_to_dict(t: ExecutionTask) -> dict:
         "result": t.result,
         "error": t.error,
         "duration_ms": t.duration_ms,
-        # 历史参数 —— 前端「重跑(相同参数)」回填用(spec 2026-06-09 run-history PR-A)。
-        "input_json": t.input_json,
         # 出图缩略(签名 URL 列表)—— 任务卡缩略图 + 历史画廊(PR-B)。
         "output_thumbnails": _image_urls(t.result),
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
     }
+    if include_input:
+        d["input_json"] = t.input_json
     # 顺序:image 先(workflow 多含 image_output)→ tts → vision(LLM 带图)→ llm(纯文本)。
     # 关键:vision 必须在 LLM 之前 —— 两者 envelope 都是 {text, usage},vision 多一个
     # multimodal=True 标记。先 vision 命中就归 vision,否则才 LLM。

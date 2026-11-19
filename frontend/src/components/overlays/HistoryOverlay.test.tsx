@@ -4,62 +4,41 @@ import { useLightboxStore } from '../../stores/lightbox'
 
 // mock 数据 hooks + 路由
 const task = {
-  id: 1,
-  output_thumbnails: ['http://x/a.png'],
-  input_json: { 提示词: 'a corgi astronaut riding a rocket through space', 宽度: 1024 },
-  workflow_id: 5,
+  id: '1',
+  output_thumbnails: ['/files/images/2026-06-10/a.png?token=a&expires=1'],
+  video_url: null,
+  workflow_id: '5',
   workflow_name: 'wf',
   created_at: new Date('2026-06-10T00:00:00Z').toISOString(),
   duration_ms: 2000,
 }
-// 视频产物 task(Task 11):result 走 comfy bridge 节点 envelope 形状
-// `{outputs:{node_id:{video_url, items:[{kind:'video',url}], thumbnails:[...]}}}`,
-// 顶层 output_thumbnails 是 execution_task_serialize._image_urls 落的 ffmpeg 首帧 PNG。
 const videoTask = {
-  id: 2,
+  id: '2',
   output_thumbnails: ['http://x/frame.png'],
-  input_json: { 提示词: 'a corgi running on the beach at sunset' },
-  workflow_id: 5,
+  workflow_id: '5',
   workflow_name: 'wf-video',
   created_at: new Date('2026-06-10T00:00:00Z').toISOString(),
   duration_ms: 4000,
-  result: {
-    outputs: {
-      n1: {
-        video_url: 'http://x/clip.mp4',
-        thumbnails: ['http://x/frame.png'],
-        items: [{ url: 'http://x/clip.mp4', kind: 'video', filename: 'clip.mp4' }],
-      },
-    },
-  },
+  video_url: 'http://x/clip.mp4',
 }
 // 视频产物 task,ffmpeg 缺省/首帧抽取失败(thumbnail.py extract_first_frame → None):
 // thumbnails 为空,_image_urls 只落 video_url 自己 → output_thumbnails[0] === video_url,
 // 没有独立 PNG 缩略。Card 不能拿 mp4 当 <img src> 渲染,要走占位图标分支。
 const videoNoThumbTask = {
-  id: 3,
+  id: '3',
   output_thumbnails: ['http://x/clip2.mp4'],
-  input_json: {},
-  workflow_id: 6,
+  workflow_id: '6',
   workflow_name: 'wf-video-nothumb',
   created_at: new Date('2026-06-10T00:00:00Z').toISOString(),
   duration_ms: 3000,
-  result: {
-    outputs: {
-      n1: {
-        video_url: 'http://x/clip2.mp4',
-        thumbnails: [],
-        items: [{ url: 'http://x/clip2.mp4', kind: 'video', filename: 'clip2.mp4' }],
-      },
-    },
-  },
+  video_url: 'http://x/clip2.mp4',
 }
 vi.mock('../../api/tasks', () => ({
-  useImageTasks: () => ({ data: [task, videoTask, videoNoThumbTask], isLoading: false }),
+  useImageTasks: () => ({ data: { items: [task, videoTask, videoNoThumbTask], next_before: null } }),
   useDeleteTask: () => ({ mutate: vi.fn() }),
 }))
 vi.mock('../../api/services', () => ({
-  useServices: () => ({ data: [{ id: 9, workflow_id: 5, name: 'svc' }] }),
+  useServices: () => ({ data: [{ id: 9, workflow_id: '5', name: 'svc' }] }),
 }))
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
 // panel store 模块加载时读 localStorage(Node24 测试环境 localStorage 异常)→ mock 绕开。
@@ -70,17 +49,19 @@ import HistoryOverlay from './HistoryOverlay'
 describe('HistoryOverlay → 共享灯箱', () => {
   beforeEach(() => { useLightboxStore.setState({ open: false, images: [], metas: [], kinds: [], index: 0 }) })
 
-  it('点卡片用 openItems 打开共享灯箱,meta 带 prompt + 重跑', () => {
+  it('点卡片用 openItems 打开共享灯箱,只传任务 ID 和重跑动作，由灯箱按需获取元信息', () => {
     const { container } = render(<HistoryOverlay />)
     const img = container.querySelector('img')!
+    expect(img.getAttribute('src')).toBe('/files/images/2026-06-10/a.png?token=a&expires=1&preview=1')
+    expect(img.getAttribute('loading')).toBe('lazy')
     fireEvent.click(img.parentElement!)
     const st = useLightboxStore.getState()
     expect(st.open).toBe(true)
     // 画廊是跨 task 的扁平图集(见组件注释),第二、三个 task 是视频 → 追加视频条目。
-    expect(st.images).toEqual(['http://x/a.png', 'http://x/clip.mp4', 'http://x/clip2.mp4'])
-    expect(st.metas[0]?.prompt).toContain('corgi astronaut')
+    expect(st.images).toEqual([task.output_thumbnails[0], 'http://x/clip.mp4', 'http://x/clip2.mp4'])
+    expect(st.metas[0]?.historyTaskId).toBe('1')
+    expect(st.metas[0]?.prompt).toBeUndefined()
     expect(typeof st.metas[0]?.onRerun).toBe('function') // 有对应服务 → 可重跑
-    expect(st.metas[0]?.fields?.some((f) => f.label === '宽度')).toBe(true)
   })
 
   it('视频任务卡片渲染 ▶ 角标 + 工作流名标签,点开传给灯箱的是视频 url + kind video', () => {

@@ -452,3 +452,53 @@ async def test_collect_referenced_image_uuids(db_client: AsyncClient, db_session
 
     uuids = await collect_referenced_image_uuids(db_session)
     assert "abc123def" in uuids
+
+
+async def test_gallery_pages_skip_non_media_and_load_full_parameters_on_demand(db_client, db_session):
+    from base64 import b64encode
+    from io import BytesIO
+
+    from PIL import Image
+
+    from src.models.execution_task import ExecutionTask
+
+    png = BytesIO()
+    Image.new("RGB", (768, 384), "navy").save(png, format="PNG")
+    inline = "data:image/png;base64," + b64encode(png.getvalue()).decode()
+    file_url = "/files/images/2026-01-01/image.png"
+    tasks = [
+        ExecutionTask(id=101, status="completed", result={"node": {"image_url": file_url}}),
+        ExecutionTask(id=102, status="completed", result={"node": {"text": "another task"}}),
+        ExecutionTask(
+            id=103,
+            status="completed",
+            result={"outputs": {"node": {"image_url": inline}}},
+            input_json={"image": inline, "prompt": "paint the sky", "seed": 4},
+        ),
+        ExecutionTask(id=104, status="failed", result={"node": {"image_url": file_url}}),
+    ]
+    db_session.add_all(tasks)
+    await db_session.commit()
+
+    response = await db_client.get("/api/v1/tasks/gallery?limit=1")
+    assert response.status_code == 200
+    page = response.json()
+    assert page["next_before"] == "103"
+    assert [item["id"] for item in page["items"]] == ["103"]
+    assert len(response.content) < 512
+    image_url = page["items"][0]["output_thumbnails"][0]
+    assert image_url == "/api/v1/tasks/gallery/103/image/0"
+
+    older = (await db_client.get("/api/v1/tasks/gallery?limit=1&before=103")).json()
+    assert [item["id"] for item in older["items"]] == ["101"]
+    assert older["next_before"] is None
+
+    preview = await db_client.get(image_url, params={"preview": 1})
+    assert preview.headers["content-type"] == "image/webp"
+    assert Image.open(BytesIO(preview.content)).size == (384, 192)
+    assert (await db_client.get(image_url)).content == png.getvalue()
+    metadata = await db_client.get("/api/v1/tasks/gallery/103/metadata")
+    assert metadata.json() == {"prompt": "paint the sky", "fields": [{"label": "seed", "value": "4"}]}
+    summary = await db_client.get("/api/v1/tasks?include_input=false")
+    assert all("input_json" not in item for item in summary.json())
+    assert (await db_client.get("/api/v1/tasks/103")).json()["input_json"]["image"] == inline
