@@ -15,14 +15,22 @@ const MODE_DETAILS = {
   oldx: { icon: ScanFace, action: '替换人物', help: '人物源图提供身份，姿势与场景参考提供构图、姿势和光线。' },
   character_card: { icon: UserRound, action: '生成人物资产卡', help: '上传人物源图，沿用内置资产卡的版式生成人物头肩与全身视图。' },
   outpaint: { icon: Expand, action: '扩展画面', help: '上传原图后拖动边框，可锁定宽度或高度。' },
-  remove: { icon: Brush, action: '移除遮罩区域', help: '涂抹要移除的区域，也可上传同尺寸的黑白遮罩。' },
+  remove: { icon: Brush, action: '移除遮罩区域', help: '标出要移除的区域，可附加提示词说明要清除什么。' },
   upscale: { icon: Focus, action: '放大图片', help: '设置目标短边，使用 SeedVR2 放大原图。' },
 } as const
 
 type Preview = 'source' | 'result' | 'compare'
 type SeedPolicy = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-const advancedField = /^(?:seed|lora_|strength_|use_deepseek|ignore_edit_mask|moss_(steps|cfg|lora)|oldx_(strength|cfg))/
+const advancedField = /^(?:seed|lora_|strength_|ignore_edit_mask|moss_(steps|cfg|lora)|oldx_(strength|cfg))/
+const controlOrder: Record<string, number> = {
+  reference_engine: 0,
+  prompt: 1,
+  enable_optimization: 2,
+  use_deepseek: 3,
+  enable_upscale: 5,
+  edit_upscale_resolution: 6,
+}
 const referenceImage = /^image_[2-6]$/
 const toImageUrl = (value: unknown) => typeof value === 'string' &&
   /^(data:image\/|\/|https?:\/\/)/i.test(value) ? value : undefined
@@ -66,6 +74,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   }))
   const [natural, setNatural] = useState<{ url: string; size: SourceDimensions }>()
   const [preview, setPreview] = useState<Preview>('result')
+  const [comparison, setComparison] = useState<'side-by-side' | 'slider'>('side-by-side')
+  const [split, setSplit] = useState(50)
   const [asset, setAsset] = useState('image')
   const [maskOpen, setMaskOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -81,6 +91,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const active = inputs.filter(param => {
     const key = paramKey(param)
     if (!key || !isFieldVisible(param, values)) return false
+    if (key === 'use_deepseek' && mode !== 'reference' && values.enable_optimization === false) return false
     if (mode !== 'reference' || !Object.hasOwn(values, 'reference_engine')) return true
     if (key === 'moss_megapixels' || key === 'moss_aspect_ratio') return values.reference_engine === 'moss'
     if (key === 'megapixels' || key === 'aspect_ratio') return values.reference_engine !== 'moss'
@@ -202,11 +213,29 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         </div>
       )
     }
+    if (key === 'use_deepseek') {
+      return <label key={key} className="qwen-optimizer">
+        <span>提示词优化模型</span>
+        <select value={values[key] === true ? 'deepseek' : 'local'}
+          onChange={event => update(key, event.currentTarget.value === 'deepseek')}>
+          <option value="local">本机 Qwen</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+      </label>
+    }
     if (classifyField(param) === 'boolean') {
       return <label key={key} className="qwen-toggle">
         <input type="checkbox" checked={Boolean(values[key])}
           onChange={event => update(key, event.currentTarget.checked)} />
         {param.label || key}
+      </label>
+    }
+    if (key === 'prompt' && mode === 'remove') {
+      return <label key={key} className="qwen-optimizer">
+        <span>移除要求（选填）</span>
+        <textarea rows={3} value={typeof values[key] === 'string' ? values[key] : ''}
+          placeholder="例如：移除手中的物品，保留人物和光影"
+          onChange={event => update(key, event.currentTarget.value)} />
       </label>
     }
     const dependency = optionDependency(param)
@@ -220,7 +249,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     : preview === 'result' && resultUrl ? 'result' : 'source'
   const advance = controls.filter(param => advancedField.test(paramKey(param)!))
   const primary = controls.filter(param => !advancedField.test(paramKey(param)!))
-    .sort((a, b) => Number(paramKey(b) === 'reference_engine') - Number(paramKey(a) === 'reference_engine'))
+    .sort((a, b) => (controlOrder[paramKey(a)!] ?? 4) - (controlOrder[paramKey(b)!] ?? 4))
 
   return (
     <form className="qwen-playground" onSubmit={submit}>
@@ -239,7 +268,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         })}
       </div>}
       <div className="qwen-workspace">
-        <section className="qwen-panel" aria-label="运行参数">
+        <section className="qwen-panel qwen-parameters" aria-label="运行参数">
           <header><strong>运行参数</strong></header>
           <fieldset disabled={!enabled} className="qwen-settings">
             {modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
@@ -252,8 +281,11 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   <div className="qwen-asset" key={key}>
                     <button type="button" aria-pressed={key === asset && !!image}
                       onClick={() => { if (image) { setAsset(key); setPreview('source') } else chooseAsset([key]) }}>
-                      {image ? <img src={image} alt="" /> : <Upload size={16} />}{title}
-                      {isFieldRequired(param, values) && <span aria-label="必填">*</span>}
+                      {image ? <img src={image} alt="" /> : <Upload size={16} />}
+                      <span className="qwen-asset-label">
+                        <span>{title}</span>
+                        {isFieldRequired(param, values) && <span className="qwen-asset-required">必填</span>}
+                      </span>
                     </button>
                     {image && <button type="button" title={`移除${title}`} aria-label={`移除${title}`}
                       onClick={() => update(key, undefined)}><X size={12} /></button>}
@@ -283,6 +315,12 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   onClick={() => setPreview(id)}>{title}</button>)}
             </div>
           </header>
+          {view === 'compare' && <div className="qwen-compare-modes" aria-label="对照方式">
+            <button type="button" aria-pressed={comparison === 'side-by-side'}
+              onClick={() => setComparison('side-by-side')}>并排</button>
+            <button type="button" aria-pressed={comparison === 'slider'}
+              onClick={() => setComparison('slider')}>滑动对比</button>
+          </div>}
           <div className="qwen-stage" onDragOver={event => {
             if (enabled && candidates.some(item => item.key === 'image') && event.dataTransfer.types.includes('Files')) event.preventDefault()
           }} onDrop={event => {
@@ -298,11 +336,25 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                 ...previous,
                 ...Object.fromEntries(Object.entries(extent).map(([key, value]) => [`outpaint_${key}`, value])),
               }))} /> : view === 'compare' && source && resultUrl ? (
+              comparison === 'slider' ? (
+                <div className="qwen-compare-slider">
+                  <img src={resultUrl} alt="生成结果" draggable={false} />
+                  <img src={source} alt="原图" draggable={false} style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }} />
+                  <span className="qwen-compare-label source">原图</span>
+                  <span className="qwen-compare-label result">结果</span>
+                  <div className="qwen-compare-divider" style={{ left: `${split}%` }} aria-hidden="true">
+                    <span>↔</span>
+                  </div>
+                  <input className="qwen-compare-range" aria-label="拖动分隔线比较原图与结果" type="range"
+                    min={0} max={100} value={split} onChange={event => setSplit(Number(event.currentTarget.value))} />
+                </div>
+              ) : (
                 <div className="qwen-compare">
                   <figure><img src={source} alt="原图" /><figcaption>原图</figcaption></figure>
                   <figure><img src={resultUrl} alt="生成结果" /><figcaption>结果</figcaption></figure>
                 </div>
-              ) : view === 'result' && resultUrl ? <img src={resultUrl} alt="生成结果" />
+              )
+            ) : view === 'result' && resultUrl ? <img src={resultUrl} alt="生成结果" />
               : previewSource ? <img src={previewSource} alt={asset === 'mask' ? '遮罩' : '输入图片'} />
               : <div className="qwen-stage-empty"><Image size={24} />
                 {candidates.some(item => item.key === 'image')

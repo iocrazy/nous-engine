@@ -62,6 +62,7 @@
           "edit",
           "outpaint",
           "moss_text",
+          "remove",
           "oldx",
           "character_card"
         ]
@@ -199,7 +200,7 @@
     },
     {
       "key": "use_deepseek",
-      "label": "使用 DeepSeek 优化编辑提示词",
+      "label": "提示词优化模型",
       "type": "boolean",
       "comfy_node_id": "393",
       "comfy_input": "switch",
@@ -208,11 +209,11 @@
         "input_mode": [
           "edit",
           "text",
+          "reference",
           "moss_text",
           "oldx",
           "character_card"
-        ],
-        "enable_optimization": true
+        ]
       },
       "default": false
     },
@@ -671,36 +672,6 @@
       }
     },
     {
-      "key": "moss_lora_main_strength",
-      "label": "MOSS 观澜 LoRA 强度",
-      "type": "number",
-      "comfy_node_id": "397",
-      "comfy_input": "strength_01",
-      "required": false,
-      "default": 1,
-      "min": 0,
-      "max": 2,
-      "step": 0.05,
-      "visible_when": {
-        "input_mode": "moss_text"
-      }
-    },
-    {
-      "key": "moss_lora_film_strength",
-      "label": "MOSS 电影风格 LoRA 强度",
-      "type": "number",
-      "comfy_node_id": "397",
-      "comfy_input": "strength_02",
-      "required": false,
-      "default": 0.7,
-      "min": 0,
-      "max": 2,
-      "step": 0.05,
-      "visible_when": {
-        "input_mode": "moss_text"
-      }
-    },
-    {
       "key": "oldx_target",
       "label": "姿势与场景参考",
       "type": "image",
@@ -783,6 +754,120 @@
           "oldx",
           "character_card"
         ]
+      }
+    },
+    {
+      "key": "moss_lora_main",
+      "label": "1. 观澜 LoRA",
+      "type": "string",
+      "comfy_node_id": "397",
+      "comfy_input": "lora_01",
+      "required": false,
+      "default": "moss/KOOK-MOSS-SFT-观澜.safetensors",
+      "options": [
+        {
+          "value": "moss/KOOK-MOSS-SFT-观澜.safetensors",
+          "label": "启用"
+        },
+        {
+          "value": "None",
+          "label": "关闭"
+        }
+      ],
+      "visible_when": {
+        "input_mode": "moss_text"
+      }
+    },
+    {
+      "key": "moss_lora_main_strength",
+      "label": "观澜 强度",
+      "type": "number",
+      "comfy_node_id": "397",
+      "comfy_input": "strength_01",
+      "required": false,
+      "default": 1,
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": "moss_text",
+        "moss_lora_main": "moss/KOOK-MOSS-SFT-观澜.safetensors"
+      }
+    },
+    {
+      "key": "moss_lora_dream",
+      "label": "2. FeverDream LoRA",
+      "type": "string",
+      "comfy_node_id": "397",
+      "comfy_input": "lora_02",
+      "required": false,
+      "default": "moss/feverdream-epoch-07.safetensors",
+      "options": [
+        {
+          "value": "moss/feverdream-epoch-07.safetensors",
+          "label": "启用"
+        },
+        {
+          "value": "None",
+          "label": "关闭"
+        }
+      ],
+      "visible_when": {
+        "input_mode": "moss_text"
+      }
+    },
+    {
+      "key": "moss_lora_dream_strength",
+      "label": "FeverDream 强度",
+      "type": "number",
+      "comfy_node_id": "397",
+      "comfy_input": "strength_02",
+      "required": false,
+      "default": 0.5,
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": "moss_text",
+        "moss_lora_dream": "moss/feverdream-epoch-07.safetensors"
+      }
+    },
+    {
+      "key": "moss_lora_film",
+      "label": "3. TJFilmMossV2 LoRA",
+      "type": "string",
+      "comfy_node_id": "397",
+      "comfy_input": "lora_03",
+      "required": false,
+      "default": "None",
+      "options": [
+        {
+          "value": "moss/TJFilmMossV2.safetensors",
+          "label": "启用"
+        },
+        {
+          "value": "None",
+          "label": "关闭"
+        }
+      ],
+      "visible_when": {
+        "input_mode": "moss_text"
+      }
+    },
+    {
+      "key": "moss_lora_film_strength",
+      "label": "TJFilmMossV2 强度",
+      "type": "number",
+      "comfy_node_id": "397",
+      "comfy_input": "strength_03",
+      "required": false,
+      "default": 0.7,
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "visible_when": {
+        "input_mode": "moss_text",
+        "moss_lora_film": "moss/TJFilmMossV2.safetensors"
       }
     }
   ]

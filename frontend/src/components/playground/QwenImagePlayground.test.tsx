@@ -67,3 +67,47 @@ it('OLDX 提示姿势与场景参考，人物资产卡沿用固定版式', () =>
   fireEvent.click(screen.getByRole('button', { name: '生成人物资产卡' }))
   expect(onRun).toHaveBeenCalledWith({ input_mode: 'character_card', image: 'data:image/png;base64,AA==' })
 })
+
+it('明确显示优化模型并统一将高清放大放在尺寸参数之后', () => {
+  const modes: ExposedParam[] = [
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'moss_text',
+      constraints: { widget: 'radio', enum: ['moss_text', 'reference'] } },
+    { node_id: 'bridge', key: 'enable_upscale', type: 'boolean', default: false, label: '处理后高清放大' },
+    { node_id: 'bridge', key: 'enable_optimization', type: 'boolean', default: true, label: '优化提示词',
+      constraints: { visible_when: { input_mode: 'moss_text' } } },
+    { node_id: 'bridge', key: 'use_deepseek', type: 'boolean', default: false },
+    { node_id: 'bridge', key: 'moss_megapixels', type: 'number', label: 'MOSS 像素', default: 2 },
+  ]
+  const onRun = vi.fn()
+  render(<QwenImagePlayground inputs={modes} running={false} onRun={onRun} />)
+
+  const assertPlacement = () => {
+    const pixels = screen.getByText('MOSS 像素')
+    const upscale = screen.getByText('处理后高清放大')
+    expect(pixels.compareDocumentPosition(upscale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  }
+  assertPlacement()
+  expect(screen.getByRole('combobox', { name: '提示词优化模型' })).toHaveValue('local')
+  fireEvent.click(screen.getByRole('checkbox', { name: '优化提示词' }))
+  expect(screen.queryByRole('combobox', { name: '提示词优化模型' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('radio', { name: 'reference' }))
+  assertPlacement()
+  const provider = screen.getByRole('combobox', { name: '提示词优化模型' })
+  fireEvent.change(provider, { target: { value: 'deepseek' } })
+  fireEvent.click(screen.getByRole('button', { name: '反推并生图' }))
+  expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ input_mode: 'reference', use_deepseek: true }))
+})
+
+it('对照可以在并排与滑动之间切换', () => {
+  render(<QwenImagePlayground inputs={fields}
+    initialInputs={{ input_mode: 'remove', image: 'data:image/png;base64,AA==' }}
+    resultUrl="/result.png" running={false} onRun={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: '对照' }))
+  expect(screen.getByRole('button', { name: '并排' })).toHaveAttribute('aria-pressed', 'true')
+  fireEvent.click(screen.getByRole('button', { name: '滑动对比' }))
+  const divider = screen.getByRole('slider', { name: '拖动分隔线比较原图与结果' })
+  fireEvent.change(divider, { target: { value: '72' } })
+  expect(screen.getByAltText('原图')).toHaveStyle({ clipPath: 'inset(0 28% 0 0)' })
+  fireEvent.click(screen.getByRole('button', { name: '并排' }))
+  expect(screen.queryByRole('slider', { name: '拖动分隔线比较原图与结果' })).not.toBeInTheDocument()
+})

@@ -24,6 +24,7 @@
 .qwen-playground button:disabled, .qwen-mask button:disabled { opacity: .55; }
 .qwen-workspace { display: grid; grid-template-columns: minmax(260px, 310px) minmax(0, 1fr); gap: 10px; align-items: start; }
 .qwen-panel { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.qwen-parameters { overflow: visible; }
 .qwen-panel > header, .qwen-panel > footer, .qwen-mask > header, .qwen-mask > footer {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
   padding: 9px 10px;
@@ -37,7 +38,9 @@
 .qwen-asset { min-width: 0; position: relative; }
 .qwen-asset > button:first-child { flex-direction: column; min-height: 44px; width: 100%; height: 100%; }
 .qwen-asset > button:nth-child(2) { position: absolute; right: 2px; top: 2px; padding: 2px; min-height: auto; }
-.qwen-asset img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; }
+.qwen-asset img { width: 100%; aspect-ratio: 3 / 2; object-fit: contain; background: var(--bg); border-radius: 4px; }
+.qwen-asset-label { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; align-items: center; }
+.qwen-asset-required { font-size: 9px; line-height: 1.4; padding-inline: 3px; border-radius: 3px; color: var(--accent); background: var(--accent-subtle, var(--card-hl)); white-space: nowrap; }
 .qwen-seed { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 5px; margin-block: 6px; }
 .qwen-seed label, .qwen-outpaint-controls label { display: grid; gap: 3px; color: var(--muted); font-size: 11px; }
 .qwen-seed input, .qwen-outpaint-controls input { width: 100%; min-height: 30px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
@@ -53,6 +56,24 @@
 .qwen-stage-empty { display: grid; gap: 9px; justify-items: center; color: var(--muted); font-size: 12px; }
 .qwen-stage > img, .qwen-compare img { max-width: 100%; max-height: 55vh; object-fit: contain; border-radius: 6px; }
 .qwen-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 8px; }
+.qwen-compare-modes { display: flex; justify-content: end; gap: 5px; padding: 5px 10px; background: var(--card); }
+.qwen-playground .qwen-compare-modes button { min-height: 25px; padding: 3px 8px; }
+.qwen-compare-slider {
+  width: 100%;
+  height: clamp(270px, 50vh, 520px);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+  position: relative;
+}
+.qwen-compare-slider:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.qwen-compare-slider img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.qwen-compare-label { position: absolute; top: 10px; padding: 4px 8px; color: white; background: #121522cf; border-radius: 4px; font-size: 12px; }
+.qwen-compare-label.source { left: 10px; }
+.qwen-compare-label.result { right: 10px; }
+.qwen-compare-divider { position: absolute; inset-block: 0; width: 2px; background: white; transform: translateX(-50%); box-shadow: 0 0 4px #000a; }
+.qwen-compare-divider span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: white; color: #202633; font-size: 18px; }
+.qwen-compare-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
 .qwen-compare figure { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
 .qwen-result-meta { border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 .qwen-result-meta > a { display: inline-block; padding: 8px 10px; color: var(--accent); }
@@ -98,3 +119,7 @@
 .qwen-mode-help { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
 
 .qwen-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; padding-block: 3px; }
+
+.qwen-optimizer { display: grid; gap: 4px; font-size: 12px; }
+
+.qwen-optimizer textarea { width: 100%; resize: vertical; padding: 7px 8px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 5px; }
