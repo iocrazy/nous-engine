@@ -52,7 +52,7 @@ async def auth_bearer_or_admin_session(
 
 
 async def resolve_service_for_call(
-    session: AsyncSession, auth: Auth, name: str,
+    session: AsyncSession, auth: Auth, name: str, *, reserve_rate_limit: bool = True,
 ) -> tuple[ServiceInstance, InstanceApiKey | None]:
     """bearer key(或 admin session)→ 目标服务(URL 的 {name}),校验 active + 加载 deferred 列。
 
@@ -77,7 +77,7 @@ async def resolve_service_for_call(
             raise HTTPException(403, detail="API key not authorized for this service")
     if instance.status != "active":
         raise HTTPException(403, detail="service is inactive")
-    if api_key is not None:
+    if api_key is not None and reserve_rate_limit:
         await enforce_instance_rate_limit(instance)
     await session.refresh(
         instance, attribute_names=["workflow_snapshot", "exposed_inputs", "exposed_outputs"])

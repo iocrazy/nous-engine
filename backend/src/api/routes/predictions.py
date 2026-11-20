@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -82,6 +83,30 @@ async def get_service_schema(
         "input_schema": schema["input_schema"],
         "output_schema": schema["output_schema"],
     }
+
+
+@router.get("/services/{name}/options")
+async def get_service_options(
+    name: str,
+    auth: tuple[ServiceInstance | None, InstanceApiKey | None] = Depends(_auth_predictions),
+    session: AsyncSession = Depends(get_async_session),
+) -> dict[str, list[str]]:
+    """List selectable LoRAs for the inputs declared by an authorized service."""
+    from src.services.comfy.client import ComfyError
+    from src.services.comfy.lora_options import LORA_LIST_TYPE, lora_files, lora_matches_input
+    from src.services.service_schema import build_service_io_schema
+
+    svc, _ = await _resolve_service(session, auth, name, reserve_rate_limit=False)
+    schema = build_service_io_schema(svc.exposed_inputs, svc.exposed_outputs, svc.workflow_snapshot)
+    keys = [key for key, spec in schema["input_schema"]["properties"].items()
+            if spec.get("x-widget") == LORA_LIST_TYPE]
+    if not keys:
+        return {}
+    try:
+        files = sorted(set(await lora_files()), key=str.casefold)
+    except (ComfyError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, detail="LoRA choices are temporarily unavailable") from exc
+    return {key: [file for file in files if lora_matches_input(key, file)] for key in keys}
 
 
 @router.post("/services/{name}/predictions")
