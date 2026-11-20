@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import type { ExposedParam } from '../../api/services'
 import QwenImagePlayground from './QwenImagePlayground'
@@ -139,4 +139,30 @@ it('工作流提供漫｜真互转模式后，使用后端模式提交', () => {
   fireEvent.click(screen.getByRole('radio', { name: '漫｜真互转' }))
   fireEvent.click(screen.getByRole('button', { name: '转换图片' }))
   expect(onRun).toHaveBeenCalledWith({ input_mode: 'comic_real', seed: 42 })
+})
+
+it('可粘贴原图和选中的遮罩，并沿用任务上传参数', async () => {
+  const onRun = vi.fn()
+  const withMask = [...fields, {
+    node_id: 'bridge', key: 'mask', type: 'image', required: true,
+    constraints: { visible_when: { input_mode: 'remove' } },
+  }]
+  render(<QwenImagePlayground inputs={withMask} initialInputs={{ input_mode: 'remove', seed: 42 }}
+    running={false} onRun={onRun} />)
+
+  const original = new File(['original'], 'screenshot.png', { type: 'image/png' })
+  fireEvent.paste(document.body, { clipboardData: { files: [original], items: [] } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '移除原图' })).toBeVisible())
+
+  const mask = new File(['mask'], 'mask.png', { type: 'image/png' })
+  fireEvent.paste(screen.getByRole('button', { name: /^遮罩\s*必填/ }), {
+    clipboardData: { files: [], items: [{ kind: 'file', type: 'image/png', getAsFile: () => mask }] },
+  })
+  await waitFor(() => expect(screen.getByRole('button', { name: '移除遮罩' })).toBeVisible())
+
+  fireEvent.click(screen.getByRole('button', { name: '移除遮罩区域' }))
+  expect(onRun).toHaveBeenCalledWith({
+    input_mode: 'remove', seed: 42,
+    image: 'data:image/png;base64,b3JpZ2luYWw=', mask: 'data:image/png;base64,bWFzaw==',
+  })
 })
