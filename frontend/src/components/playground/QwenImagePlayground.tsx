@@ -107,6 +107,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     if (mode !== 'reference' || !Object.hasOwn(values, 'reference_engine')) return true
     if (key === 'moss_megapixels' || key === 'moss_aspect_ratio') return values.reference_engine === 'moss'
     if (key === 'megapixels' || key === 'aspect_ratio') return values.reference_engine !== 'moss'
+    if (key === 'moss_loras') return values.reference_engine === 'moss'
+    if (key === 'qwen_loras') return values.reference_engine !== 'moss'
     return true
   })
   const modeParam = active.find(param => paramKey(param) === 'input_mode')
@@ -128,7 +130,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const outpaintFields = active.filter(param => /^outpaint_(left|right|top|bottom)$/.test(paramKey(param)!))
   const hasOutpaint = mode === 'outpaint' && outpaintFields.length === 4
   const showPlan = hasOutpaint && source && dims && (preview === 'source' || !resultUrl)
-  const controls = active.filter(param => param !== modeParam && !candidates.some(item => item.param === param) &&
+  const loraLists = active.filter(param => param.type === 'lora_list')
+  const controls = active.filter(param => param.type !== 'lora_list' && param !== modeParam && !candidates.some(item => item.param === param) &&
     !(source && dims && hasOutpaint && outpaintFields.includes(param)))
 
   const update = (key: string, value: unknown) => {
@@ -382,6 +385,9 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                 </div>}
               </details>}
             </fieldset>
+            {loraLists.length > 0 && <fieldset disabled={!enabled} className="qwen-settings">
+              <details><summary>LoRA</summary>{loraLists.map(renderField)}</details>
+            </fieldset>}
           </div>
           <footer>
             <span role="status">{notice}</span>

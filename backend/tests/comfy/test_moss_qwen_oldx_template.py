@@ -127,18 +127,42 @@ async def test_replace_existing_service_without_changing_its_route(client):
     assert schema["input_schema"]["properties"]["input_mode"]["default"] == "text"
     assert set(schema["input_schema"]["properties"]["input_mode"]["enum"]) == set(SCHEMA["properties"]["input_mode"]["enum"])
     assert set(schema["output_schema"]["properties"]) == {"image_url"}
+    old_input = await client.post(f"/v1/apps/{name}/run", json={"lora_01": "slot.safetensors"})
+    assert old_input.status_code == 422
+    assert "lora_01" in old_input.text
 
 
 def test_moss_loras_follow_the_canvas_order_and_enabled_state():
     inputs = WORKFLOW["397"]["inputs"]
     assert [
-        (inputs[f"lora_{index:02d}"], inputs[f"strength_{index:02d}"]) for index in range(1, 4)
+        (row["lora"], row["on"], row["strength"]) for index in range(1, 4)
+        for row in [inputs[f"lora_{index}"]]
     ] == [
-        ("moss/KOOK-MOSS-SFT-观澜.safetensors", 1),
-        ("moss/feverdream-epoch-07.safetensors", 0.5),
-        ("None", 0.7),
+        ("moss/KOOK-MOSS-SFT-观澜.safetensors", True, 1),
+        ("moss/feverdream-epoch-07.safetensors", True, 0.5),
+        ("moss/TJFilmMossV2.safetensors", False, 0.7),
     ]
     params = {param.key: param for param in PARAMS}
-    assert params["moss_lora_film_strength"].comfy_input == "strength_03"
-    assert "moss/TJFilmMossV2.safetensors" in SCHEMA["properties"]["moss_lora_film"]["enum"]
+    assert params["moss_loras"].comfy_input == "loras"
+    assert SCHEMA["properties"]["moss_loras"]["type"] == "array"
     assert "reference" in SCHEMA["properties"]["use_deepseek"]["x-visible-when"]["input_mode"]
+
+
+@pytest.mark.parametrize(("key", "node", "mode"), [
+    ("qwen_loras", "773", "text"),
+    ("moss_loras", "397", "moss_text"),
+    ("edit_loras", "166", "edit"),
+    ("oldx_loras", "514", "oldx"),
+])
+def test_lora_list_is_bound_to_the_power_loader_in_its_branch(key, node, mode):
+    param = next(param for param in PARAMS if param.key == key)
+    assert param.comfy_node_id == node
+    assert WORKFLOW[node]["class_type"] == "Power Lora Loader (rgthree)"
+    graph = deepcopy(WORKFLOW)
+    graph["700"]["inputs"]["value"] = mode
+    assert node in active_nodes(graph)
+    rows = [{"lora": "any.safetensors", "on": True, "strength": 0.4}] * 8
+    payload = {"input_mode": mode, "prompt": "scene", "image": "image.png", "oldx_target": "target.png", key: rows}
+    assert validate_service_input(SCHEMA, payload) == []
+    assert validate_service_input(SCHEMA, {**payload, "lora_01": "old.safetensors"})
+    assert validate_service_input(SCHEMA, {**payload, key: [{"on": "true", "strength": 20}]})

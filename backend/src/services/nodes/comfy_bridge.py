@@ -31,6 +31,7 @@ from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
 from src.services.comfy.graph_prune import downstream_nodes, prune_graph
+from src.services.comfy.lora_options import LORA_LIST, LORA_LIST_TYPE, lora_files, replace_power_loras
 from src.services.comfy.object_info import get_node_infos
 from src.services.comfy.outputs import collect_outputs, history_error
 from src.services.comfy.thumbnail import extract_first_frame
@@ -214,6 +215,21 @@ class ComfyUIWorkflowNode:
         graph = deepcopy(graph_template)
         client = get_client()
         seed = None
+        lora_updates = {
+            str(m["comfy_node_id"]): LORA_LIST.validate_python(data.get(m["key"], m.get("default")))
+            for m in exposed_params if m.get("type") == LORA_LIST_TYPE
+            and (m["key"] in data or m.get("default") is not None)
+        }
+        enabled_loras = {
+            row.lora for m in exposed_params if m.get("type") == LORA_LIST_TYPE and m["key"] in data
+            for row in lora_updates[str(m["comfy_node_id"])] if row.on
+        }
+        if enabled_loras:
+            missing = enabled_loras.difference(await lora_files(client))
+            if missing:
+                raise ValueError(f"ComfyUI 找不到 LoRA：{', '.join(sorted(missing))}")
+        for node_id, rows in lora_updates.items():
+            replace_power_loras(graph[node_id], rows)
 
         # 先把**所有**文件类入参校验/解码完,再开始上传 —— 否则第二个参数不合法时,
         # 第一个已经传到 sidecar input 目录的文件就成了孤儿。
@@ -232,6 +248,8 @@ class ComfyUIWorkflowNode:
         condition_values = {m["key"]: m.get("default") for m in exposed_params}
         condition_values.update({key: value for key, value in data.items() if value is not None})
         for m in exposed_params:
+            if m.get("type") == LORA_LIST_TYPE:
+                continue
             key = m["key"]
             value = data.get(key, m.get("default"))
             node_id = str(m.get("comfy_node_id"))
