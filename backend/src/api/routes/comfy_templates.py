@@ -819,7 +819,8 @@ async def comfy_free(idle_only: bool = False):
 
 
 @health_router.get("/loras", dependencies=[Depends(require_admin)])
-async def comfy_loras():
+async def comfy_loras(response: Response):
+    response.headers["Cache-Control"] = "no-store"
     try:
         return await lora_files()
     except (ComfyError, httpx.HTTPError, ValueError) as exc:
