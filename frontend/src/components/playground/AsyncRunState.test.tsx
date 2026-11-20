@@ -47,12 +47,20 @@ describe('AsyncRunState', () => {
       created_at: created, status: 'processing', progress: { nodes_done: 0, nodes_total: 2,
         comfy: { phase: 'running', label: '采样器', step, total: 25 } },
     })
-    vi.mocked(api.getPrediction).mockResolvedValueOnce(progress(4)).mockResolvedValue(progress(5))
+    vi.mocked(api.getPrediction)
+      .mockResolvedValueOnce(pred({
+        created_at: created, status: 'processing', progress: { nodes_done: 0, nodes_total: 2,
+          comfy: { phase: 'running', label: '优化提示词' } },
+      }))
+      .mockResolvedValueOnce(progress(4)).mockResolvedValue(progress(5))
     render(<AsyncRunState predictionId="p1" compact {...callbacks()} />)
     await act(async () => { await Promise.resolve() })
-    expect(screen.getByRole('status')).toHaveTextContent('采样器 · 0:00 · 4/25 步')
+    expect(screen.getByRole('status')).toHaveTextContent('优化提示词 · 0:00')
+    expect(screen.getByRole('progressbar', { name: '当前节点进度' })).not.toHaveAttribute('value')
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
-    expect(screen.getByRole('status')).toHaveTextContent('采样器 · 0:01 · 5/25 步')
+    expect(screen.getByRole('status')).toHaveTextContent('采样器 · 0:01 · 4/25 步 · 16%')
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(screen.getByRole('status')).toHaveTextContent('采样器 · 0:02 · 5/25 步 · 20%')
     expect(screen.getByRole('progressbar', { name: '当前节点进度' })).toHaveAttribute('value', '5')
   })
 

@@ -133,15 +133,16 @@ export default function AsyncRunState({ predictionId, compact = false, onDone, o
   const currentStep = render?.step
   const totalSteps = render?.total
   if (compact) {
+    const hasSteps = currentStep !== undefined && totalSteps !== undefined && totalSteps > 0
     const phase = render?.phase === 'running' ? (render.label ?? '生成中')
       : render?.phase === 'queued' || status === 'starting' ? '等待 ComfyUI'
         : status === 'processing' ? '准备任务' : '已提交'
     return <div className="qwen-run-status">
       <span role="status">{phase}{prediction?.created_at && ` · ${tickElapsed(prediction.created_at, now)}`}
-        {currentStep !== undefined && totalSteps !== undefined && ` · ${currentStep}/${totalSteps} 步`}
+        {hasSteps && ` · ${currentStep}/${totalSteps} 步 · ${Math.round(currentStep / totalSteps * 100)}%`}
       </span>
-      {currentStep !== undefined && totalSteps !== undefined &&
-        <progress aria-label="当前节点进度" value={currentStep} max={totalSteps} />}
+      {!isTerminal && <progress aria-label="当前节点进度"
+        value={hasSteps ? currentStep : undefined} max={hasSteps ? totalSteps : undefined} />}
       {pollError && <small role="status">进度更新失败，正在重试</small>}
       {!isTerminal && <button type="button" disabled={cancelling} onClick={handleCancel}>
         {cancelling ? '正在取消…' : '取消任务'}

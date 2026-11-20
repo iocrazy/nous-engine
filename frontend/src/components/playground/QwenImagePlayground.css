@@ -108,10 +108,23 @@
 .qwen-compare-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
 .qwen-compare figure { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
 .qwen-result-meta { border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
-.qwen-result-meta > a { display: inline-block; padding: 8px 10px; color: var(--accent); }
+.qwen-result-details { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; padding: 8px 10px; }
+.qwen-result-details > a { color: var(--accent); }
+.qwen-preview-progress { border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 .qwen-run-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 42px; padding: 5px 10px; }
-.qwen-run-status > progress { flex: 1 1 88px; min-width: 0; height: 6px; accent-color: var(--accent); }
+.qwen-run-status > progress { flex: 1 1 120px; min-width: 0; height: 7px; accent-color: var(--accent); }
 .qwen-run-status > button { margin-inline-start: auto; }
+.qwen-preview-expanded { position: fixed; inset: 0; z-index: 1000; }
+:is(.qwen-preview:fullscreen, .qwen-preview-expanded) { display: flex; flex-direction: column; border-radius: 0; }
+:is(.qwen-preview:fullscreen, .qwen-preview-expanded) .qwen-stage {
+  flex: 1 1 0; min-height: 0; overflow: hidden; grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+:is(.qwen-preview:fullscreen, .qwen-preview-expanded) :is(.qwen-compare-slider, .qwen-compare) { height: 100%; }
+:is(.qwen-preview:fullscreen, .qwen-preview-expanded) .qwen-compare { width: 100%; grid-template-rows: minmax(0, 1fr); }
+:is(.qwen-preview:fullscreen, .qwen-preview-expanded) .qwen-compare figure {
+  height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; align-items: center;
+}
+:is(.qwen-preview:fullscreen, .qwen-preview-expanded) :is(.qwen-stage > img, .qwen-compare img) { max-height: 100%; }
 
 .qwen-outpaint { width: 100%; display: grid; gap: 8px; }
 .qwen-outpaint-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 130px)); justify-content: center; gap: 8px; }

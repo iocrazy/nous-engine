@@ -30,6 +30,13 @@ async def test_watch_progress_keeps_only_matching_comfy_prompt(monkeypatch):
         yield json.dumps({"type": "progress", "data": {"prompt_id": "other", "node": "8", "value": 3, "max": 20}})
         yield json.dumps({"type": "executing", "data": {"prompt_id": "p1", "node": "5"}})
         yield json.dumps({"type": "progress", "data": {"prompt_id": "p1", "node": "5", "value": 4, "max": 20}})
+        yield json.dumps({"type": "progress_state", "data": {"prompt_id": "p1", "nodes": {
+            "5": {"state": "finished", "value": 20, "max": 20},
+            "6": {"state": "running", "display_node_id": "50", "value": 0, "max": 1},
+        }}})
+        yield json.dumps({"type": "progress_state", "data": {"prompt_id": "p1", "nodes": {
+            "6": {"state": "running", "display_node_id": "50", "value": 7, "max": 18},
+        }}})
 
     @asynccontextmanager
     async def websocket(url, **_kwargs):
@@ -41,6 +48,7 @@ async def test_watch_progress_keeps_only_matching_comfy_prompt(monkeypatch):
     await make_client(lambda _: None).watch_progress("p1", received.append)
     assert received == [
         {"phase": "running", "node": "5"}, {"phase": "running", "node": "5", "step": 4, "total": 20},
+        {"phase": "running", "node": "50"}, {"phase": "running", "node": "50", "step": 7, "total": 18},
     ]
 
 
