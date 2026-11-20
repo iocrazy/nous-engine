@@ -502,3 +502,32 @@ async def test_gallery_pages_skip_non_media_and_load_full_parameters_on_demand(d
     summary = await db_client.get("/api/v1/tasks?include_input=false")
     assert all("input_json" not in item for item in summary.json())
     assert (await db_client.get("/api/v1/tasks/103")).json()["input_json"]["image"] == inline
+
+
+async def test_gallery_filters_searches_past_nonmatching_tasks_and_reports_expiry(db_client, db_session, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from src.models.execution_task import ExecutionTask
+
+    monkeypatch.setenv("NOUS_USAGE_RETENTION_DAYS", "14")
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        ExecutionTask(id=100, status="completed", workflow_name="Archive",
+                      created_at=now - timedelta(days=15), result={"n": {"video_url": "/old.mp4"}}),
+        ExecutionTask(id=101, status="completed", workflow_name="Comfy Video",
+                      created_at=now, input_json={"prompt": "Rain over a bridge"},
+                      result={"n": {"video_url": "/new.mp4"}}),
+        ExecutionTask(id=102, status="completed", workflow_name="Comfy Image",
+                      created_at=now, input_json={"prompt": "Rain over a bridge"},
+                      result={"n": {"image_url": "/new.png"}}),
+    ])
+    await db_session.commit()
+
+    response = await db_client.get("/api/v1/tasks/gallery", params={"media": "video", "q": "BRIDGE", "days": 7})
+    response.raise_for_status()
+    [item] = response.json()["items"]
+    assert item["id"] == "101" and item["kind"] == "video"
+    assert datetime.fromisoformat(item["expires_at"]) == now + timedelta(days=14)
+    for q in ("Comfy Image", "102"):
+        by_name = await db_client.get("/api/v1/tasks/gallery", params={"q": q})
+        assert [item["id"] for item in by_name.json()["items"]] == ["102"]

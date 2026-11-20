@@ -17,6 +17,11 @@ export interface LightboxMeta {
   resolution?: string
   durationMs?: number | null
   historyTaskId?: string
+  title?: string
+  createdAt?: string
+  expiresAt?: string
+  expired?: boolean
+  poster?: string
   /** 「重跑」回调(有则面板显示重跑按钮)。 */
   onRerun?: () => void
   /** 前后对比的基准图 url(对齐 Infinite-Canvas:生成图 vs 输入/源图)。有值则

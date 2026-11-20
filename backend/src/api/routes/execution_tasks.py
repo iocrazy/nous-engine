@@ -1,13 +1,15 @@
 import base64
 import binascii
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import logging
 import re
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from anyio import to_thread
-from sqlalchemy import case, select, desc, func
+from sqlalchemy import case, select, desc, func, or_
 from sqlalchemy.orm import with_expression
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +18,7 @@ from src.models.execution_task import ExecutionTask
 from src.utils.constants import VALID_TASK_STATUSES
 from src.api.websocket import ws_manager
 from src.api.routes.image_files import preview_limiter, render_preview
+from src.services.usage_retention import _retention_days
 # 序列化器下沉到 services 层(打破 workflow_runner→本模块 的反向依赖)。reaper
 # collect_referenced_image_uuids 仍在本文件(用 session),向下 import 抽 url 的纯 helper。
 from src.services.execution_task_serialize import (  # noqa: F401
@@ -86,6 +89,9 @@ def _video_url(result: object) -> str | None:
 async def list_gallery(
     limit: int = Query(24, ge=1, le=48),
     before: int | None = Query(None, ge=1, le=2**63 - 1),
+    media: Literal["all", "image", "video"] = "all",
+    q: str = Query("", max_length=120),
+    days: int | None = Query(None, ge=1, le=365),
     session: AsyncSession = Depends(get_async_session),
 ):
     t = ExecutionTask
@@ -98,23 +104,43 @@ async def list_gallery(
     )
     if before is not None:
         stmt = stmt.where(t.id < before)
+    now = datetime.now(timezone.utc)
+    if days is not None:
+        stmt = stmt.where(t.created_at >= now - timedelta(days=days))
+    if query := q.strip():
+        matches = [
+            t.workflow_name.icontains(query, autoescape=True),
+            t.input_json["prompt"].as_string().icontains(query, autoescape=True),
+            t.input_json["positive_prompt"].as_string().icontains(query, autoescape=True),
+        ]
+        if query.isascii() and query.isdigit() and int(query) <= 2**63 - 1:
+            matches.append(t.id == int(query))
+        stmt = stmt.where(or_(*matches))
+
     rows = (await session.execute(stmt)).all()
+    retention = timedelta(days=_retention_days())
     items = []
     next_before = None
     for index, row in enumerate(rows[:scan_limit]):
         urls = _image_urls(row.result)
-        if urls:
+        video = _video_url(row.result) if urls else None
+        kind = "video" if video else "image"
+        if urls and (media == "all" or media == kind):
+            expires_at = row.created_at + retention
             items.append({
                 "id": str(row.id),
                 "workflow_id": str(row.workflow_id) if row.workflow_id else None,
                 "workflow_name": row.workflow_name,
                 "created_at": row.created_at.isoformat(),
+                "expires_at": expires_at.isoformat(),
+                "expired": expires_at <= now,
                 "duration_ms": row.duration_ms,
                 "output_thumbnails": [
                     f"/api/v1/tasks/gallery/{row.id}/image/{slot}" if url.startswith("data:") else url
                     for slot, url in enumerate(urls)
                 ],
-                "video_url": _video_url(row.result),
+                "video_url": video,
+                "kind": kind,
             })
         if index + 1 < len(rows):
             next_before = str(row.id)

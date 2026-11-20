@@ -67,7 +67,7 @@ function ZoomableImage({ src, onNatural }: { src: string; onNatural?: (w: number
           setDragging(true)
         }}
         style={{
-          maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain',
+          maxWidth: 'var(--lightbox-media-width, 92vw)', maxHeight: 'var(--lightbox-media-height, 92vh)', objectFit: 'contain',
           transform: `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.scale})`,
           transformOrigin: 'center center',
           transition: dragging ? 'none' : 'transform 0.08s',
@@ -80,15 +80,20 @@ function ZoomableImage({ src, onNatural }: { src: string; onNatural?: (w: number
 }
 
 /** 视频产物(Task 11:comfy bridge 视频节点)。不缩放/平移,原生 controls 播放。 */
-function VideoView({ src }: { src: string }) {
+function VideoView({ src, poster }: { src: string; poster?: string }) {
+  const [failed, setFailed] = useState(false)
   return (
-    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <video
-        controls
-        autoPlay
-        src={src}
-        style={{ maxWidth: '92vw', maxHeight: '92vh' }}
-      />
+    <div onClick={(event) => event.stopPropagation()} style={{ display: 'grid', justifyItems: 'center' }}>
+      {failed ? (
+        <div role="status" style={{ color: '#e2e6ee', padding: 16, textAlign: 'center' }}>
+          <p>视频暂时无法播放，文件可能已被清理或格式不受支持。</p>
+          <a href={src} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>打开原视频</a>
+        </div>
+      ) : <video
+        controls autoPlay playsInline preload="metadata" src={src} poster={poster}
+        onError={() => setFailed(true)}
+        style={{ maxWidth: 'var(--lightbox-media-width, 92vw)', maxHeight: 'var(--lightbox-media-height, 92vh)' }}
+      />}
     </div>
   )
 }
@@ -118,9 +123,9 @@ function CompareView({ front, back }: { front: string; back: string }) {
       ref={ref}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => { e.preventDefault(); drag.current = true; setFromX(e.clientX) }}
-      style={{ position: 'relative', maxWidth: '92vw', maxHeight: '92vh', cursor: 'ew-resize', userSelect: 'none' }}
+      style={{ position: 'relative', maxWidth: 'var(--lightbox-media-width, 92vw)', maxHeight: 'var(--lightbox-media-height, 92vh)', cursor: 'ew-resize', userSelect: 'none' }}
     >
-      <img src={back} alt="preview" draggable={false} style={{ display: 'block', maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain' }} />
+      <img src={back} alt="preview" draggable={false} style={{ display: 'block', maxWidth: 'var(--lightbox-media-width, 92vw)', maxHeight: 'var(--lightbox-media-height, 92vh)', objectFit: 'contain' }} />
       <img src={front} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', clipPath: `inset(0 ${100 - pos}% 0 0)` }} />
       <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${pos}%`, width: 2, background: '#fff', boxShadow: '0 0 4px rgba(0,0,0,0.6)', transform: 'translateX(-1px)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', top: '50%', left: `${pos}%`, width: 24, height: 24, marginLeft: -12, marginTop: -12, borderRadius: '50%', background: '#fff', boxShadow: '0 0 4px rgba(0,0,0,0.6)', pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#333' }}>⇄</div>
@@ -131,23 +136,34 @@ function CompareView({ front, back }: { front: string; back: string }) {
 }
 
 function hasMeta(m: LightboxMeta | undefined): m is LightboxMeta {
-  return !!m && (!!m.prompt || !!m.resolution || !!m.fields?.length || m.durationMs != null || !!m.onRerun)
+  return !!m && (!!m.historyTaskId || !!m.prompt || !!m.resolution || !!m.fields?.length || m.durationMs != null || !!m.onRerun)
 }
 
 function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: string }) {
   const [copied, setCopied] = useState(false)
   const res = meta.resolution || fallbackRes
+  const history = !!meta.historyTaskId
+  const dateFormat = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="nowheel"
-      style={{
+      className={history ? 'nowheel history-lightbox-meta' : 'nowheel'}
+      style={history ? undefined : {
         position: 'absolute', top: 70, right: 18, width: 280, maxHeight: 'calc(100vh - 100px)',
         overflowY: 'auto', background: 'rgba(20,20,22,0.92)', border: '1px solid rgba(255,255,255,0.15)',
         borderRadius: 10, padding: 14, color: '#fff', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 10,
         backdropFilter: 'blur(4px)',
       }}
     >
+      {history && (
+        <header>
+          <strong>{meta.title}</strong>
+          {meta.createdAt && <time dateTime={meta.createdAt}>生成于 {dateFormat.format(new Date(meta.createdAt))}</time>}
+          {meta.expiresAt && <time dateTime={meta.expiresAt}>
+            {meta.expired ? '已到期' : '预计到期'} · {dateFormat.format(new Date(meta.expiresAt))}
+          </time>}
+        </header>
+      )}
       {meta.prompt && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -252,8 +268,10 @@ export default function Lightbox() {
   // 也能对比(对齐 IC 的「生成图 vs 输入图」);两者都无则对比按钮不出现。
   // 视频产物不支持缩放/对比(Task 11)。
   const explicitBase = meta?.compareBase && meta.compareBase !== url ? meta.compareBase : undefined
-  const canCompare = !isVideo && (!!explicitBase || multi)
-  const compareBase = explicitBase ?? (multi ? images[index === 0 ? 1 : index - 1] : url)
+  const compareIndex = index === 0 ? 1 : index - 1
+  const nearbyImage = multi && kinds[compareIndex] !== 'video' ? images[compareIndex] : undefined
+  const compareBase = explicitBase ?? nearbyImage
+  const canCompare = !isVideo && !!compareBase
   const showCompare = compare && canCompare
 
   const basename = (u: string): string => {
@@ -275,7 +293,7 @@ export default function Lightbox() {
       onClick={(e) => { e.stopPropagation(); onClick() }}
       aria-label={side === 'left' ? '上一张' : '下一张'}
       style={{
-        position: 'absolute', top: '50%', transform: 'translateY(-50%)', [side]: 18,
+        position: 'absolute', top: '50%', transform: 'translateY(-50%)', [side]: side === 'right' && historyTaskId ? 'calc(18px + var(--history-meta-width, 0px))' : 18,
         width: 44, height: 44, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', cursor: 'pointer',
       } as React.CSSProperties}
@@ -284,20 +302,22 @@ export default function Lightbox() {
     </button>
   )
 
+  const media = isVideo
+    ? <VideoView key={index} src={url} poster={meta?.poster} />
+    : showCompare && compareBase
+      ? <CompareView key={`cmp-${index}`} front={url} back={compareBase} />
+      : <ZoomableImage key={index} src={url} onNatural={(w, h) => setNatural({ w, h })} />
+
   return (
     <div
       onClick={close}
+      className={historyTaskId ? 'history-lightbox' : undefined}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.85)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+        display: historyTaskId ? 'grid' : 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
       }}
     >
-      {/* key=index → 切图 remount,缩放/平移自动复位;对比模式换成 CompareView;视频走独立分支 */}
-      {isVideo
-        ? <VideoView key={index} src={url} />
-        : showCompare
-          ? <CompareView key={`cmp-${index}`} front={url} back={compareBase} />
-          : <ZoomableImage key={index} src={url} onNatural={(w, h) => setNatural({ w, h })} />}
+      {historyTaskId ? <div className="history-lightbox-stage">{media}</div> : media}
 
       <button
         type="button"
@@ -313,7 +333,7 @@ export default function Lightbox() {
       </button>
 
       {hasMeta(meta) && (
-        <MetaPanel meta={meta} fallbackRes={natural ? `${natural.w}×${natural.h}` : ''} />
+        <MetaPanel meta={meta} fallbackRes={!isVideo && natural ? `${natural.w}×${natural.h}` : ''} />
       )}
 
       {multi && !showCompare && (

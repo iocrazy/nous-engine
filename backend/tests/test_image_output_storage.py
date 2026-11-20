@@ -577,3 +577,31 @@ def test_sign_existing_image_no_secret_returns_none(tmp_path, monkeypatch):
     from src.services import image_output_storage as ios
     url, expires = ios.sign_existing_image("2026-05-20", "abc", "png")
     assert url is None and expires is None
+
+
+@pytest.mark.asyncio
+async def test_video_preview_extracts_and_caches_first_frame(storage_tmp, with_signing_secret, client, monkeypatch):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from src.api.routes import image_files
+    from src.services.image_output_storage import write_image
+
+    buffer = BytesIO()
+    Image.new("RGB", (960, 540), "navy").save(buffer, format="PNG")
+    calls = []
+
+    async def fake_extract(path, *, timeout):
+        calls.append((path.suffix, timeout))
+        return buffer.getvalue()
+
+    monkeypatch.setattr(image_files, "extract_first_frame", fake_extract)
+    record = write_image(b"video bytes", ext="mp4")
+    url = record["url"]
+    response = await client.get(url + "&preview=1")
+    assert response.headers["content-type"] == "image/webp"
+    assert Image.open(BytesIO(response.content)).size == (384, 216)
+    assert (await client.get(url + "&preview=1")).content == response.content
+    assert calls == [(".mp4", 8)]
+    assert (await client.get(url)).content == b"video bytes"

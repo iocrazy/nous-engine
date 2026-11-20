@@ -16,6 +16,8 @@ work), HMAC second (still required for non-admin URLs).
 """
 from __future__ import annotations
 
+from asyncio import Semaphore
+from collections import OrderedDict
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -32,10 +34,13 @@ from PIL import Image, ImageOps
 from src.api.admin_session import request_is_authed
 from src.errors import NotFoundError, NousError
 from src.services.comfy.outputs import SERVABLE_EXTS as _EXT_WHITELIST
+from src.services.comfy.thumbnail import extract_first_frame
 from src.services.image_output_storage import resolve_path, verify_token
 
 router = APIRouter(tags=["image-files"])
 preview_limiter = CapacityLimiter(4)
+_video_preview_limit = Semaphore(2)
+_video_previews: OrderedDict[tuple[Path, int], bytes | None] = OrderedDict()
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -81,6 +86,20 @@ def render_preview(source: Path | BinaryIO) -> bytes | None:
 @lru_cache(maxsize=128)
 def _file_preview(path: Path, mtime_ns: int) -> bytes | None:
     return render_preview(path)
+
+
+async def _video_preview(path: Path, mtime_ns: int) -> bytes | None:
+    key = (path, mtime_ns)
+    async with _video_preview_limit:
+        if key in _video_previews:
+            _video_previews.move_to_end(key)
+            return _video_previews[key]
+        frame = await extract_first_frame(path, timeout=8)
+        data = await to_thread.run_sync(render_preview, BytesIO(frame), limiter=preview_limiter) if frame else None
+        _video_previews[key] = data
+        if len(_video_previews) > 128:
+            _video_previews.popitem(last=False)
+        return data
 
 
 @router.get("/files/images/{date}/{uuid_filename}")
@@ -142,10 +161,14 @@ async def get_image(
         cache_header = f"private, max-age={max(0, expires - _now_ts())}"
 
     media_type = _mime_for_ext(ext)
-    if preview and media_type.startswith("image/"):
-        data = await to_thread.run_sync(_file_preview, path, path.stat().st_mtime_ns, limiter=preview_limiter)
+    if preview and media_type.startswith(("image/", "video/")):
+        mtime_ns = path.stat().st_mtime_ns
+        if media_type.startswith("video/"):
+            data = await _video_preview(path, mtime_ns)
+        else:
+            data = await to_thread.run_sync(_file_preview, path, mtime_ns, limiter=preview_limiter)
         if data is None:
-            raise NotFoundError("image preview unavailable", code="image_preview_unavailable")
+            raise NotFoundError("media preview unavailable", code="image_preview_unavailable")
         return Response(data, media_type="image/webp", headers={"Cache-Control": cache_header})
 
     return FileResponse(

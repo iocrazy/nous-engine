@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT_SECONDS = 60
 
 
-async def extract_first_frame(video_path: Path) -> bytes | None:
+async def extract_first_frame(video_path: Path, *, timeout: float | None = None) -> bytes | None:
     """Return the first frame of `video_path` as PNG bytes, or None.
 
     Never raises: missing/unreadable ffmpeg binary (OSError — FileNotFoundError,
@@ -27,11 +27,12 @@ async def extract_first_frame(video_path: Path) -> bytes | None:
     ffmpeg exit code (corrupt/unreadable input, unsupported codec, etc.) all
     degrade to None so gallery rendering never breaks on a bad video.
     """
+    timeout = _TIMEOUT_SECONDS if timeout is None else timeout
     with tempfile.TemporaryDirectory(prefix="nous-thumb-") as tmp_dir:
         out_path = Path(tmp_dir) / "frame.png"
         try:
             proc = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-y", "-i", str(video_path),
+                "ffmpeg", "-y", "-protocol_whitelist", "file,pipe", "-i", str(video_path),
                 "-frames:v", "1", "-f", "image2", str(out_path),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -46,13 +47,18 @@ async def extract_first_frame(video_path: Path) -> bytes | None:
             return None
 
         try:
-            returncode = await asyncio.wait_for(proc.wait(), timeout=_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            proc.kill()
+            returncode = await asyncio.wait_for(proc.wait(), timeout=timeout)
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
             await proc.wait()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             logger.warning(
                 "extract_first_frame: ffmpeg timed out (>%ds) for %s",
-                _TIMEOUT_SECONDS, video_path,
+                timeout, video_path,
             )
             return None
 

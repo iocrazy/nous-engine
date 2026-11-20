@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import { useLiveChannel } from './useLiveChannel'
 import { useTaskProgressStore } from '../stores/taskProgress'
@@ -118,20 +118,30 @@ export function useTasksByWorkflow(workflowId: string | null, limit = 50) {
   })
 }
 
+export type GalleryMedia = 'all' | 'image' | 'video'
+
 export type GalleryTask = Pick<ExecutionTask, 'id' | 'workflow_id' | 'workflow_name' | 'created_at' | 'duration_ms'> & {
   output_thumbnails: string[]
   video_url: string | null
+  kind: Exclude<GalleryMedia, 'all'>
+  expires_at: string
+  expired: boolean
 }
 
 type GalleryPage = { items: GalleryTask[]; next_before: string | null }
 
-export function useImageTasks(before: string | null) {
-  return useQuery({
-    queryKey: ['tasks', 'gallery', before],
-    queryFn: ({ signal }) => apiFetch<GalleryPage>(
-      before ? `/api/v1/tasks/gallery?before=${encodeURIComponent(before)}` : '/api/v1/tasks/gallery',
-      { signal },
-    ),
+export function useImageTasks(media: GalleryMedia, query: string, days: number | null) {
+  return useInfiniteQuery({
+    queryKey: ['tasks', 'gallery', media, query, days],
+    queryFn: ({ signal, pageParam }) => {
+      const params = new URLSearchParams({ media })
+      if (pageParam) params.set('before', pageParam)
+      if (query) params.set('q', query)
+      if (days) params.set('days', String(days))
+      return apiFetch<GalleryPage>(`/api/v1/tasks/gallery?${params}`, { signal })
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: page => page.next_before,
     staleTime: 10_000,
   })
 }
