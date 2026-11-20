@@ -156,11 +156,9 @@ export default function HistoryOverlay() {
     })
   }
 
-  const openTask = (task: GalleryTask) => {
+  const galleryItems = (tasks: GalleryTask[]): LightboxItem[] => {
     const gallery: LightboxItem[] = []
-    let startIndex = 0
-    for (const item of items) {
-      if (item.id === task.id) startIndex = gallery.length
+    for (const item of tasks) {
       const service = serviceFor(item)
       const source = service ? `/services/${service.id}` : item.workflow_id ? `/workflows/${item.workflow_id}` : undefined
       const meta = {
@@ -201,7 +199,24 @@ export default function HistoryOverlay() {
         for (const url of item.output_thumbnails) gallery.push({ url, meta: { ...meta, previewUrl: previewUrl(url) } })
       }
     }
-    openItems(gallery, startIndex)
+    return gallery
+  }
+
+  const openTask = (task: GalleryTask) => {
+    const gallery = galleryItems(items)
+    const seen = new Set(items.map(item => item.id))
+    openItems(gallery, gallery.findIndex(item => item.meta?.historyTaskId === task.id), hasNextPage ? async () => {
+      const result = await fetchNextPage({ cancelRefetch: false, throwOnError: true })
+      const newTasks = new Map<string, GalleryTask>()
+      for (const page of result.data?.pages ?? []) {
+        for (const item of page.items) {
+          if (!seen.has(item.id)) newTasks.set(item.id, item)
+        }
+      }
+      const additions = galleryItems([...newTasks.values()])
+      for (const id of newTasks.keys()) seen.add(id)
+      return { items: additions, hasNextPage: result.hasNextPage }
+    } : undefined)
   }
 
   const resetFilters = () => {

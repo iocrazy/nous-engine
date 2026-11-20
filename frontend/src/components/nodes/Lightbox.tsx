@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X, Copy, RefreshCw, Download, DownloadCloud, Columns2, ExternalLink, Film, Image as ImageIcon, Plus, Trash2 } from 'lucide-react'
 import { useConfirmStore } from '../../stores/confirm'
 import { useLightboxStore, type LightboxMeta } from '../../stores/lightbox'
@@ -25,8 +25,9 @@ function ZoomableImage({ src, onNatural }: { src: string; onNatural?: (w: number
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const cx = e.clientX - window.innerWidth / 2
-      const cy = e.clientY - window.innerHeight / 2
+      const bounds = el.getBoundingClientRect()
+      const cx = e.clientX - bounds.left - bounds.width / 2
+      const cy = e.clientY - bounds.top - bounds.height / 2
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
       setZoom((z) => {
         const zoomedSt = zoomAt(z, factor, cx, cy)
@@ -40,11 +41,15 @@ function ZoomableImage({ src, onNatural }: { src: string; onNatural?: (w: number
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!drag.current) return
-      const img = imgRef.current
+      const origin = drag.current
+      if (!origin) return
+      const tx = origin.tx + e.clientX - origin.x
+      const ty = origin.ty + e.clientY - origin.y
+      const width = imgRef.current?.clientWidth
+      const height = imgRef.current?.clientHeight
       setZoom((z) => {
-        const moved = { scale: z.scale, tx: drag.current!.tx + (e.clientX - drag.current!.x), ty: drag.current!.ty + (e.clientY - drag.current!.y) }
-        return img ? clampPan(moved, img.clientWidth, img.clientHeight) : moved
+        const moved = { scale: z.scale, tx, ty }
+        return width && height ? clampPan(moved, width, height) : moved
       })
     }
     const onUp = () => { drag.current = null; setDragging(false) }
@@ -196,20 +201,53 @@ function HistoryTags({ taskId, tags, onSaved, onSearch }: {
   )
 }
 
-function HistoryThumbnails({ indices, metas, kinds, index, choose, group = false }: {
+function HistoryThumbnails({ indices, metas, kinds, index, choose, group = false, loadMore }: {
   indices: number[]
   metas: (LightboxMeta | undefined)[]
   kinds: ('image' | 'video' | undefined)[]
   index: number
   choose: (index: number) => void
   group?: boolean
+  loadMore?: () => Promise<void>
 }) {
+  const rail = useRef<HTMLElement>(null)
+  const more = useRef<HTMLButtonElement>(null)
+  const loading = useRef(false)
+  const [pending, setPending] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const fetchMore = async () => {
+    if (!loadMore || loading.current) return
+    loading.current = true
+    setPending(true)
+    setFailed(false)
+    try {
+      await loadMore()
+    } catch {
+      setFailed(true)
+    } finally {
+      loading.current = false
+      setPending(false)
+    }
+  }
+  const fetchWhenVisible = useEffectEvent(() => { void fetchMore() })
+
+  useEffect(() => {
+    const root = rail.current
+    const marker = more.current
+    if (!root || !marker || pending || failed || !('IntersectionObserver' in window)) return
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) fetchWhenVisible()
+    }, { root })
+    observer.observe(marker)
+    return () => observer.disconnect()
+  }, [loadMore, pending, failed, indices.length])
+
   const active = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     active.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [index])
   return (
-    <nav className={group ? 'history-group-thumbs' : 'history-side-thumbs'} aria-label={group ? '同任务图集' : '图库缩略图'}
+    <nav ref={rail} className={group ? 'history-group-thumbs' : 'history-side-thumbs'} aria-label={group ? '同任务图集' : '图库缩略图'}
       onClick={event => event.stopPropagation()}>
       {group && <span className="history-group-label">同任务 · {indices.length} 个产物</span>}
       <div className="history-thumbs">
@@ -225,6 +263,10 @@ function HistoryThumbnails({ indices, metas, kinds, index, choose, group = false
             <Icon size={16} />
           </button>
         })}
+        {loadMore && <button ref={more} type="button" className="history-thumbs-more"
+          disabled={pending} onClick={() => void fetchMore()}>
+          {pending ? '加载中' : failed ? '重试' : '加载更多'}
+        </button>}
       </div>
     </nav>
   )
@@ -360,6 +402,7 @@ export default function Lightbox() {
   const index = useLightboxStore((s) => s.index)
   const close = useLightboxStore((s) => s.close)
   const select = useLightboxStore((s) => s.select)
+  const loadMore = useLightboxStore((s) => s.loadMore)
   const next = useLightboxStore((s) => s.next)
   const prev = useLightboxStore((s) => s.prev)
   const [natural, setNatural] = useState<{ url: string; w: number; h: number } | null>(null)
@@ -403,8 +446,6 @@ export default function Lightbox() {
   const group = historyTaskId ? metas.flatMap((item, slot) => item?.historyTaskId === historyTaskId ? [slot] : []) : []
   const first = group[0] ?? index
   const entries = metas.flatMap((item, slot) => !slot || item?.historyTaskId !== metas[slot - 1]?.historyTaskId ? [slot] : [])
-  const start = Math.max(0, entries.indexOf(first) - 6)
-  const nearby = entries.slice(start, start + 13)
   const choose = (slot: number) => {
     select(slot)
     setCompare(false)
@@ -463,7 +504,8 @@ export default function Lightbox() {
       }}
     >
       {historyTaskId ? <>
-        {nearby.length > 1 && <HistoryThumbnails indices={nearby} metas={metas} kinds={kinds} index={first} choose={choose} />}
+        {(entries.length > 1 || loadMore) &&
+          <HistoryThumbnails indices={entries} metas={metas} kinds={kinds} index={first} choose={choose} loadMore={loadMore} />}
         <div className="history-lightbox-stage">
           <div className="history-lightbox-media">{media}</div>
           {group.length > 1 && <HistoryThumbnails indices={group} metas={metas} kinds={kinds} index={index} choose={choose} group />}

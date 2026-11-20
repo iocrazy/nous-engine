@@ -43,7 +43,7 @@ vi.mock('../../stores/panel', () => ({ usePanelStore: (select: (store: { setOver
 beforeEach(() => {
   useLightboxStore.setState({ open: false, images: [], metas: [], kinds: [], index: 0 })
   useImageTasks.mockReset().mockReturnValue({ data: { pages: [{ items: [task, video, olderVideo] }] }, hasNextPage: true, fetchNextPage })
-  fetchNextPage.mockClear()
+  fetchNextPage.mockReset()
   confirm.mockReset()
   mutateAsync.mockReset()
 })
@@ -128,4 +128,17 @@ it('显示缩略图的模型和关键参数，标签从详情跳回精确筛选'
   expect(useImageTasks).toHaveBeenLastCalledWith('all', '', null, '', 'model', '穿搭')
   fireEvent.click(screen.getByRole('button', { name: '清除标签 穿搭' }))
   expect(useImageTasks).toHaveBeenLastCalledWith('all', '', null, '', 'model', '')
+})
+
+it('详情继续加载同一筛选的下一页，保留当前选中项', async () => {
+  const next = { ...task, id: '4', output_thumbnails: ['/files/images/2026-06-10/b.png'] }
+  fetchNextPage.mockResolvedValue({ data: { pages: [{ items: [task, video, olderVideo] }, { items: [next] }] }, hasNextPage: false })
+  render(<HistoryOverlay />)
+  fireEvent.click(screen.getByRole('button', { name: '预览视频 · wf-video' }))
+  await act(() => useLightboxStore.getState().loadMore?.())
+  const state = useLightboxStore.getState()
+  expect(fetchNextPage).toHaveBeenCalledWith({ cancelRefetch: false, throwOnError: true })
+  expect(state.images).toEqual([task.output_thumbnails[0], video.video_url, olderVideo.video_url, next.output_thumbnails[0]])
+  expect(state.index).toBe(1)
+  expect(state.loadMore).toBeUndefined()
 })

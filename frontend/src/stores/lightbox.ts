@@ -64,6 +64,8 @@ export interface LightboxItem {
   kind?: 'image' | 'video'
 }
 
+type LoadGalleryPage = () => Promise<{ items: LightboxItem[]; hasNextPage: boolean }>
+
 interface LightboxState {
   open: boolean
   images: string[]
@@ -73,7 +75,8 @@ interface LightboxState {
   /** 从某张图 url 打开:自动收集同工作流全部图并定位;meta 给被点的那张。 */
   openFromUrl: (url: string, meta?: LightboxMeta) => void
   /** 显式给定图集(带每图元信息)打开 —— /history 画廊用。 */
-  openItems: (items: LightboxItem[], index: number) => void
+  openItems: (items: LightboxItem[], index: number, loadPage?: LoadGalleryPage) => void
+  loadMore?: () => Promise<void>
   close: () => void
   select: (index: number) => void
   next: () => void
@@ -92,16 +95,28 @@ export const useLightboxStore = create<LightboxState>((set, get) => ({
     let index = all.indexOf(url)
     if (index < 0) { images = [url]; index = 0 }
     const metas = images.map((u) => (u === url ? meta : undefined))
-    set({ open: true, images, metas, kinds: images.map(() => undefined), index })
+    set({ open: true, images, metas, kinds: images.map(() => undefined), index, loadMore: undefined })
   },
-  openItems: (items, index) => set({
-    open: true,
-    images: items.map((it) => it.url),
-    metas: items.map((it) => it.meta),
-    kinds: items.map((it) => it.kind),
-    index: Math.max(0, Math.min(index, items.length - 1)),
-  }),
-  close: () => set({ open: false }),
+  openItems: (items, index, loadPage) => {
+    const loadMore = loadPage && (async () => {
+      const page = await loadPage()
+      set(state => state.loadMore === loadMore ? {
+        images: [...state.images, ...page.items.map(item => item.url)],
+        metas: [...state.metas, ...page.items.map(item => item.meta)],
+        kinds: [...state.kinds, ...page.items.map(item => item.kind)],
+        loadMore: page.hasNextPage ? loadMore : undefined,
+      } : state)
+    })
+    set({
+      open: true,
+      images: items.map(item => item.url),
+      metas: items.map(item => item.meta),
+      kinds: items.map(item => item.kind),
+      index: Math.max(0, Math.min(index, items.length - 1)),
+      loadMore,
+    })
+  },
+  close: () => set({ open: false, loadMore: undefined }),
   select: (index) => set((state) => index >= 0 && index < state.images.length ? { index } : state),
   next: () => { const { images, index } = get(); if (images.length) set({ index: (index + 1) % images.length }) },
   prev: () => { const { images, index } = get(); if (images.length) set({ index: (index - 1 + images.length) % images.length }) },
