@@ -8,6 +8,7 @@ import { useLightboxStore, type LightboxItem } from '../../stores/lightbox'
 import { usePanelStore } from '../../stores/panel'
 import { useToastStore } from '../../stores/toast'
 import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
+import { galleryPreviewUrl, isLocalGalleryMedia } from '../../utils/galleryMedia'
 import './HistoryOverlay.css'
 
 const mediaFilters = [
@@ -23,16 +24,10 @@ const timeFilters = [
   { value: 90, label: '90 天' },
 ] as const
 const selectionLimit = 100
-const localMedia = /^\/(?:files\/images\/|api\/v1\/tasks\/gallery\/)/
-
-function previewUrl(url?: string) {
-  return url && localMedia.test(url) ? `${url}${url.includes('?') ? '&' : '?'}preview=1` : url
-}
-
 function getPreviewUrl(task: GalleryTask) {
   const thumb = task.output_thumbnails[0]
-  if (!thumb || (thumb === task.video_url && !localMedia.test(thumb))) return undefined
-  return previewUrl(thumb)
+  if (!thumb || (thumb === task.video_url && !isLocalGalleryMedia(thumb))) return undefined
+  return galleryPreviewUrl(thumb)
 }
 
 function keyParameters(task: GalleryTask) {
@@ -192,11 +187,11 @@ export default function HistoryOverlay() {
       if (item.video_url) {
         const videos = new Set([item.video_url, ...item.output_thumbnails.filter(url => /\.(mp4|webm|mov|mkv)(?:[?#]|$)/i.test(url))])
         for (const url of videos) {
-          const poster = url === item.video_url ? getPreviewUrl(item) : localMedia.test(url) ? previewUrl(url) : undefined
+          const poster = url === item.video_url ? getPreviewUrl(item) : isLocalGalleryMedia(url) ? galleryPreviewUrl(url) : undefined
           gallery.push({ url, meta: { ...meta, poster, previewUrl: poster }, kind: 'video' })
         }
       } else {
-        for (const url of item.output_thumbnails) gallery.push({ url, meta: { ...meta, previewUrl: previewUrl(url) } })
+        for (const url of item.output_thumbnails) gallery.push({ url, meta: { ...meta, previewUrl: galleryPreviewUrl(url) } })
       }
     }
     return gallery

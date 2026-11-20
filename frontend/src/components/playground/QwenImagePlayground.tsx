@@ -1,9 +1,10 @@
-import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode, type SyntheticEvent } from 'react'
-import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Layers, Maximize2, Minimize2, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { useEffect, useEffectEvent, useRef, useState, type DragEvent, type FormEvent, type ReactNode, type SyntheticEvent } from 'react'
+import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Images, Layers, Maximize2, Minimize2, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 import { Field } from './SchemaDrivenForm'
 import { classifyField, defaultFor, isFieldRequired, isFieldVisible, loraDirectory, optionDependency, staticOptions } from './fieldKind'
+import GalleryImagePicker from './GalleryImagePicker'
 import ImageMaskDialog from './ImageMaskDialog'
 import OutpaintFrame, { type OutpaintValues, type SourceDimensions } from './OutpaintFrame'
 import './QwenImagePlayground.css'
@@ -49,7 +50,7 @@ const referenceImage = /^image_[2-6]$/
 const toImageUrl = (value: unknown) => typeof value === 'string' &&
   /^(data:image\/|\/|https?:\/\/)/i.test(value) ? value : undefined
 
-function readImage(file: File): Promise<string> {
+function readImage(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error('读取图片失败'))
@@ -101,6 +102,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const [split, setSplit] = useState(50)
   const [asset, setAsset] = useState('image')
   const [maskOpen, setMaskOpen] = useState(false)
+  const [gallerySlot, setGallerySlot] = useState<string>()
   const [notice, setNotice] = useState('')
   const [reading, setReading] = useState(false)
   const [seedPolicy, setSeedPolicy] = useState<SeedPolicy>(
@@ -110,6 +112,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const previewRef = useRef<HTMLElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const fileSlots = useRef<string[]>([])
+  const loadingFiles = useRef(false)
   const queuedSeed = useRef<number | null>(null)
 
   const mode = typeof values.input_mode === 'string' ? values.input_mode : 'text'
@@ -158,8 +161,9 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     filePicker.current?.click()
   }
 
-  const loadFiles = async (files: File[], keys: string[]) => {
-    if (!enabled || !files.length || !keys.length) return
+  const loadFiles = async (files: Blob[], keys: string[]) => {
+    if (!enabled || loadingFiles.current || !files.length || !keys.length) return
+    loadingFiles.current = true
     setReading(true)
     setNotice('')
     try {
@@ -179,6 +183,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
     } finally {
+      loadingFiles.current = false
       setReading(false)
     }
   }
@@ -186,17 +191,36 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const imageSlots = candidates.filter(item => item.key !== 'mask').map(item => item.key)
   const emptySlots = imageSlots.filter(key => !toImageUrl(values[key]))
   const availableSlots = emptySlots.length ? emptySlots : imageSlots
+  const materialSlot = candidates.find(item => item.key === asset) ?? candidates[0]
+  const getImageSlot = (target: EventTarget | null) => {
+    const key = target instanceof Element ? target.closest<HTMLElement>('[data-image-slot]')?.dataset.imageSlot : undefined
+    return candidates.find(item => item.key === key)?.key
+  }
+
+  const acceptDrop = (event: DragEvent) => {
+    if (candidates.length && event.dataTransfer.types.includes('Files')) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = enabled ? 'copy' : 'none'
+    }
+  }
+  const dropImages = (event: DragEvent) => {
+    if (!candidates.length || !event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    if (!enabled || gallerySlot || maskOpen) return
+    const slot = getImageSlot(event.target)
+    const files = Array.from(event.dataTransfer.files)
+    const slots = slot ? [slot] : files.length === 1 && materialSlot ? [materialSlot.key] : availableSlots
+    void loadFiles(files, slots)
+  }
 
   const pasteImages = useEffectEvent((event: ClipboardEvent) => {
-    if (!enabled || comicPlaceholder || maskOpen || event.defaultPrevented || !event.clipboardData) return
+    if (!enabled || comicPlaceholder || gallerySlot || maskOpen || event.defaultPrevented || !event.clipboardData) return
     const target = event.target
     if (target instanceof HTMLElement && target !== document.body) {
       if (!formRef.current?.contains(target)) return
       if (target.isContentEditable || target.closest('textarea, input:not([type=radio],[type=checkbox],[type=range])')) return
     }
-    const focused = target instanceof Element ? target.closest<HTMLElement>('[data-image-slot]')?.dataset.imageSlot : undefined
-    const slots = focused && candidates.some(item => item.key === focused) ? [focused] : availableSlots
-    if (!slots.length) return
+    const focused = getImageSlot(target)
     const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'))
     if (!files.length) {
       for (const item of Array.from(event.clipboardData.items)) {
@@ -205,7 +229,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         if (file) files.push(file)
       }
     }
-    if (!files.length) return
+    const slots = focused ? [focused] : files.length === 1 && materialSlot ? [materialSlot.key] : availableSlots
+    if (!files.length || !slots.length) return
     event.preventDefault()
     event.stopPropagation()
     void loadFiles(files, slots)
@@ -435,7 +460,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
           </div>
         </section>
       ) : <div className="qwen-workspace">
-        <section className="qwen-panel qwen-materials" aria-label="素材">
+        <section className="qwen-panel qwen-materials" aria-label="素材" onDragOver={acceptDrop} onDrop={dropImages}>
           <header><Layers size={15} /><strong>素材</strong></header>
           <div className="qwen-parameter-scroll">
             <fieldset disabled={!enabled} className="qwen-settings">
@@ -445,9 +470,12 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   const title = assetTitle(key, param)
                   return (
                     <div className="qwen-asset" key={key}>
-                      <button type="button" data-image-slot={key} aria-pressed={key === asset && !!image}
-                        onClick={() => { if (image) { setAsset(key); setPreview(previous => previous === 'compare' && resultUrl ? 'compare' : 'source') } else chooseAsset([key]) }}>
-                        {image ? <img src={image} alt="" /> : <Upload size={16} />}
+                      <button type="button" data-image-slot={key} aria-pressed={key === materialSlot?.key}
+                        onClick={() => {
+                          setAsset(key)
+                          setPreview(previous => image && previous === 'compare' && resultUrl ? 'compare' : 'source')
+                        }}>
+                        {image ? <img src={image} alt="" /> : <Image size={16} />}
                         <span className="qwen-asset-label">
                           <span>{title}</span>
                           {isFieldRequired(param, values) && <span className="qwen-asset-required">必填</span>}
@@ -459,7 +487,15 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   )
                 })}
               </div>}
-              {!!candidates.length && <p className="qwen-mode-help">也可按 Ctrl+V / ⌘V 粘贴图片</p>}
+              {materialSlot && <>
+                <div className="qwen-material-actions">
+                  <button type="button" onClick={() => chooseAsset([materialSlot.key])}><Upload size={15} /> 本地上传</button>
+                  <button type="button" aria-haspopup="dialog" onClick={() => setGallerySlot(materialSlot.key)}>
+                    <Images size={15} /> 从图库选择
+                  </button>
+                </div>
+                <p className="qwen-mode-help">可拖放文件，或按 Ctrl+V / ⌘V 粘贴图片</p>
+              </>}
               {hasMask && source && dims && <button type="button" className="qwen-edit-mask"
                 onClick={() => setMaskOpen(true)}><Brush size={15} />{mask ? '编辑遮罩' : '绘制遮罩'}</button>}
               {candidates.length === 0 && <p className="qwen-mode-help">此模式无需素材</p>}
@@ -487,13 +523,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
             <button type="button" aria-pressed={comparison === 'slider'}
               onClick={() => setComparison('slider')}>滑动对比</button>
           </div>}
-          <div className="qwen-stage" onDragOver={event => {
-            if (enabled && candidates.some(item => item.key === 'image') && event.dataTransfer.types.includes('Files')) event.preventDefault()
-          }} onDrop={event => {
-            if (!enabled || !candidates.some(item => item.key === 'image')) return
-            event.preventDefault()
-            void loadFiles(Array.from(event.dataTransfer.files), availableSlots)
-          }}>
+          <div className="qwen-stage" onDragOver={acceptDrop} onDrop={dropImages}>
             {showPlan ? <OutpaintFrame key={source} image={source} dimensions={dims} values={Object.fromEntries(outpaintFields.map(param => [paramKey(param)!.slice(9), Number(values[paramKey(param)!]) || 0])) as OutpaintValues}
               limits={Object.fromEntries(outpaintFields.map(param => [paramKey(param)!.slice(9), Number(param.constraints?.max ?? 200)])) as OutpaintValues}
               disabled={!enabled} onChange={extent => setValues(previous => ({
@@ -572,6 +602,13 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         event.currentTarget.value = ''
         void loadFiles(chosen, fileSlots.current)
       }} />
+      {gallerySlot && <GalleryImagePicker
+        destination={assetTitle(gallerySlot, candidates.find(item => item.key === gallerySlot)?.param)}
+        onClose={() => setGallerySlot(undefined)}
+        onSelect={file => {
+          setGallerySlot(undefined)
+          void loadFiles([file], [gallerySlot])
+        }} />}
       {!comicPlaceholder && maskOpen && source && dims && hasMask && <ImageMaskDialog source={source} dimensions={dims} existing={mask}
         onClose={() => setMaskOpen(false)} onSave={value => { update('mask', value); setMaskOpen(false) }} />}
     </form>

@@ -65,6 +65,8 @@
 .qwen-settings details summary { margin-bottom: 5px; color: var(--muted); cursor: pointer; }
 .qwen-lora-fields { display: grid; grid-template-columns: minmax(0, 1fr); }
 .qwen-lora-fields > strong { margin: 6px 0; font-size: 12px; }
+.qwen-material-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.qwen-material-actions button { flex: 1 0 auto; }
 .qwen-assets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
 .qwen-assets > :only-child { grid-column: 1 / -1; }
 .qwen-asset { min-width: 0; position: relative; }
