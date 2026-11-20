@@ -104,17 +104,18 @@ export function useTasks() {
   })
 }
 
-/** 服务详情「用量/历史」tab:拉该服务源 workflow 的历史调用 task(spec run-history PR-C)。
- *  独立 queryKey,不与全局任务面板的 ['tasks'] 混。 */
-export function useTasksByWorkflow(workflowId: string | null, limit = 50) {
+export interface ServiceUsageTask extends ExecutionTask {
+  comfy_usage: {
+    duration_ms: number | null
+    llm_nodes: { local_qwen: number; deepseek: number } | null
+  } | null
+}
+
+export function useServiceUsageTasks(serviceId: string) {
   return useQuery({
-    queryKey: ['tasks', 'wf', workflowId, limit],
-    queryFn: () =>
-      apiFetch<ExecutionTask[]>(
-        `/api/v1/tasks?limit=${limit}&workflow_id=${encodeURIComponent(workflowId ?? '')}`,
-      ),
-    enabled: !!workflowId,
-    staleTime: 10_000,
+    queryKey: ['services', serviceId, 'usage'],
+    queryFn: () => apiFetch<ServiceUsageTask[]>(`/api/v1/services/${encodeURIComponent(serviceId)}/usage`),
+    refetchInterval: 10_000,
   })
 }
 

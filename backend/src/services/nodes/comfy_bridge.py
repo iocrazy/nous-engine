@@ -22,7 +22,8 @@ from contextlib import suppress
 from copy import deepcopy
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import undefer
 
 from src.models.comfy_template import ComfyTemplate
@@ -41,6 +42,7 @@ from src.services.comfy.upload_inputs import (
     check_plain_filename,
     decode_data_uri,
 )
+from src.services.comfy.usage import summarize_comfy_usage
 from src.services.comfy.video_audio import ensure_audio_track
 from src.services.image_output_storage import write_image as _write_media_sync
 from src.services.nodes.registry import register
@@ -319,10 +321,14 @@ class ComfyUIWorkflowNode:
             _running_since = time.monotonic()
             _running_progress = {"phase": "submitting"}
             tracker = None
+            observed_nodes: set[str] = set()
 
             def track(event: dict) -> None:
                 global _running_progress
-                node = graph.get(event.get("node"), {})
+                node_id = event.get("node")
+                if node_id is not None:
+                    observed_nodes.add(str(node_id))
+                node = graph.get(node_id, {})
                 title = (node.get("_meta") or {}).get("title") or node.get("class_type")
                 _running_progress = {**event, **({"label": title} if title else {})}
 
@@ -349,6 +355,17 @@ class ComfyUIWorkflowNode:
                     _running_task_id = None
                     _running_since = None
                     _running_progress = None
+
+        if task_id is not None:
+            try:
+                async with get_session_factory()() as session:
+                    await session.execute(
+                        update(ExecutionTask).where(ExecutionTask.id == int(task_id))
+                        .values(comfy_usage=summarize_comfy_usage(history, graph, observed_nodes))
+                    )
+                    await session.commit()
+            except SQLAlchemyError:
+                logger.warning("Could not record ComfyUI usage for task %s", task_id, exc_info=True)
 
         # history 出现 ≠ 渲染成功:节点抛异常时 status_str=="error",outputs 可能空也可能是
         # 半截产物。把 ComfyUI 的错误原文带出去落 failed,别包装成成功(也别只剩一句含糊的

@@ -11,6 +11,8 @@ class ExecutionTask(Base):
     __tablename__ = "execution_tasks"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, default=snowflake_id)
+    service_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    comfy_usage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     workflow_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # 归属:创建该 prediction 的调用方 API key。predictions by-id 端点据此校验 owner
     # (IDOR 防护)。nullable —— admin UI / workflow runner 创建的 task + 老行为 NULL。
@@ -60,4 +62,7 @@ class ExecutionTask(Base):
 
     # created_at 索引 —— 支撑保留清理(usage_retention)按 created_at 删旧行 + run-history
     # 时间范围查询。既有 prod DB 由 main.py 微迁移补(CREATE INDEX IF NOT EXISTS)。
-    __table_args__ = (Index("ix_execution_tasks_created", "created_at"),)
+    __table_args__ = (
+        Index("ix_execution_tasks_created", "created_at"),
+        Index("ix_execution_tasks_service_created", "service_id", "created_at"),
+    )

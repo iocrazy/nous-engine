@@ -70,7 +70,6 @@ export default function GlobalTopbar() {
 
       <div className="flex-1" />
 
-      {/* 硬件监控条(CPU/内存/GPU)—— 放在 healthy 左侧,ComfyUI 式 */}
       <div className="console-topbar-monitors">
         <TopbarGpuMonitor />
         <div style={{ width: 1, height: 16, background: 'var(--tp-border-faint)', marginRight: 12 }} />

@@ -94,6 +94,7 @@ async def submit_prediction(
     patched = snapshot_to_executor_form(patched)
 
     task = ExecutionTask(
+        service_id=instance.id,
         workflow_id=instance.source_id,
         # 归属:by-id 端点据此校验 owner(IDOR 防护)。admin session 旁路(Task 10)无
         # key 可归属 —— NULL,与 apps.py 的 admin_run 一致(admin 隐式对所有 prediction 有权限,

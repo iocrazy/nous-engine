@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_serializer, field_validator
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
@@ -31,9 +31,11 @@ import logging
 
 from src.api.response_cache import cached, invalidate
 from src.models.database import get_async_session
+from src.models.execution_task import ExecutionTask
 from src.models.schemas import ExposedParam
 from src.models.service_instance import ServiceInstance
 from src.models.workflow import Workflow
+from src.services.execution_task_serialize import _task_to_dict
 from src.services.model_capabilities import capabilities_for_service
 from src.services.service_autostart import preload_model_infos
 from src.services.service_models import extract_service_models
@@ -601,6 +603,29 @@ def _validate_exposed_against_snapshot(
                     f"{node_type}; allowed: {sorted(_IMAGE_OUTPUT_FIELDS)}"
                 ),
             )
+
+
+@router.get("/services/{service_id}/usage", dependencies=[Depends(require_admin)])
+async def service_usage(service_id: int, session: AsyncSession = Depends(get_async_session)):
+    svc = await session.get(ServiceInstance, service_id)
+    if svc is None:
+        raise HTTPException(404, detail="service not found")
+
+    task = ExecutionTask
+    previous_sources = {source for source in (svc.source_id, svc.workflow_id) if source is not None}
+    match = task.service_id == svc.id
+    if previous_sources:
+        previous = and_(
+            task.service_id.is_(None),
+            task.workflow_name == svc.name,
+            task.workflow_id.in_(previous_sources) | task.workflow_id.is_(None),
+            task.created_at >= svc.created_at,
+        )
+        match = or_(match, previous)
+    rows = await session.scalars(
+        select(task).where(match).order_by(task.created_at.desc(), task.id.desc()).limit(50)
+    )
+    return [{**_task_to_dict(row), "comfy_usage": row.comfy_usage} for row in rows]
 
 
 @router.delete(

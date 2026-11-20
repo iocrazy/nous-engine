@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayoutGrid,
   Pause,
+  Power,
   Pencil,
   Play,
   Plus,
@@ -46,7 +47,7 @@ import { pluck } from '../components/playground/outputValues'
 import QwenImagePlayground from '../components/playground/QwenImagePlayground'
 import AsyncRunState from '../components/playground/AsyncRunState'
 import { createPredictionAsync } from '../api/predictions'
-import { useTasksByWorkflow, type ExecutionTask } from '../api/tasks'
+import { useServiceUsageTasks, type ServiceUsageTask } from '../api/tasks'
 import { apiFetch } from '../api/client'
 import { confirmDialog } from '../stores/confirm'
 
@@ -94,7 +95,7 @@ export default function ServiceDetailPage({ serviceId, onBack }: ServiceDetailPa
     >
       <div className="console-page console-controls">
         <Breadcrumb name={svc.name} onBack={onBack} />
-        <Header svc={svc} />
+        <Header svc={svc} onBack={onBack} />
         <Tabs current={tab} onChange={setTab} />
 
         {tab === 'overview' && <OverviewTab svc={svc} />}
@@ -150,7 +151,7 @@ function Breadcrumb({ name, onBack }: { name: string; onBack?: () => void }) {
   )
 }
 
-function Header({ svc }: { svc: ServiceDetailT }) {
+function Header({ svc, onBack }: { svc: ServiceDetailT; onBack?: () => void }) {
   const patch = usePatchService()
   const del = useDeleteService()
 
@@ -159,7 +160,10 @@ function Header({ svc }: { svc: ServiceDetailT }) {
   const [err, setErr] = useState<string | null>(null)
 
   const setStatus = (s: ServiceStatus) =>
-    patch.mutate({ serviceId: svc.id, status: s })
+    patch.mutate({ serviceId: svc.id, status: s }, {
+      onSuccess: () => setErr(null),
+      onError: (error) => setErr(error.message),
+    })
 
   const startEdit = () => {
     setDraft(svc.name)
@@ -298,17 +302,38 @@ function Header({ svc }: { svc: ServiceDetailT }) {
             启用
           </SmallBtn>
         )}
-        <SmallBtn
-          onClick={async () => {
-            if (await confirmDialog({ message: `下线服务 ${svc.name}?\n此操作不可逆。`, danger: true, confirmText: '下线' })) {
-              del.mutate(svc.id, { onSuccess: () => history.back() })
-            }
-          }}
-          icon={Trash2}
-          danger
-        >
-          下线
-        </SmallBtn>
+        {svc.status === 'retired' ? (
+          <SmallBtn
+            onClick={async () => {
+              if (await confirmDialog({
+                message: `永久删除「${svc.name}」？服务配置、授权及关联会话将被移除。`,
+                danger: true,
+                confirmText: '永久删除',
+              })) {
+                del.mutate(svc.id, {
+                  onSuccess: onBack ?? (() => history.back()),
+                  onError: (error) => setErr(error.message),
+                })
+              }
+            }}
+            icon={Trash2}
+            danger
+          >
+            删除
+          </SmallBtn>
+        ) : (
+          <SmallBtn
+            onClick={async () => {
+              if (await confirmDialog({
+                message: `下线「${svc.name}」？下线后停止接受新请求，服务配置和授权保留，可随时启用。`,
+                confirmText: '下线',
+              })) setStatus('retired')
+            }}
+            icon={Power}
+          >
+            下线
+          </SmallBtn>
+        )}
       </div>
     </div>
   )
@@ -1341,19 +1366,8 @@ function AuthTab({ svc }: { svc: ServiceDetailT }) {
 }
 
 function UsageTab({ svc }: { svc: ServiceDetailT }) {
-  // 该服务源 workflow 的历史调用记录(service run 的 task 经 PR-A 已带 workflow_id)。
-  const { data: tasks, isLoading } = useTasksByWorkflow(svc.workflow_id)
+  const { data: tasks, isLoading, isError } = useServiceUsageTasks(svc.id)
   const [openId, setOpenId] = useState<string | null>(null)
-
-  if (!svc.workflow_id) {
-    return (
-      <Panel title="用量 / 历史">
-        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 14px' }}>
-          该服务非工作流来源,暂无可归属的调用历史。
-        </div>
-      </Panel>
-    )
-  }
 
   const rows = tasks ?? []
   const total = rows.length
@@ -1361,7 +1375,14 @@ function UsageTab({ svc }: { svc: ServiceDetailT }) {
   const failed = rows.filter((t) => t.status === 'failed').length
   const durs = rows.map((t) => t.duration_ms).filter((d): d is number => d != null)
   const avgMs = durs.length ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : null
-  const successPct = total ? Math.round((done / total) * 100) : null
+  const terminal = rows.filter((task) => task.status !== 'running' && task.status !== 'queued').length
+  const successPct = terminal ? Math.round((done / terminal) * 100) : null
+  const comfyRuns = rows.flatMap((task) => task.comfy_usage ? [task.comfy_usage] : [])
+  const measuredRuns = comfyRuns.filter((run) => run.duration_ms != null)
+  const observedRuns = comfyRuns.filter((run) => run.llm_nodes != null)
+  const comfyMs = measuredRuns.reduce((sum, run) => sum + (run.duration_ms ?? 0), 0)
+  const localQwen = observedRuns.reduce((sum, run) => sum + (run.llm_nodes?.local_qwen ?? 0), 0)
+  const deepSeek = observedRuns.reduce((sum, run) => sum + (run.llm_nodes?.deepseek ?? 0), 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1372,14 +1393,27 @@ function UsageTab({ svc }: { svc: ServiceDetailT }) {
           <KV k="均耗时" v={avgMs == null ? '—' : avgMs < 1000 ? `${avgMs} ms` : `${(avgMs / 1000).toFixed(2)} s`} />
           <KV k="失败" v={String(failed)} />
         </div>
-        <div style={{ fontSize: 10, color: 'var(--muted)', padding: '4px 14px 0' }}>
-          按 API key 细分待用量子系统接入(ExecutionTask 暂无 api_key 归属字段)。
-        </div>
       </Panel>
+
+      {svc.source_type === 'comfy_template' && (
+        <Panel title="ComfyUI 用量 · 最近 50 次调用">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))' }}>
+            <KV k="已记录的 ComfyUI 运行" v={comfyRuns.length ? String(comfyRuns.length) : '—'} />
+            <KV k="ComfyUI 总运行时间" v={measuredRuns.length ? `${(comfyMs / 1000).toFixed(1)} s` : '—'} />
+            <KV k="本地 Qwen 节点执行" v={observedRuns.length ? String(localQwen) : '—'} />
+            <KV k="DeepSeek 节点执行" v={observedRuns.length ? String(deepSeek) : '—'} />
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', padding: '6px 14px' }}>
+            运行时间来自 ComfyUI 的任务起止时间。语言模型按观察到的节点执行统计，目前缺少按此服务归属的 Token 数据。
+          </p>
+        </Panel>
+      )}
 
       <Panel title="历史调用">
         {isLoading ? (
           <div style={{ fontSize: 12, color: 'var(--muted)', padding: '14px' }}>加载中…</div>
+        ) : isError ? (
+          <div role="alert" style={{ fontSize: 12, color: 'var(--error)', padding: '14px' }}>读取调用历史失败。</div>
         ) : rows.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--muted)', padding: '24px', textAlign: 'center' }}>
             暂无调用记录 — 到 Playground 跑一次就会出现在这里。
@@ -1404,7 +1438,7 @@ function UsageTab({ svc }: { svc: ServiceDetailT }) {
 function UsageRow({
   task, outputs, isFirst, open, onToggle,
 }: {
-  task: ExecutionTask
+  task: ServiceUsageTask
   outputs: ExposedParam[]
   isFirst: boolean
   open: boolean
@@ -1438,6 +1472,14 @@ function UsageRow({
       </div>
       {open && (
         <div style={{ padding: '4px 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {task.comfy_usage && (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              ComfyUI {task.comfy_usage.duration_ms == null ? '—' : `${(task.comfy_usage.duration_ms / 1000).toFixed(1)} s`}
+              {task.comfy_usage.llm_nodes && (
+                <> · 本地 Qwen {task.comfy_usage.llm_nodes.local_qwen} 次 · DeepSeek {task.comfy_usage.llm_nodes.deepseek} 次</>
+              )}
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>入参</div>
             <pre style={{

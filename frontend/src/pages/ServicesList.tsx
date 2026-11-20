@@ -34,7 +34,7 @@ import { copyTextOrToast } from '../utils/clipboard'
 import ServiceCapabilityChips from '../components/services/ServiceCapabilityChips'
 import ModelStatusBadge from '../components/services/ModelStatusBadge'
 
-type FilterTab = 'all' | ServiceCategory | 'comfy_bridge'
+type FilterTab = 'all' | ServiceCategory | 'comfy_bridge' | 'retired'
 
 const TAB_DEFS: { id: FilterTab; label: string }[] = [
   { id: 'all', label: '全部' },
@@ -50,6 +50,7 @@ const TAB_DEFS: { id: FilterTab; label: string }[] = [
   // ComfyUI 桥导入的服务(source_type='comfy_template')横跨各 category,单独给一个
   // 筛选 tab,不进 buildCounts 的 category 桶(避免和上面几个重复计数)。
   { id: 'comfy_bridge', label: 'ComfyUI 桥' },
+  { id: 'retired', label: '已下线' },
 ]
 
 export interface ServicesListProps {
@@ -69,11 +70,14 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
   const setAutostart = useSetServiceAutostart()
   const toast = useToastStore((s) => s.add)
 
-  const counts = useMemo(() => buildCounts(services ?? []), [services])
-  const comfyBridgeCount = useMemo(
-    () => (services ?? []).filter((s) => s.source_type === 'comfy_template').length,
+  const listedServices = useMemo(
+    () => (services ?? []).filter((service) => service.status !== 'retired'),
     [services],
   )
+  const counts = useMemo(() => buildCounts(listedServices), [listedServices])
+  const comfyBridgeCount = listedServices.filter((service) => service.source_type === 'comfy_template').length
+  const retiredCount = (services?.length ?? 0) - listedServices.length
+  const tabCounts = { all: listedServices.length, comfy_bridge: comfyBridgeCount, retired: retiredCount, ...counts }
   const filtered = useMemo(
     () => filter(services ?? [], tab, search),
     [services, tab, search],
@@ -130,10 +134,10 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
   }
 
   const handleDelete = async (svc: ServiceRow) => {
-    if (!(await confirmDialog({ message: `确认下线服务 "${svc.name}"?\n此操作不可撤销。`, danger: true, confirmText: '下线' }))) return
+    if (!(await confirmDialog({ message: `永久删除「${svc.name}」？服务配置、授权及关联会话将被移除。`, danger: true, confirmText: '永久删除' }))) return
     del.mutate(svc.id, {
-      onSuccess: () => toast(`已下线 ${svc.name}`, 'success'),
-      onError: (e) => toast(`下线失败：${(e as Error).message}`, 'error'),
+      onSuccess: () => toast(`已删除 ${svc.name}`, 'success'),
+      onError: (e) => toast(`删除失败：${(e as Error).message}`, 'error'),
     })
   }
 
@@ -191,14 +195,9 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
         </div>
 
         {/* tabs */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14 }}>
           {TAB_DEFS.map((t) => {
-            const n =
-              t.id === 'all'
-                ? services?.length ?? 0
-                : t.id === 'comfy_bridge'
-                  ? comfyBridgeCount
-                  : counts[t.id] ?? 0
+            const n = tabCounts[t.id]
             const active = tab === t.id
             return (
               <button
@@ -546,36 +545,38 @@ function ServiceCard({
               <Power size={12} />
               {svc.autostart ? '取消开机启动' : '设为开机启动'}
             </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setMenuOpen(false)
-                onDelete()
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                width: '100%',
-                padding: '6px 12px',
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--accent, #ef4444)',
-                fontSize: 12,
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <Trash2 size={12} />
-              下线
-            </button>
+            {svc.status === 'retired' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMenuOpen(false)
+                  onDelete()
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  width: '100%',
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--accent, #ef4444)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                <Trash2 size={12} />
+                删除
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -898,9 +899,10 @@ function buildCounts(rows: ServiceRow[]): Record<ServiceCategory, number> {
 function filter(rows: ServiceRow[], tab: FilterTab, search: string): ServiceRow[] {
   const q = search.trim().toLowerCase()
   return rows.filter((r) => {
+    if ((tab === 'retired') !== (r.status === 'retired')) return false
     if (tab === 'comfy_bridge') {
       if (r.source_type !== 'comfy_template') return false
-    } else if (tab !== 'all' && effectiveCategory(r) !== tab) {
+    } else if (tab !== 'all' && tab !== 'retired' && effectiveCategory(r) !== tab) {
       return false
     }
     if (q && !r.name.toLowerCase().includes(q)) return false
