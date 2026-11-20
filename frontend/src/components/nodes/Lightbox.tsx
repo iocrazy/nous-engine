@@ -205,7 +205,9 @@ function HistoryThumbnails({ indices, metas, kinds, index, choose, group = false
   group?: boolean
 }) {
   const active = useRef<HTMLButtonElement>(null)
-  useEffect(() => active.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }), [index])
+  useEffect(() => {
+    active.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [index])
   return (
     <nav className={group ? 'history-group-thumbs' : 'history-side-thumbs'} aria-label={group ? '同任务图集' : '图库缩略图'}
       onClick={event => event.stopPropagation()}>
