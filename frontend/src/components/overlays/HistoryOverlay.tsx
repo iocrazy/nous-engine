@@ -1,25 +1,70 @@
-import { useRef, useState } from 'react'
-import { X, RefreshCw, Trash2, Play } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays, ImageOff, Play, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { usePanelStore } from '../../stores/panel'
-import { confirmDialog } from '../../stores/confirm'
-import { getTask, useImageTasks, useDeleteTask, type GalleryTask } from '../../api/tasks'
-import { useToastStore } from '../../stores/toast'
+import { getTask, useDeleteTask, useImageTasks, type GalleryMedia, type GalleryTask } from '../../api/tasks'
 import { useServices } from '../../api/services'
-import { useLightboxStore, type LightboxItem, type LightboxMeta } from '../../stores/lightbox'
+import { confirmDialog } from '../../stores/confirm'
+import { useLightboxStore, type LightboxItem } from '../../stores/lightbox'
+import { usePanelStore } from '../../stores/panel'
+import { useToastStore } from '../../stores/toast'
+import './HistoryOverlay.css'
+
+const mediaFilters = [
+  { value: 'all', label: '全部' },
+  { value: 'image', label: '图片' },
+  { value: 'video', label: '视频' },
+] as const
+
+const date = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' })
+const dateTime = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+const localMedia = /^\/(?:files\/images\/|api\/v1\/tasks\/gallery\/)/
+
+function getPreviewUrl(task: GalleryTask) {
+  const thumb = task.output_thumbnails[0]
+  if (!thumb) return undefined
+  if (thumb === task.video_url && !localMedia.test(thumb)) return undefined
+  return localMedia.test(thumb) ? `${thumb}${thumb.includes('?') ? '&' : '?'}preview=1` : thumb
+}
 
 export default function HistoryOverlay() {
-  const setOverlay = usePanelStore((s) => s.setOverlay)
+  const setOverlay = usePanelStore(s => s.setOverlay)
   const navigate = useNavigate()
-  const [cursors, setCursors] = useState<(string | null)[]>([null])
-  const { data, isPending, isError, refetch } = useImageTasks(cursors[cursors.length - 1])
-  const items = data?.items
+  const [media, setMedia] = useState<GalleryMedia>('all')
+  const [keyword, setKeyword] = useState('')
+  const [query, setQuery] = useState('')
+  const [days, setDays] = useState<number | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLDivElement>(null)
+  const { data, isPending, isError, isFetchingNextPage, isFetchNextPageError, hasNextPage,
+    fetchNextPage, refetch } = useImageTasks(media, query, days)
+  const items = useMemo(() => {
+    const byId = new Map<string, GalleryTask>()
+    for (const page of data?.pages ?? []) {
+      for (const item of page.items) byId.set(item.id, item)
+    }
+    return Array.from(byId.values())
+  }, [data])
   const { data: services } = useServices()
   const del = useDeleteTask()
-  const openItems = useLightboxStore((s) => s.openItems)
+  const openItems = useLightboxStore(s => s.openItems)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(keyword.trim()), 230)
+    return () => window.clearTimeout(timer)
+  }, [keyword])
+
+  useEffect(() => {
+    const marker = moreRef.current
+    if (!marker || !hasNextPage || isFetchingNextPage || isFetchNextPageError || !('IntersectionObserver' in window)) return
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) void fetchNextPage({ cancelRefetch: false })
+    }, { root: gridRef.current, rootMargin: '260px 0px' })
+    observer.observe(marker)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, data?.pages.length])
 
   const serviceFor = (task: GalleryTask) =>
-    services?.find((service) => service.workflow_id && service.workflow_id === task.workflow_id)
+    services?.find(service => service.workflow_id && service.workflow_id === task.workflow_id)
 
   const rerun = async (task: GalleryTask) => {
     const service = serviceFor(task)
@@ -36,225 +81,133 @@ export default function HistoryOverlay() {
   const openTask = (task: GalleryTask) => {
     const gallery: LightboxItem[] = []
     let startIndex = 0
-    for (const item of items ?? []) {
+    for (const item of items) {
       if (item.id === task.id) startIndex = gallery.length
-      const meta: LightboxMeta = {
+      const meta = {
         historyTaskId: item.id,
+        title: item.workflow_name || '生成记录',
+        createdAt: item.created_at,
+        expiresAt: item.expires_at,
+        expired: item.expired,
         durationMs: item.duration_ms,
+        poster: item.video_url ? getPreviewUrl(item) : undefined,
         onRerun: serviceFor(item) ? () => rerun(item) : undefined,
       }
-      if (item.video_url) {
-        gallery.push({ url: item.video_url, meta, kind: 'video' })
-      } else {
-        for (const url of item.output_thumbnails) gallery.push({ url, meta })
-      }
+      if (item.video_url) gallery.push({ url: item.video_url, meta, kind: 'video' })
+      else for (const url of item.output_thumbnails) gallery.push({ url, meta })
     }
     openItems(gallery, startIndex)
   }
 
-  const gridRef = useRef<HTMLDivElement>(null)
-  const changePage = (next: (string | null)[]) => {
-    setCursors(next)
-    gridRef.current?.scrollTo({ top: 0 })
-  }
+  const resetScroll = () => gridRef.current?.scrollTo?.({ top: 0 })
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
-      {/* header */}
-      <div
-        className="shrink-0 flex items-center gap-3"
-        style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}
-      >
+    <div className="history-gallery absolute inset-0 z-30 flex flex-col">
+      <header className="history-header">
         <h1 className="console-title">历史生成</h1>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{items?.length ?? 0} 条</span>
-        <button
-          type="button"
-          onClick={() => setOverlay(null)}
-          aria-label="关闭"
-          style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}
-        >
+        <button type="button" className="history-icon" aria-label="关闭历史" onClick={() => setOverlay(null)}>
           <X size={18} />
         </button>
+      </header>
+      <div className="history-filters">
+        <div className="history-filter-group" role="group" aria-label="媒体类型">
+          {mediaFilters.map(filter => (
+            <button type="button" key={filter.value} aria-pressed={media === filter.value}
+              onClick={() => { setMedia(filter.value); resetScroll() }}>{filter.label}</button>
+          ))}
+        </div>
+        <label className="history-search">
+          <Search size={16} aria-hidden="true" />
+          <input type="search" aria-label="搜索历史" placeholder="搜索工作流、提示词或任务 ID"
+            maxLength={120} value={keyword} onChange={event => { setKeyword(event.currentTarget.value); resetScroll() }} />
+        </label>
+        <label className="history-date-filter">
+          <CalendarDays size={16} aria-hidden="true" />
+          <select value={days ?? ''} aria-label="生成时间"
+            onChange={event => { setDays(Number(event.currentTarget.value) || null); resetScroll() }}>
+            <option value="">全部时间</option>
+            <option value="7">最近 7 天</option>
+            <option value="30">最近 30 天</option>
+            <option value="90">最近 90 天</option>
+          </select>
+        </label>
+        {!!items.length && <span className="history-count">已加载 {items.length} 条</span>}
       </div>
 
-      {/* grid */}
-      <div ref={gridRef} className="console-page flex-1 overflow-auto">
-        {isPending ? (
-          <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 40 }}>加载中…</div>
-        ) : isError ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            加载历史失败 <button type="button" onClick={() => refetch()}>重试</button>
-          </div>
-        ) : !items?.length ? (
-          <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 60 }}>
-            {data?.next_before || cursors.length > 1 ? '这一页没有图像或视频。' : '还没有出图记录。'}
-          </div>
-        ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-              gap: 14,
-            }}
-          >
-            {items.map((t) => {
-              const thumb = t.output_thumbnails[0]
-              return (
-                <Card
-                  key={t.id}
-                  task={t}
-                  thumb={thumb === t.video_url ? undefined : thumb}
-                  isVideo={!!t.video_url}
-                  canRerun={!!serviceFor(t)}
-                  onOpen={() => openTask(t)}
-                  onRerun={() => rerun(t)}
-                  onDelete={async () => {
-                    if (await confirmDialog({ message: '删除这条出图记录?', danger: true, confirmText: '删除' })) del.mutate(t.id)
-                  }}
-                />
-              )
-            })}
-          </div>
+      <div ref={gridRef} className="console-page history-scroll">
+        {isPending && <p className="history-status" role="status">正在加载历史…</p>}
+        {isError && !items.length && !isFetchNextPageError && <div className="history-status">
+          加载历史失败 <button type="button" onClick={() => void refetch()}>重试</button>
+        </div>}
+        {!isPending && !isError && !hasNextPage && !items.length && (
+          <p className="history-status">{media !== 'all' || query || days ? '没有符合条件的记录' : '还没有图片或视频记录'}</p>
         )}
-        {(cursors.length > 1 || data?.next_before) && (
-          <nav aria-label="历史分页" className="flex items-center justify-center gap-3 p-4">
-            <button type="button" disabled={cursors.length === 1}
-              onClick={() => changePage(cursors.slice(0, -1))}>上一页</button>
-            <span>第 {cursors.length} 页</span>
-            <button type="button" disabled={!data?.next_before}
-              onClick={() => {
-                if (data?.next_before) changePage([...cursors, data.next_before])
-              }}>下一页</button>
-          </nav>
-        )}
+        <div className="history-grid">
+          {items.map(task => <Card key={task.id} task={task} onOpen={() => openTask(task)}
+            onRerun={serviceFor(task) ? () => void rerun(task) : undefined}
+            onDelete={async () => {
+              if (await confirmDialog({
+                message: '删除这条生成记录？清理程序会回收此任务已无其他引用的本地输出。',
+                danger: true, confirmText: '删除',
+              })) {
+                del.mutate(task.id, {
+                  onError: () => useToastStore.getState().add('删除历史失败，请重试', 'error'),
+                })
+              }
+            }} />)}
+        </div>
+        {hasNextPage && <div ref={moreRef} className="history-status">
+          <button type="button" disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage({ cancelRefetch: false })}>
+            {isFetchingNextPage ? '正在加载…' : isFetchNextPageError ? '重试加载' : '加载更多'}
+          </button>
+        </div>}
       </div>
     </div>
   )
 }
 
-function Card({
-  task, thumb, isVideo, canRerun, onOpen, onRerun, onDelete,
-}: {
+function Card({ task, onOpen, onRerun, onDelete }: {
   task: GalleryTask
-  /** 缺省 → 无独立 PNG 缩略(ffmpeg 缺省/抽帧失败),渲染占位视频图标而非 <img>。 */
-  thumb: string | undefined
-  isVideo: boolean
-  canRerun: boolean
   onOpen: () => void
-  onRerun: () => void
+  onRerun?: () => void
   onDelete: () => void
 }) {
-  const [hover, setHover] = useState(false)
-  const previewUrl = thumb && /^\/(?:files\/images\/|api\/v1\/tasks\/gallery\/)/.test(thumb)
-    ? `${thumb}${thumb.includes('?') ? '&' : '?'}preview=1`
-    : thumb
+  const [ratio, setRatio] = useState<number>()
+  const [failedPreview, setFailedPreview] = useState<string>()
+  const preview = getPreviewUrl(task)
+  const isVideo = task.kind === 'video'
+  const title = task.workflow_name || '生成记录'
+  const expiration = new Date(task.expires_at)
+  const count = task.output_thumbnails.length
   return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
-        background: 'var(--card, var(--bg-accent))',
-      }}
-    >
-      <div style={{ position: 'relative', aspectRatio: '1 / 1', background: 'var(--bg)', cursor: 'zoom-in' }} onClick={onOpen}>
-        {thumb ? (
-          <img src={previewUrl} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-        ) : (
-          <div
-            role="img"
-            aria-label="视频"
-            style={{
-              width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--card, var(--bg-accent))',
-            }}
-          >
-            <Play size={30} color="var(--muted)" />
-          </div>
-        )}
-        {isVideo && (
-          <>
-            {thumb && (
-              <span
-                role="img"
-                aria-label="视频"
-                style={{
-                  position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  pointerEvents: 'none',
-                }}
-              >
-                <span style={{
-                  width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.55)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Play size={18} color="#fff" fill="#fff" />
-                </span>
-              </span>
-            )}
-            <span style={{
-              position: 'absolute', bottom: 6, left: 6, fontSize: 10, padding: '1px 6px',
-              borderRadius: 8, background: 'rgba(0,0,0,0.6)', color: '#fff',
-            }}>
-              {task.workflow_name || '视频'}
-            </span>
-          </>
-        )}
-        {(task.output_thumbnails?.length ?? 0) > 1 && (
-          <span style={{
-            position: 'absolute', top: 6, right: 6, fontSize: 10, padding: '1px 6px',
-            borderRadius: 8, background: 'rgba(0,0,0,0.6)', color: '#fff',
-          }}>
-            ×{task.output_thumbnails!.length}
-          </span>
-        )}
-        {hover && (
-          <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 6 }}>
-            {canRerun && (
-              <IconAction title="重跑(相同参数)" onClick={(e) => { e.stopPropagation(); onRerun() }}>
-                <RefreshCw size={13} />
-              </IconAction>
-            )}
-            <IconAction title="删除" danger onClick={(e) => { e.stopPropagation(); onDelete() }}>
-              <Trash2 size={13} />
-            </IconAction>
-          </div>
-        )}
-      </div>
-      <div style={{ padding: '7px 9px' }}>
-        <div style={{
-          fontSize: 11, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }} title={task.workflow_name}>
-          {task.workflow_name || '—'}
+    <article className="history-card" style={{ width: `clamp(132px, ${(ratio ?? (isVideo ? 16 / 9 : 4 / 3)) * 210}px, min(500px, 100%))` }}>
+      <div className="history-card-visual">
+        <button type="button" className="history-card-open" onClick={onOpen} aria-label={`预览${isVideo ? '视频' : '图片'} · ${title}`}>
+          {preview && failedPreview !== preview ? (
+            <img src={preview} alt="" loading="lazy" decoding="async" onLoad={event => {
+              const { naturalWidth, naturalHeight } = event.currentTarget
+              if (naturalHeight) setRatio(naturalWidth / naturalHeight)
+            }} onError={() => setFailedPreview(preview)} />
+          ) : <span className="history-no-preview">
+            {isVideo ? <Play size={22} /> : <ImageOff size={22} />}
+            {failedPreview ? '封面不可用' : isVideo ? '点击播放' : '预览不可用'}
+          </span>}
+          {isVideo && preview && failedPreview !== preview && <span className="history-play" aria-hidden="true"><Play size={17} fill="currentColor" /></span>}
+        </button>
+        <div className="history-card-actions">
+          {onRerun && <button type="button" className="history-icon" aria-label="重跑相同参数" title="重跑相同参数" onClick={onRerun}><RefreshCw size={14} /></button>}
+          <button type="button" className="history-icon" aria-label="删除记录" title="删除记录" onClick={onDelete}><Trash2 size={14} /></button>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
-          {new Date(task.created_at).toLocaleString()}
-        </div>
+        {!isVideo && count > 1 && <span className="history-card-count">×{count}</span>}
       </div>
-    </div>
-  )
-}
-
-function IconAction({
-  children, onClick, title, danger,
-}: {
-  children: React.ReactNode
-  onClick: (e: React.MouseEvent) => void
-  title: string
-  danger?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 26, height: 26, borderRadius: 5, border: 'none', cursor: 'pointer',
-        background: 'rgba(0,0,0,0.6)', color: danger ? '#f87171' : '#fff',
-      }}
-    >
-      {children}
-    </button>
+      <div className="history-card-info">
+        <strong title={title}>{title}</strong>
+        <time dateTime={task.created_at}>{dateTime.format(new Date(task.created_at))}</time>
+        <time className={task.expired ? 'history-expired' : ''} dateTime={task.expires_at} title={dateTime.format(expiration)}>
+          {task.expired ? '已到期' : '预计到期'} · {date.format(expiration)}
+        </time>
+      </div>
+    </article>
   )
 }
