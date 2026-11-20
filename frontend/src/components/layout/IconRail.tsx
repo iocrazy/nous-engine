@@ -68,11 +68,7 @@ export default function IconRail() {
 
   const navigateOverlay = (id: OverlayId) => {
     const target = OVERLAY_ROUTES[id]
-    if (activeOverlay === id || location.pathname === target) {
-      navigate('/')
-    } else {
-      navigate(target)
-    }
+    if (location.pathname !== target) navigate(target)
   }
 
   return (

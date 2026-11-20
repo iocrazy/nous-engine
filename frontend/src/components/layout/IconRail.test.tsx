@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import IconRail from './IconRail'
 import { useExecutionStore } from '../../stores/execution'
 
@@ -38,4 +38,21 @@ describe('IconRail TaskRailButton — badge from taskIconBadge', () => {
     render(<MemoryRouter><IconRail /></MemoryRouter>)
     expect(screen.queryByText('0')).toBeNull()
   })
+})
+
+
+it('keeps the dashboard URL and its search params when clicking the active sidebar entry', () => {
+  function CurrentLocation() {
+    const location = useLocation()
+    return <output aria-label="当前地址">{location.pathname}{location.search}</output>
+  }
+
+  render(
+    <MemoryRouter initialEntries={['/dashboard?tab=system']}>
+      <IconRail />
+      <CurrentLocation />
+    </MemoryRouter>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '概览' }))
+  expect(screen.getByLabelText('当前地址').textContent).toBe('/dashboard?tab=system')
 })
