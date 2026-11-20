@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 _MICRO_MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS input_json JSONB",
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS gallery_tags JSON",
+    "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS service_id BIGINT",
+    "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS comfy_usage JSON",
+    "CREATE INDEX IF NOT EXISTS ix_execution_tasks_service_created ON execution_tasks (service_id, created_at)",
     # 归属列(IDOR 防护):predictions by-id 端点据 api_key_id 校验 owner。
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS api_key_id BIGINT",
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS webhook_url VARCHAR(500)",

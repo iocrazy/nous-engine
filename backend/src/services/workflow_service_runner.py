@@ -161,9 +161,8 @@ async def run_published_workflow(
 
     task = ExecutionTask(
         workflow_name=svc.name,
-        # 归属到服务的源 workflow + 存调用入参 —— 否则服务运行(Playground/app /run)
-        # 产生的 task 既无法按 workflow_id 归到服务(用量/历史 tab),也无法回填参数重跑
-        # (spec 2026-06-09 run-history PR-A:这俩是整个 arc 的地基)。
+        service_id=svc.id,
+        api_key_id=api_key.id if api_key is not None else None,
         workflow_id=svc.workflow_id,
         input_json=inputs,
         status="running",
@@ -183,6 +182,7 @@ async def run_published_workflow(
         {"nodes": nodes, "edges": edges},
         runner_client=runner_client,
         runner_clients=runner_clients,
+        task_id=task.id,
     )
     try:
         result = await executor.execute()

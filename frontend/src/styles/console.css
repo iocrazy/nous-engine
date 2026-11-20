@@ -119,7 +119,6 @@
   .console-shell .rail-theme-picker { flex-direction: row; }
 }
 @media (max-width: 760px) {
-  .console-shell .console-topbar-monitors { display: none; }
   .console-shell { --console-header-height: 46px; }
   .console-tabs { gap: 12px; }
 }

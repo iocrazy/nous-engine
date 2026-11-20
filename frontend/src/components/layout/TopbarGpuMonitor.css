@@ -1,0 +1,188 @@
+.resource-monitor {
+  --metric-cpu: var(--status-info, #60a5fa);
+  --metric-ram: #a78bfa;
+  --metric-gpu: var(--status-running, #4ade80);
+  --metric-vram: #f59e0b;
+  margin-right: 8px;
+}
+
+.resource-monitor [data-color="cpu"] { --metric-color: var(--metric-cpu); }
+.resource-monitor [data-color="ram"] { --metric-color: var(--metric-ram); }
+.resource-monitor [data-color="gpu"] { --metric-color: var(--metric-gpu); }
+.resource-monitor [data-color="vram"] { --metric-color: var(--metric-vram); }
+
+.resource-monitor-trigger {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 8px;
+  border: 1px solid var(--tp-border-faint);
+  border-radius: 7px;
+  background: var(--tp-bg-card);
+  color: var(--tp-text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.resource-monitor-trigger:hover,
+.resource-monitor:has(:popover-open) .resource-monitor-trigger {
+  border-color: var(--tp-border-strong);
+  background: var(--tp-bg-hover, var(--tp-bg-panel));
+}
+
+.resource-monitor-trigger:focus-visible,
+.resource-monitor-panel :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.resource-monitor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding-left: 8px;
+  border-left: 1px solid var(--tp-border-faint);
+}
+
+.resource-monitor-chip b { color: var(--metric-color); }
+.resource-monitor-chip small,
+.resource-monitor-extra { color: var(--tp-text-muted); }
+.resource-monitor-compact-label { display: none; }
+
+.resource-monitor-meter {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--tp-border-faint);
+}
+
+.resource-monitor-chip .resource-monitor-meter { width: clamp(16px, 3vw, 43px); }
+.resource-monitor-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--metric-color);
+}
+
+.resource-monitor-panel {
+  position: fixed;
+  inset: calc(var(--console-header-height, 44px) + 8px) 12px auto auto;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--console-header-height, 44px) - 20px);
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--tp-border-strong);
+  border-radius: 12px;
+  background: var(--tp-bg-panel);
+  box-shadow: 0 14px 42px rgb(0 0 0 / 28%);
+  color: var(--tp-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.resource-monitor-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.resource-monitor-panel h2 { font-size: 15px; font-weight: 650; }
+.resource-monitor-panel header button {
+  padding: 5px;
+  border-radius: 5px;
+  color: var(--tp-text-muted);
+  cursor: pointer;
+}
+.resource-monitor-panel header button:hover { background: var(--tp-border-faint); }
+
+.resource-monitor-card {
+  padding: 11px;
+  border: 1px solid var(--tp-border-faint);
+  border-radius: 8px;
+  background: var(--tp-bg-card);
+}
+.resource-monitor-card + .resource-monitor-card { margin-top: 8px; }
+.resource-monitor-card h3 { margin: 0 0 8px; font-size: 12px; font-weight: 650; }
+.resource-monitor-card h3 small {
+  display: inline-block;
+  margin-right: 4px;
+  color: var(--metric-gpu);
+  font-size: 10px;
+}
+
+.resource-monitor-reading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  margin-top: 6px;
+}
+.resource-monitor-reading .resource-monitor-meter { grid-column: 1 / -1; }
+.resource-monitor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 7px;
+  color: var(--tp-text-muted);
+  font-size: 11px;
+}
+
+.resource-monitor-history {
+  margin-top: 8px;
+  color: var(--tp-text-muted);
+  font-size: 11px;
+}
+.resource-monitor-chart {
+  position: relative;
+  overflow: hidden;
+  height: 32px;
+  margin-top: 4px;
+  border-radius: 4px;
+  background: var(--tp-bg-panel);
+}
+.resource-monitor-chart span {
+  position: absolute;
+  bottom: 0;
+  width: 2%;
+  min-height: 1px;
+  transform: translateX(-100%);
+  background: var(--metric-vram);
+  opacity: .72;
+}
+
+.resource-monitor-processes {
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid var(--tp-border-faint);
+}
+.resource-monitor-processes summary { cursor: pointer; }
+.resource-monitor-processes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 5px;
+}
+.resource-monitor-processes li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-monitor-processes li small { color: var(--tp-text-muted); }
+
+@media (max-width: 900px) {
+  .resource-monitor-chip .resource-monitor-meter { display: none; }
+}
+
+@media (max-width: 760px) {
+  .resource-monitor-chip,
+  .resource-monitor-extra,
+  .resource-monitor-trigger > .lucide-chevron-down { display: none; }
+  .resource-monitor-compact-label { display: inline; }
+}

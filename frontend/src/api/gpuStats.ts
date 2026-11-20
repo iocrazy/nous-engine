@@ -21,6 +21,14 @@ export interface GpuInfo {
   power_draw_w: number
   memory_used_mb: number
   memory_total_mb: number
+  memory_free_mb?: number
+  power_limit_w?: number
+  processes?: {
+    pid: number
+    name: string
+    model_name: string | null
+    used_gpu_memory_mb: number
+  }[]
 }
 
 export interface SystemStats {

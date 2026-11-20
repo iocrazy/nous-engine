@@ -128,7 +128,16 @@ def _patch_no_thumbnail(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_async_prediction_completes_with_video(client, monkeypatch):
-    fc = FakeClient()
+    class TimedClient(FakeClient):
+        async def wait(self, *args, **kwargs):
+            history = await super().wait(*args, **kwargs)
+            history["status"] = {"messages": [
+                ["execution_start", {"timestamp": 1000}],
+                ["execution_success", {"timestamp": 1700}],
+            ]}
+            return history
+
+    fc = TimedClient()
     monkeypatch.setattr(nb, "get_client", lambda: fc)
     _patch_no_thumbnail(monkeypatch)
 
@@ -144,6 +153,14 @@ async def test_async_prediction_completes_with_video(client, monkeypatch):
     final = await _poll_prediction(client, pid, headers)
     assert final["status"] == "succeeded", final
     _assert_video_output_shape(final["output"])
+
+    services = (await client.get("/api/v1/services")).json()
+    service_id = next(row["id"] for row in services if row["name"] == "nous-e2e-video")
+    usage = await client.get(f"/api/v1/services/{service_id}/usage")
+    assert usage.status_code == 200, usage.text
+    assert len(usage.json()) == 1
+    assert usage.json()[0]["id"] == pid
+    assert usage.json()[0]["comfy_usage"] == {"duration_ms": 700, "llm_nodes": None}
 
 
 @pytest.mark.asyncio
