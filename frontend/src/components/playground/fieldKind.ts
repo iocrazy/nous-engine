@@ -19,15 +19,23 @@ export type FieldKind =
   | 'select'
   | 'thumb_select'
   | 'slider'
+  | 'lora_list'
 
 export function num(v: unknown): number | undefined {
   const n = Number(v)
   return Number.isFinite(n) ? n : undefined
 }
 
+export function loraDirectory(key: string | undefined) {
+  if (/^moss_loras?(?:_|$)/.test(key ?? '')) return 'moss/'
+  if (/^(?:(?:edit|qwen|oldx)_loras?(?:_|$)|lora_\d)/.test(key ?? '')) return 'qwen2.1/'
+  return undefined
+}
+
 export function classifyField(p: ExposedParam): FieldKind {
   const constraints = (p.constraints ?? {}) as Record<string, unknown>
   const t = (p.type ?? 'string').toLowerCase()
+  if (t === 'lora_list') return t
   // 文件类语义优先于 enum:ComfyUI 的 LoadImage 等节点经 /object_info 带出的
   // enum 是 sidecar 上已存在的文件名列表(如 ["5 (1).jpg","example.png"]),不是
   // 一个可选值域 —— 桥会把上传的 data URI 传给 sidecar 落盘,不是从这批名字里选一个。
@@ -97,6 +105,8 @@ export function defaultFor(p: ExposedParam): unknown {
       return ''
     case 'file':
       return null
+    case 'lora_list':
+      return []
     default:
       return ''
   }

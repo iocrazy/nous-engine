@@ -3,11 +3,13 @@ import { Dices } from 'lucide-react'
 import type { ExposedParam } from '../../api/services'
 import { paramKey, paramSlot } from '../../api/services'
 import NodeSelectPopover from '../nodes/NodeSelectPopover'
+import LoRAListField from './LoRAListField'
 import {
   classifyField,
   defaultFor,
   isRandomizable,
   isFieldVisible,
+  loraDirectory,
   isFieldRequired,
   num,
   optionDependency,
@@ -232,6 +234,7 @@ function FieldInput({
   dependsValue?: string
   topLayerSelect?: boolean
 }) {
+  if (kind === 'lora_list') return <LoRAListField value={value} onChange={onChange} directory={loraDirectory(paramKey(param))} />
   const inputStyle = {
     width: '100%',
     background: 'var(--bg)',

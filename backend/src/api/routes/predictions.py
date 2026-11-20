@@ -158,7 +158,7 @@ async def stream_prediction(
                 yield f"event: error\ndata: {json.dumps({'error': 'prediction not found'})}\n\n"
                 return
             pred = task_to_prediction(task, service=task.workflow_name)
-            sig = (pred["status"], task.nodes_done)
+            sig = (pred["status"], pred["progress"])
             if sig != last_sig:
                 yield f"data: {json.dumps(pred, ensure_ascii=False)}\n\n"
                 last_sig = sig

@@ -12,7 +12,11 @@ export interface Prediction {
   /** 仅 succeeded 时非 null(后端 task_to_prediction 只在终态成功时给 output)。 */
   output: Record<string, unknown> | null
   error: string | null
-  progress: { nodes_done: number; nodes_total: number }
+  progress: {
+    nodes_done: number
+    nodes_total: number
+    comfy?: { phase: 'submitting' | 'queued' | 'running'; label?: string; step?: number; total?: number }
+  }
   metrics: { predict_time?: number }
   created_at: string | null
   started_at: string | null

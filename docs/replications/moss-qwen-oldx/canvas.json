@@ -498,7 +498,7 @@
     },
     {
       "id": "319",
-      "type": "图像缩放范围孤海",
+      "type": "ImageScaleToTotalPixels",
       "pos": [
         3440,
         3900
@@ -506,7 +506,7 @@
     },
     {
       "id": "320",
-      "type": "图像缩放范围孤海",
+      "type": "ImageScaleToTotalPixels",
       "pos": [
         4070,
         3900
@@ -514,7 +514,7 @@
     },
     {
       "id": "321",
-      "type": "图像缩放范围孤海",
+      "type": "ImageScaleToTotalPixels",
       "pos": [
         2810,
         4550
@@ -522,7 +522,7 @@
     },
     {
       "id": "322",
-      "type": "图像缩放范围孤海",
+      "type": "ImageScaleToTotalPixels",
       "pos": [
         3440,
         4550
@@ -530,7 +530,7 @@
     },
     {
       "id": "323",
-      "type": "图像缩放范围孤海",
+      "type": "ImageScaleToTotalPixels",
       "pos": [
         4070,
         4550

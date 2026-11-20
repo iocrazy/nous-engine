@@ -6,8 +6,11 @@ import json
 import os
 import urllib.parse
 from collections.abc import Awaitable, Callable
+from uuid import uuid4
 
 import httpx
+from websockets.asyncio.client import connect
+from websockets.exceptions import WebSocketException
 
 
 def _base_url() -> str:
@@ -45,6 +48,7 @@ def translate_prompt_error(status: int, body: str) -> str:
 class ComfyClient:
     def __init__(self, base_url: str | None = None) -> None:
         self.base_url = (base_url or _base_url()).rstrip("/")
+        self._progress_client_id = uuid4().hex
         self._client = httpx.AsyncClient(
             base_url=self.base_url, trust_env=False,
             timeout=float(os.getenv("NOUS_COMFY_DOWNLOAD_TIMEOUT", "120")))
@@ -159,10 +163,42 @@ class ComfyClient:
         return r.json().get("name", filename)
 
     async def submit(self, graph: dict) -> str:
-        r = await self._client.post("/prompt", json={"prompt": graph}, timeout=30)
+        r = await self._client.post(
+            "/prompt", json={"prompt": graph, "client_id": self._progress_client_id}, timeout=30)
         if r.status_code != 200:
             raise ComfyError(translate_prompt_error(r.status_code, r.text), status_code=422)
         return r.json()["prompt_id"]
+
+    async def watch_progress(self, prompt_id: str, update: Callable[[dict], None]) -> None:
+        base = urllib.parse.urlsplit(self.base_url)
+        url = base._replace(scheme="wss" if base.scheme == "https" else "ws",
+                            path=f"{base.path}/ws", query=urllib.parse.urlencode({"clientId": self._progress_client_id}))
+        try:
+            async with connect(url.geturl(), open_timeout=3, close_timeout=1, max_size=8 * 1024 * 1024,
+                               max_queue=4, proxy=None) as socket:
+                async for message in socket:
+                    if not isinstance(message, str):
+                        continue
+                    try:
+                        event = json.loads(message)
+                    except ValueError:
+                        continue
+                    if not isinstance(event, dict):
+                        continue
+                    data = event.get("data")
+                    if not isinstance(data, dict) or data.get("prompt_id") != prompt_id:
+                        continue
+                    event_type = event.get("type")
+                    if event_type == "executing" and data.get("node") is not None:
+                        update({"phase": "running", "node": str(data["node"])})
+                    elif event_type == "progress" and data.get("node") is not None:
+                        value, maximum = data.get("value"), data.get("max")
+                        if type(value) in (int, float) and type(maximum) in (int, float) and 0 <= value <= maximum > 0:
+                            update({"phase": "running", "node": str(data["node"]), "step": value, "total": maximum})
+                    elif event_type == "execution_start":
+                        update({"phase": "running"})
+        except (OSError, TimeoutError, ValueError, WebSocketException):
+            return
 
     async def _history_entry(self, prompt_id: str) -> dict | None:
         """`/history/{id}` 里这条记录;不存在**或** sidecar 瞬断都返回 None

@@ -1,3 +1,6 @@
+import json
+from contextlib import asynccontextmanager
+
 import httpx
 import pytest
 
@@ -15,8 +18,30 @@ def make_client(handler) -> ComfyClient:
 async def test_submit_returns_prompt_id():
     def handler(req):
         assert req.url.path == "/prompt"
+        assert json.loads(req.content)["client_id"]
         return httpx.Response(200, json={"prompt_id": "abc123"})
     assert await make_client(handler).submit({"1": {"class_type": "X", "inputs": {}}}) == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_watch_progress_keeps_only_matching_comfy_prompt(monkeypatch):
+    async def messages():
+        yield b"binary preview"
+        yield json.dumps({"type": "progress", "data": {"prompt_id": "other", "node": "8", "value": 3, "max": 20}})
+        yield json.dumps({"type": "executing", "data": {"prompt_id": "p1", "node": "5"}})
+        yield json.dumps({"type": "progress", "data": {"prompt_id": "p1", "node": "5", "value": 4, "max": 20}})
+
+    @asynccontextmanager
+    async def websocket(url, **_kwargs):
+        assert url.startswith("ws://comfy.test/ws?clientId=")
+        yield messages()
+
+    monkeypatch.setattr("src.services.comfy.client.connect", websocket)
+    received = []
+    await make_client(lambda _: None).watch_progress("p1", received.append)
+    assert received == [
+        {"phase": "running", "node": "5"}, {"phase": "running", "node": "5", "step": 4, "total": 20},
+    ]
 
 
 @pytest.mark.asyncio

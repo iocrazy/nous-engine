@@ -182,6 +182,10 @@ export function getObjectInfo(): Promise<Record<string, unknown>> {
   return apiFetch<Record<string, unknown>>('/api/v1/comfy/object-info')
 }
 
+export function getComfyLoras(): Promise<string[]> {
+  return apiFetch<string[]>('/api/v1/comfy/loras')
+}
+
 export function freeComfyVram(options?: { idleOnly: boolean }): Promise<FreeComfyVramResult> {
   const query = options?.idleOnly ? '?idle_only=true' : ''
   return apiFetch<FreeComfyVramResult>(`/api/v1/comfy/free${query}`, { method: 'POST' })

@@ -13,13 +13,14 @@ import {
 } from '../../api/comfyTemplates'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from '../playground/SchemaDrivenForm'
-import { defaultFor, isFieldRequired, isFieldVisible } from '../playground/fieldKind'
+import LoRAListField from '../playground/LoRAListField'
+import { defaultFor, isFieldRequired, isFieldVisible, loraDirectory } from '../playground/fieldKind'
 import {
   filterComfyBranch, groupComfyNodes, isComfyNodeRef, layoutComfyGraph,
   type ComfyNodePositions, type ComfyWorkflow,
 } from './comfyGraphLayout'
 import ComfyWorkflowUpdate from './ComfyWorkflowUpdate'
-import { mappingDependents } from './comfyMapping'
+import { mappingDependents, POWER_LORA_LOADER, powerLoraRows } from './comfyMapping'
 import qwenCanvas from './qwen21CanvasLayout.json'
 import './ComfyTemplateEditor.css'
 import { findInvalidModelRefs, type ModelRefIssue } from './workflowModelCheck'
@@ -98,6 +99,7 @@ function deriveFieldMeta(
   rawValue: unknown,
   objectInfo: Record<string, unknown> | null,
 ): FieldMeta {
+  if (classType === POWER_LORA_LOADER && inputName === 'loras') return { type: 'lora_list' }
   const decl = classInputDecl(classType, inputName, objectInfo)
   if (decl) {
     const [typeOrOptions, constraints] = decl
@@ -241,6 +243,9 @@ export default function ComfyTemplateEditor({ templateId, serviceId, currentMode
   const rawRowsFor = (nodeId: string): RawInputRow[] => {
     const node = workflow[nodeId]
     if (!node) return []
+    if (node.class_type === POWER_LORA_LOADER) {
+      return [{ inputName: 'loras', rawValue: powerLoraRows(node.inputs ?? {}) }]
+    }
     return Object.entries(node.inputs ?? {})
       .filter(([, v]) => !isComfyNodeRef(v, idSet))
       .map(([inputName, rawValue]) => ({ inputName, rawValue }))
@@ -634,8 +639,10 @@ function NodeConfigPanel({
             const modeRequired = !!cur?.required_when && Object.keys(cur.required_when).length === 1
               && shown.length > 0 && shown.every(mode => requiredModes.includes(mode))
             const loraFile = /^(?:lora_name|lora_\d+)$/i.test(r.inputName) && typeof r.rawValue === 'string'
+            const directory = loraDirectory(cur?.key)
             const fileOptions = [...new Set((meta.options ?? cur?.options ?? []).map(optionValue)
-              .filter((value): value is string => typeof value === 'string'))]
+              .filter((value): value is string => typeof value === 'string'
+                && (!directory || value === 'None' || value.toLowerCase().startsWith(directory))))]
             const canHide = !cur || cur.hidden || (cur.required === false && !cur.required_when)
             return (
               <div
@@ -677,16 +684,21 @@ function NodeConfigPanel({
                   <select
                     aria-label="字段类型"
                     style={{ ...smallInput, width: 84, flexShrink: 0 }}
-                    value={type}
+                    value={type} disabled={meta.type === 'lora_list'}
                     onChange={(e) => onPatch(r.inputName, { type: e.target.value })}
                   >
-                    {TYPE_OPTIONS.map((o) => (
+                    {meta.type === 'lora_list' ? <option value="lora_list">LoRA 列表</option> : TYPE_OPTIONS.map((o) => (
                       <option key={o.v} value={o.v}>{o.label}</option>
                     ))}
                   </select>
                 </div>
 
-                {!fileLike && (
+                {type === 'lora_list' && <div className="comfy-draft-default">
+                  <span>默认 LoRA</span>
+                  <LoRAListField value={cur.default} directory={directory}
+                    onChange={value => onPatch(r.inputName, { default: value })} />
+                </div>}
+                {!fileLike && type !== 'lora_list' && (
                   <label className="comfy-draft-default">默认值
                     {loraFile ? (
                       <select aria-label={`LoRA 文件 ${r.inputName}`} value={String(cur.default ?? '')}

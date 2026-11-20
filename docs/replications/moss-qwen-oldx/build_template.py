@@ -5,6 +5,8 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from migrate_loras import BRANCHES, POWER, migrate_loras
+
 
 HERE = Path(__file__).resolve().parent
 OLD = HERE.parent / "qwen21-all-in-one"
@@ -45,7 +47,8 @@ def comfy_ref(value, graph):
 def build(export, canvas):
     previous_graph = read(OLD / "qwen21-all-in-one.api.json")
     previous_mapping = read(OLD / "qwen21-all-in-one.mapping.json")["exposed_params"]
-    fields = {field["key"]: deepcopy(field) for field in previous_mapping}
+    lora_nodes = {base for _, _, base, _, _ in BRANCHES}
+    fields = {field["key"]: deepcopy(field) for field in previous_mapping if field["comfy_node_id"] not in lora_nodes}
     graph = deepcopy(export)
 
     def inputs(node):
@@ -76,20 +79,15 @@ def build(export, canvas):
             return QWEN_LORA_DIR + name.rsplit("/", 1)[1]
         return name
 
-    def scalar_loras(node, title, clip, settings=None):
+    def power_loras(node, title, clip):
         original = inputs(node)
-        slots = {name: original[name] for name in ("model", "clip") if name in original}
-        slots.setdefault("clip", link(clip))
-        for index in range(1, 5):
-            preset = original.get(f"lora_{index}") or {}
-            name = f"lora_{index:02d}"
-            strength = f"strength_{index:02d}"
-            slots[name] = preset.get("lora") if preset.get("on") else "None"
-            slots[strength] = preset.get("strength", 1)
-            if settings:
-                slots[name] = settings[name]
-                slots[strength] = settings[strength]
-        put(node, "Lora Loader Stack (rgthree)", title, **slots)
+        incoming = {key: value for key, value in original.items() if key in ("model", "clip")}
+        incoming.setdefault("clip", link(clip))
+        for name, preset in original.items():
+            if name.startswith("lora_") and isinstance(preset, dict) and preset.get("lora"):
+                incoming[name] = {"lora": qwen_lora(preset["lora"]), "on": bool(preset.get("on")),
+                                  "strength": preset.get("strength", 1)}
+        put(node, POWER, title, **incoming)
 
     mode = put(700, "PrimitiveString", "功能模式", value="text")
     seed = put(701, "INTConstant", "种子", value=42)
@@ -120,22 +118,11 @@ def build(export, canvas):
     for node in (54, 127, 129, 137, 138, 141, 654):
         inputs(node)["image"] = "example.png"
 
-    scalar_loras(166, "Qwen 编辑 LoRA", 471, previous_graph["166"]["inputs"])
-    moss_loras = {index: inputs(397).get(f"lora_{index}") for index in range(1, 5)}
-    scalar_loras(397, "MOSS 风格 LoRA", 396)
-    scalar_loras(514, "OLDX 人物替换 LoRA", 471)
-    for node in (166, 173, 274, 514):
-        for name, value in inputs(node).items():
-            if name.startswith("lora_") and isinstance(value, str):
-                inputs(node)[name] = qwen_lora(value)
-    for field in fields.values():
-        if field["key"].startswith("lora_"):
-            field["default"] = qwen_lora(field["default"])
-            field["options"] = [qwen_lora(option) for option in field["options"]]
-        if field["key"].startswith("strength_"):
-            for key, options in field["visible_when"].items():
-                if key.startswith("lora_"):
-                    field["visible_when"][key] = [qwen_lora(option) for option in options]
+    power_loras(166, "Qwen 编辑 LoRA", 471)
+    power_loras(397, "MOSS 风格 LoRA", 396)
+    power_loras(514, "OLDX 人物替换 LoRA", 471)
+    for node in (173, 274):
+        inputs(node)["lora_name"] = qwen_lora(inputs(node)["lora_name"])
 
     oldx_target = put(711, "LoadImage", "OLDX 姿势与场景参考", image="example.png")
     target_scaler = deepcopy(inputs(319))
@@ -228,30 +215,9 @@ def build(export, canvas):
          {"min": 0.25, "max": 4, "step": 0.25}),
         ("oldx_cfg", "OLDX 提示词引导（CFG）", "number", 526, "cfg", inputs(526)["cfg"],
          OLDX_MODES, {"min": 1, "max": 10, "step": 0.1}),
-        ("oldx_strength", "OLDX LoRA 强度", "number", 514, "strength_01", inputs(514)["strength_01"],
-         OLDX_MODES, {"min": 0, "max": 2, "step": 0.05}),
     ]
     for key, label, kind, node, arg, default, modes, options in maps:
         map_field(key, label, kind, node, arg, default, modes, **options)
-
-    moss_slots = {
-        "KOOK-MOSS-SFT-观澜.safetensors": ("main", "观澜"),
-        "feverdream-epoch-07.safetensors": ("dream", "FeverDream"),
-        "TJFilmMossV2.safetensors": ("film", "TJFilmMossV2"),
-    }
-    for index, preset in moss_loras.items():
-        if not preset or not preset.get("lora"):
-            continue
-        file = preset["lora"]
-        slug, label = moss_slots.get(file.rsplit("/", 1)[-1], (f"slot_{index}", file.rsplit("/", 1)[-1]))
-        key = f"moss_lora_{slug}"
-        slot = f"lora_{index:02d}"
-        strength = f"strength_{index:02d}"
-        map_field(key, f"{index}. {label} LoRA", "string", 397, slot, inputs(397)[slot], "moss_text",
-                  options=[{"value": file, "label": "启用"}, {"value": "None", "label": "关闭"}])
-        map_field(f"{key}_strength", f"{label} 强度", "number", 397, strength, inputs(397)[strength], "moss_text",
-                  min=0, max=2, step=0.05)
-        fields[f"{key}_strength"]["visible_when"][key] = file
 
     active = {}
 
@@ -272,7 +238,8 @@ def build(export, canvas):
         ],
         "groups": [{"title": group["title"], "bounding": group["bounding"]} for group in canvas["groups"]],
     }
-    return dict(sorted(active.items(), key=lambda item: int(item[0]))), {"exposed_params": list(fields.values())}, layout
+    active, params, layout = migrate_loras(active, list(fields.values()), layout)
+    return dict(sorted(active.items(), key=lambda item: int(item[0]))), {"exposed_params": params}, layout
 
 
 def main():

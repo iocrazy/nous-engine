@@ -18,6 +18,15 @@
 
 ## 原位更新
 
+已有服务可用 `./upgrade.sh --preview-loras` 预览迁移，再用
+`./upgrade.sh --apply-loras` 更新当前工作流和映射。迁移沿用当前连线和默认值，将
+各分支串联的固定槽合并成一个 Power LoRA Loader。应用前会备份当前模板。
+
+API 使用 `qwen_loras`、`moss_loras`、`edit_loras`、`oldx_loras` 四个列表。
+每项包含 `lora`（本机文件名）、`on`（启用开关）、`strength`（强度）。
+省略列表会使用默认配置，传空列表会清空该分支的 LoRA。固定槽位请求会返回 422。
+Qwen 生图、Qwen 编辑和 OLDX 只加载 `qwen2.1/` 下的 LoRA，MOSS 只加载 `moss/` 下的 LoRA。
+
 依照仓库流程部署新版 Playground 后，在现有 ComfyUI sidecar 保留人物资产卡。通过 `CHARACTER_ASSET` 指定相对于 sidecar `input/` 的文件名。模板附件中的默认文件仅用于构建和验证。
 
 ```bash

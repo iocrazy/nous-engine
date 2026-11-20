@@ -628,6 +628,7 @@ export function PlaygroundTab({ svc, initialInputs, onImageModeChange }: {
   const asyncOutput = asyncPredictionId ? (
     <AsyncRunState
       predictionId={asyncPredictionId}
+      compact={isQwenImageWorkflow(svc)}
       onDone={(output) => {
         setResult(output)
         setStatus('completed')

@@ -173,6 +173,11 @@ def task_to_prediction(task, *, service: str | None = None, input_values: Any = 
     status = prediction_status(getattr(task, "status", None))
     duration_ms = getattr(task, "duration_ms", None)
     persisted_input = getattr(task, "input_json", None)
+    render_progress = None
+    if status == "processing":
+        from src.services.nodes.comfy_bridge import get_comfy_progress
+
+        render_progress = get_comfy_progress(task.id)
     return {
         "id": str(task.id),
         "service": service or getattr(task, "workflow_name", None) or None,
@@ -183,6 +188,7 @@ def task_to_prediction(task, *, service: str | None = None, input_values: Any = 
         "progress": {
             "nodes_done": getattr(task, "nodes_done", 0) or 0,
             "nodes_total": getattr(task, "nodes_total", 0) or 0,
+            **({"comfy": render_progress} if render_progress is not None else {}),
         },
         "metrics": {"predict_time": round(duration_ms / 1000.0, 3)} if duration_ms else {},
         "created_at": _iso(getattr(task, "created_at", None)),
