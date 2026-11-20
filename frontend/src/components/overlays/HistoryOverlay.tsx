@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Check, ImageOff, ListChecks, Play, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { Check, ImageOff, ListChecks, Play, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { getTask, useDeleteGalleryTasks, useImageTasks, type GalleryMedia, type GalleryTask } from '../../api/tasks'
 import { useServices } from '../../api/services'
@@ -15,16 +15,23 @@ const mediaFilters = [
   { value: 'video', label: '视频' },
 ] as const
 
-const date = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' })
-const dateTime = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+const timeFilters = [
+  { value: null, label: '全部时间' },
+  { value: 7, label: '7 天' },
+  { value: 30, label: '30 天' },
+  { value: 90, label: '90 天' },
+] as const
 const selectionLimit = 100
 const localMedia = /^\/(?:files\/images\/|api\/v1\/tasks\/gallery\/)/
 
+function previewUrl(url?: string) {
+  return url && localMedia.test(url) ? `${url}${url.includes('?') ? '&' : '?'}preview=1` : url
+}
+
 function getPreviewUrl(task: GalleryTask) {
   const thumb = task.output_thumbnails[0]
-  if (!thumb) return undefined
-  if (thumb === task.video_url && !localMedia.test(thumb)) return undefined
-  return localMedia.test(thumb) ? `${thumb}${thumb.includes('?') ? '&' : '?'}preview=1` : thumb
+  if (!thumb || (thumb === task.video_url && !localMedia.test(thumb))) return undefined
+  return previewUrl(thumb)
 }
 
 export default function HistoryOverlay() {
@@ -69,12 +76,14 @@ export default function HistoryOverlay() {
 
   const serviceFor = (task: GalleryTask) =>
     services?.find(service => service.workflow_id && service.workflow_id === task.workflow_id)
+    ?? services?.find(service => service.name === task.workflow_name)
 
   const rerun = async (task: GalleryTask) => {
     const service = serviceFor(task)
     if (!service) return
     try {
       const detail = await getTask(task.id)
+      useLightboxStore.getState().close()
       setOverlay(null)
       navigate(`/services/${service.id}`, { state: { rerunInputs: detail.input_json } })
     } catch {
@@ -125,6 +134,8 @@ export default function HistoryOverlay() {
     let startIndex = 0
     for (const item of items) {
       if (item.id === task.id) startIndex = gallery.length
+      const service = serviceFor(item)
+      const source = service ? `/services/${service.id}` : item.workflow_id ? `/workflows/${item.workflow_id}` : undefined
       const meta = {
         historyTaskId: item.id,
         title: item.workflow_name || '生成记录',
@@ -132,12 +143,30 @@ export default function HistoryOverlay() {
         expiresAt: item.expires_at,
         expired: item.expired,
         durationMs: item.duration_ms,
-        poster: item.video_url ? getPreviewUrl(item) : undefined,
-        onRerun: serviceFor(item) ? () => rerun(item) : undefined,
+        onRerun: service ? () => rerun(item) : undefined,
+        sourceLabel: service ? '打开服务' : '打开工作流',
+        onOpenSource: source ? () => {
+          useLightboxStore.getState().close()
+          setOverlay(null)
+          navigate(source)
+        } : undefined,
+        onTagSearch: (tag: string) => {
+          useLightboxStore.getState().close()
+          setKeyword(tag)
+          setQuery(tag)
+          resetFilters()
+        },
         onDelete: (permanent: boolean) => void deleteRecords([item.id], permanent, true),
       }
-      if (item.video_url) gallery.push({ url: item.video_url, meta, kind: 'video' })
-      else for (const url of item.output_thumbnails) gallery.push({ url, meta })
+      if (item.video_url) {
+        const videos = new Set([item.video_url, ...item.output_thumbnails.filter(url => /\.(mp4|webm|mov|mkv)(?:[?#]|$)/i.test(url))])
+        for (const url of videos) {
+          const poster = url === item.video_url ? getPreviewUrl(item) : localMedia.test(url) ? previewUrl(url) : undefined
+          gallery.push({ url, meta: { ...meta, poster, previewUrl: poster }, kind: 'video' })
+        }
+      } else {
+        for (const url of item.output_thumbnails) gallery.push({ url, meta: { ...meta, previewUrl: previewUrl(url) } })
+      }
     }
     openItems(gallery, startIndex)
   }
@@ -150,12 +179,12 @@ export default function HistoryOverlay() {
   return (
     <div className="history-gallery absolute inset-0 z-30 flex flex-col">
       <header className="history-header">
-        <h1 className="console-title">历史生成</h1>
+        <h1 className="console-title">图库</h1>
         <button type="button" className="history-manage" aria-pressed={selecting}
           onClick={() => { setSelecting(!selecting); clearSelection() }}>
           <ListChecks size={16} />{selecting ? '退出批量管理' : '批量管理'}
         </button>
-        <button type="button" className="history-icon" aria-label="关闭历史" onClick={() => setOverlay(null)}>
+        <button type="button" className="history-icon" aria-label="关闭图库" onClick={() => setOverlay(null)}>
           <X size={18} />
         </button>
       </header>
@@ -168,19 +197,15 @@ export default function HistoryOverlay() {
         </div>
         <label className="history-search">
           <Search size={16} aria-hidden="true" />
-          <input type="search" aria-label="搜索历史" placeholder="搜索工作流、提示词或任务 ID"
+          <input type="search" aria-label="搜索图库" placeholder="搜索提示词、标签、工作流或任务 ID"
             maxLength={120} value={keyword} onChange={event => { setKeyword(event.currentTarget.value); resetFilters() }} />
         </label>
-        <label className="history-date-filter">
-          <CalendarDays size={16} aria-hidden="true" />
-          <select value={days ?? ''} aria-label="生成时间"
-            onChange={event => { setDays(Number(event.currentTarget.value) || null); resetFilters() }}>
-            <option value="">全部时间</option>
-            <option value="7">最近 7 天</option>
-            <option value="30">最近 30 天</option>
-            <option value="90">最近 90 天</option>
-          </select>
-        </label>
+        <div className="history-date-filter" role="group" aria-label="生成时间">
+          {timeFilters.map(filter => (
+            <button type="button" key={filter.value ?? 'all'} aria-pressed={days === filter.value}
+              onClick={() => { setDays(filter.value); resetFilters() }}>{filter.label}</button>
+          ))}
+        </div>
         {!!items.length && <span className="history-count">已加载 {items.length} 条</span>}
       </div>
 
@@ -239,7 +264,6 @@ function Card({ task, selecting, selected, selectionFull, onOpen, onSelect, onRe
   const preview = getPreviewUrl(task)
   const isVideo = task.kind === 'video'
   const title = task.workflow_name || '生成记录'
-  const expiration = new Date(task.expires_at)
   const count = task.output_thumbnails.length
   return (
     <article className="history-card" style={{ width: `clamp(132px, ${(ratio ?? (isVideo ? 16 / 9 : 4 / 3)) * 210}px, min(500px, 100%))` }}>
@@ -265,13 +289,6 @@ function Card({ task, selecting, selected, selectionFull, onOpen, onSelect, onRe
           <button type="button" className="history-icon" aria-label="删除记录" title="删除记录" onClick={onDelete}><Trash2 size={14} /></button>
         </div>}
         {!isVideo && count > 1 && <span className="history-card-count">×{count}</span>}
-      </div>
-      <div className="history-card-info">
-        <strong title={title}>{title}</strong>
-        <time dateTime={task.created_at}>{dateTime.format(new Date(task.created_at))}</time>
-        <time className={task.expired ? 'history-expired' : ''} dateTime={task.expires_at} title={dateTime.format(expiration)}>
-          {task.expired ? '已到期' : '预计到期'} · {date.format(expiration)}
-        </time>
       </div>
     </article>
   )

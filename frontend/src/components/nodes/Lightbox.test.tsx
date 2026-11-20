@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import Lightbox from './Lightbox'
 import { useLightboxStore } from '../../stores/lightbox'
+
+const { galleryFetch } = vi.hoisted(() => ({ galleryFetch: vi.fn() }))
+vi.mock('../../api/client', () => ({ apiFetch: galleryFetch }))
 
 const URL1 = 'data:image/png;base64,iVBORw0KGgo='
 
@@ -143,4 +146,38 @@ describe('Lightbox zoom/pan wiring', () => {
     expect(screen.getByAltText('preview')).toBeTruthy()
     expect(document.querySelector('video')).toBeNull()
   })
+})
+
+
+it('图库详情区分任务缩略图和同任务产物，可保存标签并打开服务', async () => {
+  const openSource = vi.fn()
+  galleryFetch.mockImplementation(async (_url: string, init?: RequestInit) =>
+    init?.method === 'PUT' ? { tags: ['训练'] }
+      : { prompt: '核心元素：太空服。白色背景。', fields: [{ label: 'seed', value: '42' }], tags: [] })
+  render(<Lightbox />)
+  act(() => useLightboxStore.getState().openItems([
+    { url: '/first.png', meta: { historyTaskId: '101', previewUrl: '/first.png?preview=1', onOpenSource: openSource, sourceLabel: '打开服务' } },
+    { url: '/second.png', meta: { historyTaskId: '101', previewUrl: '/second.png?preview=1' } },
+    { url: '/third.png', meta: { historyTaskId: '102', previewUrl: '/third.png?preview=1' } },
+  ], 0))
+
+  const library = screen.getByRole('navigation', { name: '图库缩略图' })
+  const group = screen.getByRole('navigation', { name: '同任务图集' })
+  expect(within(library).getAllByRole('button')).toHaveLength(2)
+  expect(within(group).getAllByRole('button')).toHaveLength(2)
+  expect(await screen.findByText('核心元素', { exact: true })).toBeVisible()
+  expect(screen.getByRole('button', { name: '复制提示词' })).toBeVisible()
+  fireEvent.change(screen.getByRole('textbox', { name: '新标签' }), { target: { value: '训练' } })
+  fireEvent.click(screen.getByRole('button', { name: '添加' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '#训练' })).toBeVisible())
+  expect(galleryFetch).toHaveBeenCalledWith('/api/v1/tasks/gallery/101/tags', {
+    method: 'PUT', body: JSON.stringify({ tags: ['训练'] }),
+  })
+  fireEvent.click(screen.getByRole('button', { name: '打开服务' }))
+  expect(openSource).toHaveBeenCalledOnce()
+  fireEvent.click(within(group).getByRole('button', { name: '查看同任务产物 2' }))
+  expect(screen.getByAltText('preview')).toHaveAttribute('src', '/second.png')
+  fireEvent.click(within(library).getByRole('button', { name: '预览记录 102' }))
+  expect(screen.getByAltText('preview')).toHaveAttribute('src', '/third.png')
+  await waitFor(() => expect(screen.queryByRole('navigation', { name: '同任务图集' })).toBeNull())
 })

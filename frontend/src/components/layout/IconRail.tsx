@@ -36,7 +36,7 @@ const OVERLAY_ROUTES: Record<OverlayId, string> = {
   'service-detail': '/services',
   'workflows-list': '/workflows',
   usage: '/usage',
-  history: '/history',
+  history: '/gallery',
   status: '/status',
 }
 
@@ -49,7 +49,7 @@ const TOP_NAVS: { id: OverlayId; icon: typeof LayoutDashboard; label: string }[]
 const MID_NAVS: { id: OverlayId; icon: typeof Layers; label: string }[] = [
   { id: 'models', icon: Layers, label: '引擎库' },
   { id: 'api-keys-list', icon: KeyRound, label: 'API Key' },
-  { id: 'history', icon: Images, label: '历史' },
+  { id: 'history', icon: Images, label: '图库' },
   { id: 'usage', icon: BarChart3, label: '用量' },
   { id: 'status', icon: HeartPulse, label: '状态' },
   { id: 'logs', icon: ScrollText, label: '日志' },

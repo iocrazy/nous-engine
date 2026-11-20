@@ -621,7 +621,7 @@ function AddGrantPicker({ keyId, grantedIds }: { keyId: string; grantedIds: Set<
         onClick={() => setOpen((o) => !o)}
         style={{
           display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12,
-          background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer',
+          background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', borderRadius: 4, cursor: 'pointer',
         }}
       >
         <Plus size={14} /> 授权服务

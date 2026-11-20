@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from anyio import to_thread
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import Text, case, cast, delete, desc, func, or_, select, text
+from sqlalchemy import Text, case, cast, delete, desc, exists, func, or_, select, text, update
 from sqlalchemy.orm import with_expression
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,10 +111,13 @@ async def list_gallery(
     if days is not None:
         stmt = stmt.where(t.created_at >= now - timedelta(days=days))
     if query := q.strip():
+        tag = func.json_array_elements_text(t.gallery_tags).column_valued("gallery_tag")
+        tag_matches = exists(select(1).where(cast(tag, Text).icontains(query, autoescape=True)).correlate(t))
         matches = [
             t.workflow_name.icontains(query, autoescape=True),
             t.input_json["prompt"].as_string().icontains(query, autoescape=True),
             t.input_json["positive_prompt"].as_string().icontains(query, autoescape=True),
+            tag_matches,
         ]
         if query.isascii() and query.isdigit() and int(query) <= 2**63 - 1:
             matches.append(t.id == int(query))
@@ -251,7 +254,12 @@ async def get_gallery_image(
 
 @router.get("/gallery/{task_id}/metadata")
 async def get_gallery_metadata(task_id: int, session: AsyncSession = Depends(get_async_session)):
-    inputs = await session.scalar(select(ExecutionTask.input_json).where(ExecutionTask.id == task_id))
+    row = (await session.execute(
+        select(ExecutionTask.input_json, ExecutionTask.gallery_tags).where(ExecutionTask.id == task_id)
+    )).one_or_none()
+    if row is None:
+        raise HTTPException(404, "Task not found")
+    inputs, tags = row
     entries = [
         (key, value) for key, value in (inputs or {}).items()
         if isinstance(value, (str, int, float))
@@ -266,7 +274,25 @@ async def get_gallery_metadata(task_id: int, session: AsyncSession = Depends(get
         {"label": key, "value": str(value).lower() if isinstance(value, bool) else str(value)[:1000]}
         for key, value in entries if key != prompt_key
     ][:64]
-    return {"prompt": prompt[:16_000], "fields": fields}
+    return {"prompt": prompt[:16_000], "fields": fields, "tags": tags or []}
+
+
+class GalleryTags(BaseModel):
+    tags: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]] = Field(max_length=20)
+
+
+@router.put("/gallery/{task_id}/tags")
+async def put_gallery_tags(task_id: int, body: GalleryTags, session: AsyncSession = Depends(get_async_session)):
+    tags = list({tag.casefold(): tag for tag in body.tags}.values())
+    found = await session.scalar(
+        update(ExecutionTask).where(ExecutionTask.id == task_id, ExecutionTask.status == "completed")
+        .values(gallery_tags=tags).returning(ExecutionTask.id)
+    )
+    if found is None:
+        raise HTTPException(404, "Task not found")
+    await session.commit()
+    return {"tags": tags}
+
 
 
 @router.post("/record")

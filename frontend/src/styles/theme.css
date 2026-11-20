@@ -21,42 +21,32 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #12141a;
-  --bg-accent: #14161d;
-  --bg-elevated: #1a1d25;
-  --bg-hover: #262a35;
-  --card: #181b22;
-  --card-hl: rgba(255, 255, 255, 0.03);
-  --text: #e4e4e7;
-  --text-strong: #fafafa;
-  /* 次要文字。旧值 #71717a 对 --bg 只有 3.81:1、对 --card 3.57:1 —— 低于 WCAG AA
-   * 的 4.5:1,而这个 token 铺了全站 500+ 处次要文字(含登录/引导/安全面板)。
-   * #8b8b93 沿用 zinc 系的构造(R=G,B 略高),对 --bg 5.45 / --card 5.10 /
-   * --bg-elevated 4.98 全部过 AA,同时对 --text(#e4e4e7)仍有 2.66 的落差,
-   * 「次要文字」的层级没被拉平。--bg-hover(#262a35)上是 4.24 —— hover 是瞬时态,
-   * 未按 AA 卡。别再往亮调:#a1a1aa 能到 7.18,但跟正文就分不出主次了。 */
-  --muted: #8b8b93;
-  /* 三级(比 --muted 更淡):端口点 / 连线 fallback / minimap / 虚线框等装饰件,
-   * 外加少量 9-11px 小标签与空态占位文字。旧值 #52525b 对 --bg 仅 2.38:1,连
-   * 「非文本元素」的 3:1 都不到。接手 --muted 空出来的 zinc-500 → 对 --bg 3.81 /
-   * --card 3.57,过 3:1,且明显低于 --muted 的 5.45,层级保持。注意:那几处拿它当
-   * 小字正文用的地方仍不到 4.5:1,该改的是调用点(换 --muted),不是再提这个 token。 */
-  --muted-strong: #71717a;
-  --border: #27272a;
-  --border-strong: #3f3f46;
-  --accent: #ff5c5c;
-  --accent-hover: #ff7070;
-  --accent-subtle: rgba(255, 92, 92, 0.15);
-  --accent-glow: rgba(255, 92, 92, 0.25);
+  color-scheme: dark;
+  --bg: #171715;
+  --bg-accent: #1d1c19;
+  --bg-elevated: #282521;
+  --bg-hover: #302c27;
+  --card: #22211e;
+  --card-hl: #2c2925;
+  --text: #f5f0e8;
+  --text-strong: #fff9f0;
+  --muted: #bdb3a6;
+  --muted-strong: #a29789;
+  --border: #39352f;
+  --border-strong: #595044;
+  --accent: #e6bc80;
+  --accent-hover: #f2cd99;
+  --accent-subtle: #352c20;
+  --accent-glow: rgb(230 188 128 / 25%);
+  --on-accent: #2c2116;
+  --accent-fg: var(--on-accent);
+  --gallery-backdrop: #11110ff5;
   --accent-2: #14b8a6;
   --accent-2-subtle: rgba(20, 184, 166, 0.15);
   --ok: #22c55e;
   --warn: #f59e0b;
-  /* 语义红。跟 --ok/--warn/--info/--purple 同一档(全是 Tailwind 500 级),取
-   * red-500。对 --bg 4.89 / --card 4.58,与 --info(5.01)同一量级。历史上调用点
-   * 一直写 `var(--error, #ef4444)` 兜底,取同值 → 定义 token 不改变任何现有观感,
-   * 只是让漏写兜底的地方(LogsOverlay)不再掉色。 */
-  --error: #ef4444;
+  --error: #f69c90;
+  --on-danger: #2b1310;
   --info: #3b82f6;
   --purple: #a855f7;
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
@@ -69,8 +59,8 @@
    * (踩过三次)。这两个值是按 WCAG 对比度直接挑的 —— 对 --bg 都在 4.5:1 以上,
    * 远高于 3:1 的下限,同时明显低于正文 --text(~14:1),保持「连线是背景关系、
    * 节点卡才是主角」的层级。 */
-  --graph-edge: #79839a;
-  --graph-edge-active: #a8b2c6;
+  --graph-edge: #9b8e7d;
+  --graph-edge-active: #c9b99e;
   /* 框选高亮(对齐 Infinite-Canvas 洋红选框) */
   --selection: rgba(236, 72, 153, 0.9);
   --selection-fill: rgba(236, 72, 153, 0.10);
@@ -81,33 +71,32 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #fafafa;
-  --bg-accent: #f4f4f5;
-  --bg-elevated: #ffffff;
-  --bg-hover: #e4e4e7;
-  --card: #ffffff;
-  --card-hl: rgba(0, 0, 0, 0.02);
-  --text: #27272a;
-  --text-strong: #09090b;
-  /* 亮色 --muted 本来就过 AA(对 --bg 4.63 / --card 4.83),不动。 */
-  --muted: #71717a;
-  /* 三级色跟暗色同因整改:旧 #a1a1aa 对 --bg 只有 2.46:1。#8b8b93 → 3.24 / --card
-   * 3.38 / --bg-accent 3.08,过 3:1,仍明显淡于 --muted(4.63)。 */
-  --muted-strong: #8b8b93;
-  --border: #e4e4e7;
-  --border-strong: #d4d4d8;
-  --accent: #dc2626;
-  --accent-hover: #ef4444;
-  --accent-subtle: rgba(220, 38, 38, 0.1);
-  --accent-glow: rgba(220, 38, 38, 0.15);
+  color-scheme: light;
+  --bg: #f8f5ef;
+  --bg-accent: #f3ede3;
+  --bg-elevated: #fffaf2;
+  --bg-hover: #eee6da;
+  --card: #fffdf7;
+  --card-hl: #eee6da;
+  --text: #27231f;
+  --text-strong: #211a14;
+  --muted: #61574d;
+  --muted-strong: #776a5d;
+  --border: #ded2c3;
+  --border-strong: #b8a896;
+  --accent: #80541f;
+  --accent-hover: #6b4416;
+  --accent-subtle: #f2e4d0;
+  --accent-glow: rgb(128 84 31 / 18%);
+  --on-accent: #fff7eb;
+  --accent-fg: var(--on-accent);
+  --gallery-backdrop: #ede5dbea;
   --accent-2: #0d9488;
   --accent-2-subtle: rgba(13, 148, 136, 0.1);
   --ok: #16a34a;
   --warn: #d97706;
-  /* 亮色语义色整档是 Tailwind 600(--ok green-600 / --warn amber-600 /
-   * --info blue-600),红取 red-600:对 --bg 4.63 / --card 4.83,过 AA。
-   * 暗色的 #ef4444(red-500)在亮底上只有 3.61,不能两边共用一个值。 */
-  --error: #dc2626;
+  --error: #a13832;
+  --on-danger: #fff7f0;
   --info: #2563eb;
   --purple: #9333ea;
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
@@ -115,9 +104,8 @@
   /* Infinite-Canvas 风:节点卡圆角 + 画布 dotted 网格点色(亮主题) */
   --node-radius: 14px;
   --grid: rgba(15, 23, 42, 0.10);
-  /* 见暗色主题同名 token 的注释。亮色画布是近白 --bg #fafafa,连线必须往深里走。 */
-  --graph-edge: #64748b;
-  --graph-edge-active: #475569;
+  --graph-edge: #776a5d;
+  --graph-edge-active: #554a40;
   /* 框选高亮(对齐 Infinite-Canvas 洋红选框) */
   --selection: rgba(219, 39, 119, 0.9);
   --selection-fill: rgba(219, 39, 119, 0.08);

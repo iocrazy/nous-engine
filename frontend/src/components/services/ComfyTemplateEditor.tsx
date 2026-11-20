@@ -882,7 +882,7 @@ const smallInput: React.CSSProperties = {
 
 function saveBtnStyle(saving: boolean): React.CSSProperties {
   return {
-    fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: '#fff',
+    fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: 'var(--on-accent)',
     border: 'none', borderRadius: 4, cursor: saving ? 'not-allowed' : 'pointer',
     opacity: saving ? 0.6 : 1,
   }

@@ -22,6 +22,10 @@ export interface LightboxMeta {
   expiresAt?: string
   expired?: boolean
   poster?: string
+  previewUrl?: string
+  onOpenSource?: () => void
+  sourceLabel?: string
+  onTagSearch?: (tag: string) => void
   onDelete?: (permanent: boolean) => void
   /** 「重跑」回调(有则面板显示重跑按钮)。 */
   onRerun?: () => void
@@ -69,6 +73,7 @@ interface LightboxState {
   /** 显式给定图集(带每图元信息)打开 —— /history 画廊用。 */
   openItems: (items: LightboxItem[], index: number) => void
   close: () => void
+  select: (index: number) => void
   next: () => void
   prev: () => void
 }
@@ -95,6 +100,7 @@ export const useLightboxStore = create<LightboxState>((set, get) => ({
     index: Math.max(0, Math.min(index, items.length - 1)),
   }),
   close: () => set({ open: false }),
+  select: (index) => set((state) => index >= 0 && index < state.images.length ? { index } : state),
   next: () => { const { images, index } = get(); if (images.length) set({ index: (index + 1) % images.length }) },
   prev: () => { const { images, index } = get(); if (images.length) set({ index: (index - 1 + images.length) % images.length }) },
 }))

@@ -40,6 +40,9 @@ beforeEach(() => {
 
 it('使用延迟缩略图，打开详情后才加载原图和提示词', () => {
   const { container } = render(<HistoryOverlay />)
+  expect(screen.getByRole('heading', { name: '图库' })).toBeVisible()
+  expect(screen.queryByText('wf')).not.toBeInTheDocument()
+  expect(container.querySelector('time')).toBeNull()
   const thumb = container.querySelector('img')
   expect(thumb).toHaveAttribute('src', task.output_thumbnails[0] + '&preview=1')
   expect(thumb).toHaveAttribute('loading', 'lazy')
@@ -66,7 +69,7 @@ it('无封面视频尝试加载首帧，失败仍可播放原视频', () => {
 it('按媒体、时间和关键词筛选，继续加载时保留当前记录', async () => {
   render(<HistoryOverlay />)
   fireEvent.click(screen.getByRole('button', { name: '视频' }))
-  fireEvent.change(screen.getByRole('combobox', { name: '生成时间' }), { target: { value: '30' } })
+  fireEvent.click(screen.getByRole('button', { name: '30 天' }))
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: ' forest ' } })
   await waitFor(() => expect(useImageTasks).toHaveBeenLastCalledWith('video', 'forest', 30))
   fireEvent.click(screen.getByRole('button', { name: '加载更多' }))

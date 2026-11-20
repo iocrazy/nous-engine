@@ -223,7 +223,7 @@ export default function WorkflowCanvasToolbar() {
           <button
             onClick={() => setShowPublishWizard(true)}
             className="px-3 py-1 rounded text-xs"
-            style={{ background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
+            style={{ background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', cursor: 'pointer' }}
           >
             发布服务
           </button>
