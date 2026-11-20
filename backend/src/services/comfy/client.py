@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import urllib.parse
 from collections.abc import Awaitable, Callable
@@ -43,6 +44,16 @@ def translate_prompt_error(status: int, body: str) -> str:
             parts.append(f"节点 {node_id}({ct}) 输入 {inp}:{err.get('message', '')}")
     detail = ";".join(parts) or top
     return f"ComfyUI 拒绝了工作流(HTTP {status}):{detail[:600] or '校验失败'}。请检查模板字段映射。"
+
+
+def _node_progress(node: str, data: dict, *, snapshot: bool = False) -> dict:
+    progress = {"phase": "running", "node": node}
+    value, maximum = data.get("value"), data.get("max")
+    if (type(value) in (int, float) and type(maximum) in (int, float)
+            and math.isfinite(maximum) and 0 <= value <= maximum > 0
+            and not (snapshot and maximum == 1 and value == 0)):
+        progress.update(step=value, total=maximum)
+    return progress
 
 
 class ComfyClient:
@@ -176,6 +187,7 @@ class ComfyClient:
         try:
             async with connect(url.geturl(), open_timeout=3, close_timeout=1, max_size=8 * 1024 * 1024,
                                max_queue=4, proxy=None) as socket:
+                active_node = None
                 async for message in socket:
                     if not isinstance(message, str):
                         continue
@@ -190,11 +202,21 @@ class ComfyClient:
                         continue
                     event_type = event.get("type")
                     if event_type == "executing" and data.get("node") is not None:
-                        update({"phase": "running", "node": str(data["node"])})
-                    elif event_type == "progress" and data.get("node") is not None:
-                        value, maximum = data.get("value"), data.get("max")
-                        if type(value) in (int, float) and type(maximum) in (int, float) and 0 <= value <= maximum > 0:
-                            update({"phase": "running", "node": str(data["node"]), "step": value, "total": maximum})
+                        active_node = str(data["node"])
+                        update({"phase": "running", "node": active_node})
+                    elif event_type == "progress":
+                        node = data.get("node") or active_node
+                        if node is not None:
+                            active_node = str(node)
+                            update(_node_progress(active_node, data))
+                    elif event_type == "progress_state" and isinstance(data.get("nodes"), dict):
+                        nodes = {str(node): state for node, state in data["nodes"].items() if isinstance(state, dict)}
+                        running = [node for node, state in nodes.items() if state.get("state") == "running"]
+                        node = active_node if active_node in running or not running else running[-1]
+                        if node is not None and node in nodes:
+                            active_node = node
+                            state = nodes[node]
+                            update(_node_progress(str(state.get("display_node_id") or node), state, snapshot=True))
                     elif event_type == "execution_start":
                         update({"phase": "running"})
         except (OSError, TimeoutError, ValueError, WebSocketException):

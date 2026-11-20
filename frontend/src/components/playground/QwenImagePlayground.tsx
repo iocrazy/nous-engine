@@ -1,5 +1,5 @@
-import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Layers, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode, type SyntheticEvent } from 'react'
+import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Layers, Maximize2, Minimize2, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 import { Field } from './SchemaDrivenForm'
@@ -92,6 +92,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     return [[key, key in edits ? edits[key] : initialInputs && key in initialInputs ? initialInputs[key] : defaultFor(param)]]
   }))
   const [natural, setNatural] = useState<{ url: string; size: SourceDimensions }>()
+  const [generated, setGenerated] = useState<{ url: string; size: SourceDimensions }>()
+  const [fullscreen, setFullscreen] = useState<'native' | 'expanded' | null>(null)
   const [preview, setPreview] = useState<Preview>('result')
   const [showComicPlaceholder, setShowComicPlaceholder] = useState(false)
   const [comparison, setComparison] = useState<'side-by-side' | 'slider'>('side-by-side')
@@ -105,6 +107,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     typeof initialInputs?.seed === 'number' ? 'fixed' : 'randomize',
   )
   const formRef = useRef<HTMLFormElement>(null)
+  const previewRef = useRef<HTMLElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const fileSlots = useRef<string[]>([])
   const queuedSeed = useRef<number | null>(null)
@@ -214,6 +217,46 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     return () => document.removeEventListener('paste', onPaste)
   }, [])
 
+  useEffect(() => {
+    const onFullscreen = () => setFullscreen(current =>
+      document.fullscreenElement && document.fullscreenElement === previewRef.current ? 'native'
+        : current === 'native' ? null : current)
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFullscreen(current => current === 'expanded' ? null : current)
+    }
+    document.addEventListener('fullscreenchange', onFullscreen)
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreen)
+      document.removeEventListener('keydown', onEscape)
+    }
+  }, [])
+
+  const toggleFullscreen = async () => {
+    if (fullscreen) {
+      if (fullscreen === 'native' && document.fullscreenElement) await document.exitFullscreen()
+      else setFullscreen(null)
+      return
+    }
+    const panel = previewRef.current
+    if (panel?.requestFullscreen) {
+      try {
+        await panel.requestFullscreen()
+        setFullscreen('native')
+        return
+      } catch {
+        setFullscreen('expanded')
+        return
+      }
+    }
+    setFullscreen('expanded')
+  }
+
+  const recordResult = (event: SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth: width, naturalHeight: height } = event.currentTarget
+    if (resultUrl && width && height) setGenerated({ url: resultUrl, size: { width, height } })
+  }
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!enabled || comicPlaceholder) return
@@ -317,6 +360,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const previewSource = chosenAsset || source
   const view = preview === 'compare' && resultUrl && previewSource ? 'compare'
     : preview === 'result' && resultUrl ? 'result' : 'source'
+  const resultSize = generated?.url === resultUrl ? generated?.size : undefined
   const primary: ExposedParam[] = []
   const advanced: ExposedParam[] = []
   const loraSlots = new Map<string, ExposedParam[]>()
@@ -382,7 +426,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
       </nav>}
       {comicPlaceholder ? (
         <section className="qwen-panel" aria-label={COMIC_MODE.label}>
-          <header><strong>{COMIC_MODE.label}</strong>{modeTabs}</header>
+          <header>{modeTabs || <strong>{COMIC_MODE.label}</strong>}</header>
           <div className="qwen-stage">
             <div className="qwen-stage-empty">
               <ArrowLeftRight size={24} aria-hidden="true" />
@@ -422,7 +466,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
             </fieldset>
           </div>
         </section>
-        <section className="qwen-panel qwen-preview" aria-label="图片预览">
+        <section ref={previewRef} className={`qwen-panel qwen-preview${fullscreen === 'expanded' ? ' qwen-preview-expanded' : ''}`} aria-label="图片预览">
           <header>
             <strong>预览</strong>
             <div className="qwen-preview-tabs">
@@ -430,8 +474,13 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                 <button type="button" key={id} aria-pressed={view === id}
                   disabled={id === 'source' ? !previewSource : !resultUrl || (id === 'compare' && !previewSource)}
                   onClick={() => setPreview(id)}>{title}</button>)}
+              <button type="button" aria-label={fullscreen ? '退出全屏' : '全屏预览'} title={fullscreen ? '退出全屏' : '全屏预览'}
+                disabled={!fullscreen && !previewSource && !resultUrl} onClick={() => void toggleFullscreen()}>
+                {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
             </div>
           </header>
+          {running && activity && <div className="qwen-preview-progress">{activity}</div>}
           {view === 'compare' && <div className="qwen-compare-modes" aria-label="对照方式">
             <button type="button" aria-pressed={comparison === 'side-by-side'}
               onClick={() => setComparison('side-by-side')}>并排</button>
@@ -453,7 +502,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
               }))} /> : view === 'compare' && previewSource && resultUrl ? (
               comparison === 'slider' ? (
                 <div className="qwen-compare-slider">
-                  <img src={resultUrl} alt="生成结果" draggable={false} />
+                  <img src={resultUrl} alt="生成结果" onLoad={recordResult} draggable={false} />
                   <img src={previewSource} alt="原图" draggable={false} style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }} />
                   <span className="qwen-compare-label source">{comparisonTitle}</span>
                   <span className="qwen-compare-label result">结果</span>
@@ -466,10 +515,10 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
               ) : (
                 <div className="qwen-compare">
                   <figure><img src={previewSource} alt="原图" /><figcaption>{comparisonTitle}</figcaption></figure>
-                  <figure><img src={resultUrl} alt="生成结果" /><figcaption>结果</figcaption></figure>
+                  <figure><img src={resultUrl} alt="生成结果" onLoad={recordResult} /><figcaption>结果</figcaption></figure>
                 </div>
               )
-            ) : view === 'result' && resultUrl ? <img src={resultUrl} alt="生成结果" />
+            ) : view === 'result' && resultUrl ? <img src={resultUrl} alt="生成结果" onLoad={recordResult} />
               : previewSource ? <img src={previewSource} alt={asset === 'mask' ? '遮罩' : '输入图片'} />
               : <div className="qwen-stage-empty"><Image size={24} />
                 {candidates.some(item => item.key === 'image')
@@ -479,12 +528,18 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   : <span>运行后在此查看图片</span>}
               </div>}
           </div>
-          {(activity || resultUrl) && <div className="qwen-result-meta">{activity}
-            {resultUrl && <a href={resultUrl} download>下载结果</a>}
+          {((!running && activity) || resultUrl) && <div className="qwen-result-meta">
+            {!running && activity}
+            {resultUrl && <div className="qwen-result-details">
+              {resultSize && view !== 'source' && <span aria-label="生成图片分辨率">
+                {resultSize.width} × {resultSize.height} px · {(resultSize.width * resultSize.height / 1e6).toFixed(2)} MP
+              </span>}
+              <a href={resultUrl} download>下载结果</a>
+            </div>}
           </div>}
         </section>
         <section className="qwen-panel qwen-parameters" aria-label="运行参数">
-          <header><strong>运行参数</strong>{modeTabs}</header>
+          <header>{modeTabs || <strong>运行参数</strong>}</header>
           {hasAdvanced && <div className="qwen-parameter-tabs" aria-label="参数分类">
             <button type="button" aria-pressed={!showAdvanced} onClick={() => setParameterTab('basic')}>基础参数</button>
             <button type="button" aria-pressed={showAdvanced} onClick={() => setParameterTab('advanced')}>高级参数</button>

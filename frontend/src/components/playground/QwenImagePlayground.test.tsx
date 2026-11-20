@@ -87,6 +87,8 @@ it('OLDX 提示姿势与场景参考，人物资产卡沿用固定版式', () =>
   render(<QwenImagePlayground inputs={assets}
     initialInputs={{ input_mode: 'oldx', image: 'data:image/png;base64,AA==' }} running={false} onRun={onRun} />)
   expect(screen.getByRole('button', { name: /^人物源图/ })).toBeInTheDocument()
+  expect(within(screen.getByRole('radiogroup', { name: '功能选项' })).getAllByRole('radio')).toHaveLength(2)
+  expect(screen.queryByText('运行参数')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: /姿势与场景参考/ })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '替换人物' }))
   expect(onRun).not.toHaveBeenCalled()
@@ -140,8 +142,22 @@ it('对照可以在并排与滑动之间切换', () => {
   const divider = screen.getByRole('slider', { name: '拖动分隔线比较原图与结果' })
   fireEvent.change(divider, { target: { value: '72' } })
   expect(screen.getByAltText('原图')).toHaveStyle({ clipPath: 'inset(0 28% 0 0)' })
+  fireEvent.click(screen.getByRole('button', { name: '全屏预览' }))
+  expect(screen.getByRole('region', { name: '图片预览' })).toHaveClass('qwen-preview-expanded')
+  fireEvent.change(divider, { target: { value: '65' } })
+  expect(screen.getByAltText('原图')).toHaveStyle({ clipPath: 'inset(0 35% 0 0)' })
+  fireEvent.click(screen.getByRole('button', { name: '退出全屏' }))
+  expect(divider).toHaveValue('65')
   fireEvent.click(screen.getByRole('button', { name: '并排' }))
   expect(screen.queryByRole('slider', { name: '拖动分隔线比较原图与结果' })).not.toBeInTheDocument()
+})
+
+it('shows the decoded dimensions and pixel count beneath the generated image', () => {
+  render(<QwenImagePlayground inputs={fields} resultUrl="/result.png" running={false} onRun={vi.fn()} />)
+  const result = screen.getByAltText('生成结果')
+  Object.defineProperties(result, { naturalWidth: { value: 1920 }, naturalHeight: { value: 1080 } })
+  fireEvent.load(result)
+  expect(screen.getByLabelText('生成图片分辨率')).toHaveTextContent('1920 × 1080 px · 2.07 MP')
 })
 
 it('漫｜真互转待接入时不提交任务或改变工作流模式', () => {
