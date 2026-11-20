@@ -7,7 +7,7 @@
  * 没用 radix/shadcn(nous 风格 = 自定义轻量组件,无新 dep);用 lucide-react Check/ChevronDown +
  * nous CSS 变量贴主题。WidgetDef.options 现支持 {value,label,description?,color?}。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 
 export interface SelectOption {
@@ -31,6 +31,7 @@ export interface NodeSelectPopoverProps {
   size?: 'compact' | 'normal'
   /** 触发按钮宽度,默认 100%。 */
   width?: string | number
+  topLayer?: boolean
 }
 
 export function NodeSelectPopover({
@@ -40,10 +41,13 @@ export function NodeSelectPopover({
   placeholder,
   size = 'normal',
   width = '100%',
+  topLayer = false,
 }: NodeSelectPopoverProps) {
   const [open, setOpen] = useState(false)
   const [onlyLoaded, setOnlyLoaded] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  const useTopLayer = topLayer && typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype
   const current = options.find((o) => o.value === value)
   // 任一 option 带 loaded 语义 → 显示「只看已加载」筛选(模型/组件下拉);否则不显示(dtype/device)。
   const hasLoadedInfo = options.some((o) => o.loaded !== undefined)
@@ -68,6 +72,37 @@ export function NodeSelectPopover({
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
+
+  useLayoutEffect(() => {
+    const popup = popupRef.current
+    const anchor = wrapRef.current
+    if (!open || !useTopLayer || !popup || !anchor) return
+
+    const rect = anchor.getBoundingClientRect()
+    const gap = 4
+    const below = window.innerHeight - rect.bottom - gap
+    const above = rect.top - gap
+    const upward = below < Math.min(280, above)
+    popup.style.left = `${rect.left}px`
+    popup.style.width = `${rect.width}px`
+    popup.style.maxHeight = `${Math.max(0, Math.min(280, upward ? above : below))}px`
+    if (upward) popup.style.bottom = `${window.innerHeight - rect.top + gap}px`
+    else popup.style.top = `${rect.bottom + gap}px`
+    popup.showPopover()
+
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && popup.contains(event.target)) return
+      setOpen(false)
+    }
+    const onResize = () => setOpen(false)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      if (popup.matches(':popover-open')) popup.hidePopover()
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [open, useTopLayer])
 
   const compact = size === 'compact'
   const fs = compact ? 10 : 12
@@ -133,14 +168,15 @@ export function NodeSelectPopover({
 
       {open && (
         <div
+          ref={popupRef}
           role="listbox"
+          popover={useTopLayer ? 'manual' : undefined}
           className="nowheel"
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            minWidth: '100%',
-            maxHeight: 280,
+            ...(useTopLayer
+              ? { position: 'fixed', inset: 'auto', margin: 0 }
+              : { position: 'absolute', top: 'calc(100% + 4px)', left: 0, minWidth: '100%', maxHeight: 280 }),
+
             overflowY: 'auto',
             background: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
@@ -257,7 +293,7 @@ export function NodeSelectPopover({
                     minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: fs, color: 'var(--text)' }}>{opt.label}</span>
+                  <span style={{ fontSize: fs, color: 'var(--text)', overflowWrap: 'anywhere' }}>{opt.label}</span>
                   {opt.description && (
                     <span style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
                       {opt.description}

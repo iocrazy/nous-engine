@@ -24,7 +24,21 @@
 .qwen-playground button:disabled, .qwen-mask button:disabled { opacity: .55; }
 .qwen-workspace { display: grid; grid-template-columns: minmax(260px, 310px) minmax(0, 1fr); gap: 10px; align-items: start; }
 .qwen-panel { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.qwen-parameters { overflow: visible; }
+.qwen-parameters {
+  display: flex;
+  flex-direction: column;
+  max-height: max(270px, calc(100dvh - 210px));
+}
+.qwen-parameters > header, .qwen-parameters > footer { flex: none; }
+.qwen-parameter-scroll {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.qwen-parameter-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .qwen-panel > header, .qwen-panel > footer, .qwen-mask > header, .qwen-mask > footer {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
   padding: 9px 10px;
@@ -32,7 +46,12 @@
 .qwen-panel > header, .qwen-mask > header { border-bottom: 1px solid var(--border); }
 .qwen-panel > footer, .qwen-mask > footer { border-top: 1px solid var(--border); }
 .qwen-panel > footer span, .qwen-mask > footer span { flex: 1; font-size: 12px; color: var(--muted); }
-.qwen-settings { display: grid; gap: 9px; min-width: 0; padding: 10px; border: 0; margin: 0; }
+.qwen-settings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; min-width: 0; padding: 10px; border: 0; margin: 0; }
+.qwen-settings > *, .qwen-settings details > * { min-width: 0; }
+.qwen-settings :is(input, textarea, select, button) { max-width: 100%; }
+.qwen-settings input[type='range'] { min-width: 0; }
+.qwen-settings label { flex-wrap: wrap; }
+.qwen-settings :is(label, p, button) { overflow-wrap: anywhere; }
 .qwen-settings details summary { margin-bottom: 5px; color: var(--muted); cursor: pointer; }
 .qwen-assets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 .qwen-asset { min-width: 0; position: relative; }

@@ -529,16 +529,48 @@ function NumField({
   onChange: (v: number | undefined) => void
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 10, color: 'var(--muted)', flex: 1 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 10, color: 'var(--muted)', minWidth: 0 }}>
       {label}
       <input
         type="number"
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-        style={smallInput}
+        style={{ ...smallInput, width: '100%', minWidth: 0 }}
       />
     </label>
   )
+}
+
+function optionValue(option: unknown): unknown {
+  return option && typeof option === 'object' && 'value' in option ? option.value : option
+}
+
+function modeVisibilityPatch(
+  field: ExposedParamDraft,
+  shown: string[],
+  next: string[],
+  allModes: string[],
+): Partial<ExposedParamDraft> {
+  const visible = { ...field.visible_when }
+  if (allModes.every(mode => next.includes(mode))) delete visible.input_mode
+  else visible.input_mode = next
+
+  const patch: Partial<ExposedParamDraft> = { visible_when: visible }
+  if (field.required !== false) {
+    patch.required = false
+    patch.required_when = { input_mode: next }
+  } else if (field.required_when) {
+    const required = { ...field.required_when }
+    const requiredModes = [required.input_mode].flat()
+    const nextRequired = !required.input_mode || shown.every(mode => requiredModes.includes(mode))
+      ? next
+      : next.filter(mode => requiredModes.includes(mode))
+    if (allModes.every(mode => nextRequired.includes(mode))) delete required.input_mode
+    else required.input_mode = nextRequired
+    if (nextRequired.length && Object.keys(required).length === 0) patch.required = true
+    patch.required_when = nextRequired.length && Object.keys(required).length ? required : null
+  }
+  return patch
 }
 
 function NodeConfigPanel({
@@ -590,9 +622,16 @@ function NodeConfigPanel({
             const numeric = NUMERIC_TYPES.has(type)
             const seedLike = isSeedLike(r.inputName, type)
             const fileLike = OMITTABLE_TYPES.has(type)
+            const allModes = modes.map(mode => mode.value)
             const visible = cur?.visible_when?.input_mode
-            const shown = visible == null ? modes.map(mode => mode.value) : [visible].flat()
+            const shown = visible == null ? allModes : [visible].flat().filter((value): value is string => typeof value === 'string')
+            const allModesShown = allModes.every(mode => shown.includes(mode))
             const requiredModes = [cur?.required_when?.input_mode].flat()
+            const modeRequired = !!cur?.required_when && Object.keys(cur.required_when).length === 1
+              && shown.length > 0 && shown.every(mode => requiredModes.includes(mode))
+            const loraFile = /^(?:lora_name|lora_\d+)$/i.test(r.inputName) && typeof r.rawValue === 'string'
+            const fileOptions = [...new Set((meta.options ?? cur?.options ?? []).map(optionValue)
+              .filter((value): value is string => typeof value === 'string'))]
             const canHide = !cur || cur.hidden || (cur.required === false && !cur.required_when)
             return (
               <div
@@ -645,7 +684,25 @@ function NodeConfigPanel({
 
                 {!fileLike && (
                   <label className="comfy-draft-default">默认值
-                    {type === 'boolean' ? <input type="checkbox" checked={Boolean(cur.default)}
+                    {loraFile ? (
+                      <select aria-label={`LoRA 文件 ${r.inputName}`} value={String(cur.default ?? '')}
+                        disabled={fileOptions.length === 0}
+                        onChange={event => {
+                          const value = event.currentTarget.value
+                          const options = cur.options?.length ? cur.options : fileOptions
+                          onPatch(r.inputName, {
+                            default: value,
+                            options: options.some(option => optionValue(option) === value) ? options : [...options, value],
+                          })
+                        }}>
+                        {!fileOptions.includes(String(cur.default ?? '')) && (
+                          <option value={String(cur.default ?? '')} disabled>
+                            {cur.default == null || cur.default === '' ? '请选择 LoRA 文件' : `${String(cur.default)}（未在清单中）`}
+                          </option>
+                        )}
+                        {fileOptions.map(file => <option key={file} value={file}>{file}</option>)}
+                      </select>
+                    ) : type === 'boolean' ? <input type="checkbox" checked={Boolean(cur.default)}
                       onChange={event => onPatch(r.inputName, { default: event.currentTarget.checked })} />
                       : <input style={smallInput} type={numeric ? 'number' : 'text'} step={type === 'number' ? 'any' : 1}
                         value={typeof cur.default === 'number' || typeof cur.default === 'string' ? cur.default : ''}
@@ -653,34 +710,35 @@ function NodeConfigPanel({
                           const value = event.currentTarget.value
                           onPatch(r.inputName, { default: numeric ? (value === '' ? null : Number(value)) : value })
                         }} />}
+                    {loraFile && fileOptions.length === 0 && <small>暂未获取 ComfyUI LoRA 文件清单</small>}
                   </label>
                 )}
                 <div className="comfy-draft-flags">
                   <label title={!canHide ? '取消必填后可隐藏' : undefined}><input type="checkbox" checked={!cur.hidden}
                     disabled={!canHide} onChange={event => onPatch(r.inputName, { hidden: !event.currentTarget.checked })} /> 在运行页暴露</label>
-                  <label><input type="checkbox" checked={cur.required ?? true} disabled={cur.omit_when_empty || cur.hidden}
-                    onChange={event => onPatch(r.inputName, {
-                      required: event.currentTarget.checked,
-                      required_when: event.currentTarget.checked ? null : cur.required_when,
-                    })} /> 始终必填</label>
+                  <label><input type="checkbox" checked={cur.required !== false || modeRequired} disabled={cur.omit_when_empty || cur.hidden}
+                    onChange={event => {
+                      const checked = event.currentTarget.checked
+                      onPatch(r.inputName, {
+                        required: checked && allModesShown,
+                        required_when: checked && !allModesShown ? { input_mode: shown } : null,
+                      })
+                    }} /> {allModesShown ? '始终必填' : '显示时必填'}</label>
                 </div>
                 {modes.length > 0 && cur.key !== 'input_mode' && (
                   <fieldset className="comfy-mode-visibility"><legend>显示于</legend>
                     {modes.map(mode => {
                       const checked = shown.includes(mode.value)
                       return <label key={mode.value}><input type="checkbox" checked={checked}
-                        disabled={cur.required || (checked && (shown.length === 1 || requiredModes.includes(mode.value)))} onChange={() => {
+                        disabled={checked && shown.length === 1} onChange={() => {
                           const next = checked ? shown.filter(value => value !== mode.value) : [...shown, mode.value]
-                          const conditions = { ...cur.visible_when }
-                          if (next.length === modes.length) delete conditions.input_mode
-                          else conditions.input_mode = next
-                          onPatch(r.inputName, { visible_when: conditions })
+                          onPatch(r.inputName, modeVisibilityPatch(cur, shown, next, allModes))
                         }} />{mode.label}</label>
                     })}
                   </fieldset>
                 )}
                 {numeric && (
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="comfy-numeric-bounds">
                     <NumField
                       label="min" value={cur.min ?? meta.min}
                       onChange={(v) => onPatch(r.inputName, { min: v })}

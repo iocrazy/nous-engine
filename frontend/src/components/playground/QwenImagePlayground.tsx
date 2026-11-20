@@ -281,7 +281,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
       </label>
     }
     const dependency = optionDependency(param)
-    return <Field key={key} param={{ ...param, required: isFieldRequired(param, values) }} value={values[key]}
+    return <Field key={key} topLayerSelect param={{ ...param, required: isFieldRequired(param, values) }} value={values[key]}
       dependsValue={dependency ? String(values[dependency.dependsOn] ?? '') : undefined}
       onChange={value => update(key, value)} />
   }
@@ -326,35 +326,37 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
       ) : <div className="qwen-workspace">
         <section className="qwen-panel qwen-parameters" aria-label="运行参数">
           <header><strong>运行参数</strong></header>
-          <fieldset disabled={!enabled} className="qwen-settings">
-            {modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
-            {!!candidates.length && <div className="qwen-assets">
-              {candidates.map(({ key, param }) => {
-                const image = toImageUrl(values[key])
-                const title = key === 'image' ? (mode === 'oldx' || mode === 'character_card' ? '人物源图' : '原图')
-                  : key === 'mask' ? '遮罩' : referenceImage.test(key) ? `参考图 ${key.split('_')[1]}` : param.label || key
-                return (
-                  <div className="qwen-asset" key={key}>
-                    <button type="button" data-image-slot={key} aria-pressed={key === asset && !!image}
-                      onClick={() => { if (image) { setAsset(key); setPreview('source') } else chooseAsset([key]) }}>
-                      {image ? <img src={image} alt="" /> : <Upload size={16} />}
-                      <span className="qwen-asset-label">
-                        <span>{title}</span>
-                        {isFieldRequired(param, values) && <span className="qwen-asset-required">必填</span>}
-                      </span>
-                    </button>
-                    {image && <button type="button" title={`移除${title}`} aria-label={`移除${title}`}
-                      onClick={() => update(key, undefined)}><X size={12} /></button>}
-                  </div>
-                )
-              })}
-            </div>}
-            {!!candidates.length && <p className="qwen-mode-help">也可按 Ctrl+V / ⌘V 粘贴图片</p>}
-            {hasMask && source && dims && <button type="button" className="qwen-edit-mask"
-              onClick={() => setMaskOpen(true)}><Brush size={15} />{mask ? '编辑遮罩' : '绘制遮罩'}</button>}
-            {primary.map(renderField)}
-            {!!advance.length && <details><summary>高级参数</summary>{advance.map(renderField)}</details>}
-          </fieldset>
+          <div className="qwen-parameter-scroll" role="region" aria-label="运行参数列表" tabIndex={0}>
+            <fieldset disabled={!enabled} className="qwen-settings">
+              {modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
+              {!!candidates.length && <div className="qwen-assets">
+                {candidates.map(({ key, param }) => {
+                  const image = toImageUrl(values[key])
+                  const title = key === 'image' ? (mode === 'oldx' || mode === 'character_card' ? '人物源图' : '原图')
+                    : key === 'mask' ? '遮罩' : referenceImage.test(key) ? `参考图 ${key.split('_')[1]}` : param.label || key
+                  return (
+                    <div className="qwen-asset" key={key}>
+                      <button type="button" data-image-slot={key} aria-pressed={key === asset && !!image}
+                        onClick={() => { if (image) { setAsset(key); setPreview('source') } else chooseAsset([key]) }}>
+                        {image ? <img src={image} alt="" /> : <Upload size={16} />}
+                        <span className="qwen-asset-label">
+                          <span>{title}</span>
+                          {isFieldRequired(param, values) && <span className="qwen-asset-required">必填</span>}
+                        </span>
+                      </button>
+                      {image && <button type="button" title={`移除${title}`} aria-label={`移除${title}`}
+                        onClick={() => update(key, undefined)}><X size={12} /></button>}
+                    </div>
+                  )
+                })}
+              </div>}
+              {!!candidates.length && <p className="qwen-mode-help">也可按 Ctrl+V / ⌘V 粘贴图片</p>}
+              {hasMask && source && dims && <button type="button" className="qwen-edit-mask"
+                onClick={() => setMaskOpen(true)}><Brush size={15} />{mask ? '编辑遮罩' : '绘制遮罩'}</button>}
+              {primary.map(renderField)}
+              {!!advance.length && <details><summary>高级参数</summary>{advance.map(renderField)}</details>}
+            </fieldset>
+          </div>
           <footer>
             <span role="status">{notice}</span>
             <button type="submit" className="qwen-primary" disabled={!enabled}><Play size={15} />
