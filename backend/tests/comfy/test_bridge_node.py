@@ -120,6 +120,26 @@ async def test_required_input_only_applies_in_visible_modes(fake, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_character_card_switch_receives_index_without_upload(fake, monkeypatch):
+    async def load(_template_id):
+        graph = {**TEMPLATE_GRAPH, "685": {
+            "class_type": "easy imageIndexSwitch",
+            "inputs": {"index": 1, "image0": ["78", 0], "image1": ["78", 0], "image2": ["78", 0]},
+        }}
+        mapping = [*TEMPLATE_MAPPING, {"key": "character_card_view", "type": "integer",
+            "comfy_node_id": "685", "comfy_input": "index", "default": 1}]
+        return graph, mapping
+
+    monkeypatch.setattr(nb, "load_template", load)
+    node = get_node_class("comfyui_workflow")()
+    await node.invoke({"template_id": 1, "prompt": "card", "character_card_view": 0}, {})
+    assert fake.submitted["685"]["inputs"]["index"] == 0
+    assert not fake.uploaded
+    with pytest.raises(ValueError, match="character_card_view"):
+        await node.invoke({"template_id": 1, "prompt": "card", "character_card_view": 3}, {})
+
+
+@pytest.mark.asyncio
 async def test_random_param_generates_seed(monkeypatch, fake):
     async def fake_load_template_random(tid):
         return (

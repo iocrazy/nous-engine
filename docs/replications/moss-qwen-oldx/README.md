@@ -35,3 +35,13 @@ export CHARACTER_ASSET=use-case-design.webp
 ```bash
 python3 build_template.py all-enabled.api.json original-canvas.json
 ```
+
+## 人物资产卡参考图
+
+前端显示模型目录 `nous/pics/view1.png` 至 `view3.png` 的 WebP 缩略图。人物资产卡请求只传
+整数 `character_card_view`，`0` 至 `2` 分别对应三张图，省略时沿用画布默认索引 `1`。
+ComfyUI 使用输入目录中的对应本地副本。
+
+代码部署后，设置 `ADMIN_TOKEN` 并运行 `python3 configure_card_views.py` 预览当前服务的修改。
+确认后加 `--apply` 应用。脚本校验三张本地副本的内容，并在应用前备份工作流和映射。
+替换参考图时同步更新对应的 ComfyUI 本地副本。其他安装可以用 `--files` 指定三个 ComfyUI 输入文件名。

@@ -1,7 +1,29 @@
+from io import BytesIO
+
 import pytest
+from PIL import Image
+
+from src.config import get_settings
 
 WF = {"138": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": ""}},
       "92": {"class_type": "SaveVideo", "inputs": {}}}
+
+
+@pytest.mark.asyncio
+async def test_character_card_reference_only_serves_small_webp_thumbnails(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(get_settings(), "MODELS_ROOT", str(tmp_path))
+    pics = tmp_path / "nous" / "pics"
+    pics.mkdir(parents=True)
+    Image.new("RGB", (900, 450), "teal").save(pics / "view1.png")
+
+    response = await client.get("/api/v1/comfy/card-reference/0/thumbnail")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, max-age=300"
+    with Image.open(BytesIO(response.content)) as image:
+        assert image.format == "WEBP"
+        assert image.size == (256, 128)
+    assert (await client.get("/api/v1/comfy/card-reference/1/thumbnail")).status_code == 404
+    assert (await client.get("/api/v1/comfy/card-reference/3/thumbnail")).status_code == 404
 
 
 @pytest.mark.asyncio

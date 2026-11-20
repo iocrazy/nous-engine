@@ -218,6 +218,15 @@ class ComfyUIWorkflowNode:
         # 先把**所有**文件类入参校验/解码完,再开始上传 —— 否则第二个参数不合法时,
         # 第一个已经传到 sidecar input 目录的文件就成了孤儿。
         decoded = _prevalidate_files(exposed_params, data)
+        for mapping in exposed_params:
+            key = mapping["key"]
+            if mapping.get("comfy_input") != "index" or key not in data:
+                continue
+            node = graph.get(str(mapping.get("comfy_node_id")), {})
+            if node.get("class_type") == "easy imageIndexSwitch":
+                value = data[key]
+                if type(value) is not int or f"image{value}" not in node["inputs"]:
+                    raise ValueError(f"{key}: 请选择已接入的参考图索引")
         # 无音轨视频补静音轨:VHS_LoadVideo 的 audio 输出接了下游时,无音轨输入会让 VHS
         # 懒提取音频失败、整条渲染挂掉(见 comfy/video_audio.py)。
         decoded = await _with_audio_tracks(decoded)

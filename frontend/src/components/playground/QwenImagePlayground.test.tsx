@@ -92,6 +92,25 @@ it('OLDX 提示姿势与场景参考，人物资产卡沿用固定版式', () =>
   expect(onRun).toHaveBeenCalledWith({ input_mode: 'character_card', image: 'data:image/png;base64,AA==' })
 })
 
+it('submits a numeric character-card reference index without the thumbnail', () => {
+  const onRun = vi.fn()
+  render(<QwenImagePlayground running={false} onRun={onRun} inputs={[
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'character_card' },
+    {
+      node_id: 'bridge', key: 'character_card_view', label: '资产卡参考图', type: 'integer', default: 1,
+      constraints: { enum: [0, 1, 2], option_meta: [0, 1, 2].map(value => ({
+        value, label: `参考图 ${value + 1}`, image: `/api/v1/comfy/card-reference/${value}/thumbnail`,
+      })) },
+    },
+  ]} />)
+  expect(screen.getByRole('button', { name: '参考图 2' })).toHaveAttribute('aria-pressed', 'true')
+  const first = screen.getByRole('button', { name: '参考图 1' })
+  fireEvent.click(first)
+  fireEvent.click(first)
+  fireEvent.click(screen.getByRole('button', { name: '生成人物资产卡' }))
+  expect(onRun).toHaveBeenCalledWith({ input_mode: 'character_card', character_card_view: 0 })
+})
+
 it('明确显示优化模型并统一将高清放大放在尺寸参数之后', () => {
   const modes: ExposedParam[] = [
     { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'moss_text',
