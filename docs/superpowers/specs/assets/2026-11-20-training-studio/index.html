@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>训练工坊 · Nous Engine</title>
+  <link rel="stylesheet" href="studio.css">
+  <script defer src="studio.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">N</span> nous<span class="brand-engine">engine</span></div>
+    <div class="top-right"><span class="demo">交互原型 · 示例数据</span><button class="resource quiet" data-action="environment"><span class="dot"></span>训练环境 <span aria-hidden="true">↗</span></button></div>
+  </header>
+  <div class="shell">
+    <aside class="rail">
+      <div class="rail-title">训练工坊</div>
+      <nav aria-label="训练工坊" id="nav"></nav>
+      <section class="rail-resource">
+        <header>训练 GPU <span class="dot"></span></header>
+        <div>RTX PRO 5000 <span>24 / 72 GiB</span></div>
+        <progress value="24" max="72" aria-label="GPU 0 已用显存"></progress>
+        <div>RTX PRO 6000 <span>42 / 96 GiB</span></div>
+        <progress value="42" max="96" aria-label="GPU 1 已用显存"></progress>
+      </section>
+    </aside>
+    <main id="main"></main>
+  </div>
+  <dialog id="dialog"></dialog>
+  <input type="file" id="upload" accept="image/*" multiple hidden>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
