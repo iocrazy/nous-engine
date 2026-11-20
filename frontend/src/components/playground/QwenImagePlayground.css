@@ -27,7 +27,8 @@
 .qwen-parameters {
   display: flex;
   flex-direction: column;
-  max-height: max(270px, calc(100dvh - 210px));
+  align-self: stretch;
+  contain: size;
 }
 .qwen-parameters > header, .qwen-parameters > footer { flex: none; }
 .qwen-parameter-scroll {
@@ -53,6 +54,8 @@
 .qwen-settings label { flex-wrap: wrap; }
 .qwen-settings :is(label, p, button) { overflow-wrap: anywhere; }
 .qwen-settings details summary { margin-bottom: 5px; color: var(--muted); cursor: pointer; }
+.qwen-lora-fields { display: grid; grid-template-columns: minmax(0, 1fr); }
+.qwen-lora-fields > strong { margin: 6px 0; font-size: 12px; }
 .qwen-assets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 .qwen-asset { min-width: 0; position: relative; }
 .qwen-asset > button:first-child { flex-direction: column; min-height: 44px; width: 100%; height: 100%; }
@@ -133,6 +136,7 @@
 
 @media (max-width: 740px) {
   .qwen-workspace { grid-template-columns: minmax(0, 1fr); }
+  .qwen-parameters { contain: none; max-height: clamp(240px, 55dvh, 520px); }
 }
 
 .qwen-mode-help { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import type { ExposedParam } from '../../api/services'
 import QwenImagePlayground from './QwenImagePlayground'
@@ -18,6 +18,22 @@ it('keeps the run action outside the scrollable parameter region', () => {
   expect(scroll.contains(screen.getByText('高级参数'))).toBe(true)
   expect(scroll.contains(screen.getByRole('button', { name: '生成图片' }))).toBe(false)
   expect(scroll.contains(screen.getByRole('region', { name: '图片预览' }))).toBe(false)
+})
+
+it('groups each LoRA with its strength and keeps seed outside the LoRA group', () => {
+  render(<QwenImagePlayground running={false} onRun={vi.fn()} inputs={[
+    { node_id: 'bridge', key: 'lora_01', label: '编辑 LoRA 1', type: 'string' },
+    ...fields,
+    { node_id: 'bridge', key: 'lora_05', label: '编辑 LoRA 5', type: 'string' },
+    { node_id: 'bridge', key: 'strength_01', label: 'LoRA 1 强度', type: 'number' },
+    { node_id: 'bridge', key: 'strength_05', label: 'LoRA 5 强度', type: 'number' },
+  ]} />)
+  fireEvent.click(screen.getByText('高级参数'))
+  const loras = within(screen.getByRole('group', { name: 'LoRA' }))
+  const labels = ['编辑 LoRA 1', 'LoRA 1 强度', '编辑 LoRA 5', 'LoRA 5 强度'].map(label => loras.getByText(label))
+  expect(labels.every((label, index) => index === 0 ||
+    labels[index - 1].compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(loras.queryByLabelText('种子')).not.toBeInTheDocument()
 })
 
 it('运行时用已选种子，按递增或递减策略更新下一次的值', () => {

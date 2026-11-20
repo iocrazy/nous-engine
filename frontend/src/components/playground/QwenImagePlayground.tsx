@@ -25,7 +25,8 @@ const MODE_DETAILS = {
 type Preview = 'source' | 'result' | 'compare'
 type SeedPolicy = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-const advancedField = /^(?:seed|lora_|strength_|ignore_edit_mask|moss_(steps|cfg|lora)|oldx_(strength|cfg))/
+const advancedField = /^(?:seed|ignore_edit_mask|moss_(steps|cfg)|oldx_cfg)/
+const loraField = /^(?:(?:qwen|moss|oldx)_)?(?:lora|strength)(?:_|$)/
 const controlOrder: Record<string, number> = {
   reference_engine: 0,
   prompt: 1,
@@ -58,6 +59,11 @@ function randomSeed(param: ExposedParam) {
   const { min, max } = seedBounds(param)
   const fraction = crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000
   return Math.floor(min + fraction * (max - min + 1))
+}
+
+function loraSlotKey(key: string) {
+  if (key === 'oldx_strength') return 'oldx_lora_01'
+  return key.replace(/^strength_/, 'lora_').replace(/_strength$/, '')
 }
 
 export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, activity, running, onRun, onModeChange }: {
@@ -289,9 +295,21 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const previewSource = chosenAsset || source
   const view = preview === 'compare' && resultUrl && source ? 'compare'
     : preview === 'result' && resultUrl ? 'result' : 'source'
-  const advance = controls.filter(param => advancedField.test(paramKey(param)!))
-  const primary = controls.filter(param => !advancedField.test(paramKey(param)!))
-    .sort((a, b) => (controlOrder[paramKey(a)!] ?? 4) - (controlOrder[paramKey(b)!] ?? 4))
+  const primary: ExposedParam[] = []
+  const advanced: ExposedParam[] = []
+  const loraSlots = new Map<string, ExposedParam[]>()
+  for (const param of controls) {
+    const key = paramKey(param)!
+    if (loraField.test(key)) {
+      const slot = loraSlotKey(key)
+      const fields = loraSlots.get(slot) ?? []
+      if (key === slot) fields.unshift(param)
+      else fields.push(param)
+      loraSlots.set(slot, fields)
+    } else if (advancedField.test(key)) advanced.push(param)
+    else primary.push(param)
+  }
+  primary.sort((a, b) => (controlOrder[paramKey(a)!] ?? 4) - (controlOrder[paramKey(b)!] ?? 4))
 
   return (
     <form ref={formRef} className="qwen-playground" onSubmit={submit}>
@@ -354,7 +372,14 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
               {hasMask && source && dims && <button type="button" className="qwen-edit-mask"
                 onClick={() => setMaskOpen(true)}><Brush size={15} />{mask ? '编辑遮罩' : '绘制遮罩'}</button>}
               {primary.map(renderField)}
-              {!!advance.length && <details><summary>高级参数</summary>{advance.map(renderField)}</details>}
+              {(advanced.length > 0 || loraSlots.size > 0) && <details>
+                <summary>高级参数</summary>
+                {advanced.map(renderField)}
+                {loraSlots.size > 0 && <div className="qwen-lora-fields" role="group" aria-label="LoRA">
+                  <strong>LoRA</strong>
+                  {Array.from(loraSlots.values()).flat().map(renderField)}
+                </div>}
+              </details>}
             </fieldset>
           </div>
           <footer>
