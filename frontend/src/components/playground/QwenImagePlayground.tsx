@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from './SchemaDrivenForm'
@@ -87,6 +87,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const [seedPolicy, setSeedPolicy] = useState<SeedPolicy>(
     typeof initialInputs?.seed === 'number' ? 'fixed' : 'randomize',
   )
+  const formRef = useRef<HTMLFormElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
   const fileSlots = useRef<string[]>([])
   const queuedSeed = useRef<number | null>(null)
@@ -157,6 +158,40 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
       setReading(false)
     }
   }
+
+  const imageSlots = candidates.filter(item => item.key !== 'mask').map(item => item.key)
+  const emptySlots = imageSlots.filter(key => !toImageUrl(values[key]))
+  const availableSlots = emptySlots.length ? emptySlots : imageSlots
+
+  const pasteImages = useEffectEvent((event: ClipboardEvent) => {
+    if (!enabled || comicPlaceholder || maskOpen || event.defaultPrevented || !event.clipboardData) return
+    const target = event.target
+    if (target instanceof HTMLElement && target !== document.body) {
+      if (!formRef.current?.contains(target)) return
+      if (target.isContentEditable || target.closest('textarea, input:not([type=radio],[type=checkbox],[type=range])')) return
+    }
+    const focused = target instanceof Element ? target.closest<HTMLElement>('[data-image-slot]')?.dataset.imageSlot : undefined
+    const slots = focused && candidates.some(item => item.key === focused) ? [focused] : availableSlots
+    if (!slots.length) return
+    const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'))
+    if (!files.length) {
+      for (const item of Array.from(event.clipboardData.items)) {
+        if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+    }
+    if (!files.length) return
+    event.preventDefault()
+    event.stopPropagation()
+    void loadFiles(files, slots)
+  })
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => pasteImages(event)
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+  }, [])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -259,7 +294,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     .sort((a, b) => (controlOrder[paramKey(a)!] ?? 4) - (controlOrder[paramKey(b)!] ?? 4))
 
   return (
-    <form className="qwen-playground" onSubmit={submit}>
+    <form ref={formRef} className="qwen-playground" onSubmit={submit}>
       {modeParam && <div className="qwen-modes" role="radiogroup" aria-label="功能模式">
         {(comicAvailable ? modeOptions : [...modeOptions, COMIC_MODE]).map(option => {
           const isComic = option.value === COMIC_MODE.value
@@ -300,7 +335,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                   : key === 'mask' ? '遮罩' : referenceImage.test(key) ? `参考图 ${key.split('_')[1]}` : param.label || key
                 return (
                   <div className="qwen-asset" key={key}>
-                    <button type="button" aria-pressed={key === asset && !!image}
+                    <button type="button" data-image-slot={key} aria-pressed={key === asset && !!image}
                       onClick={() => { if (image) { setAsset(key); setPreview('source') } else chooseAsset([key]) }}>
                       {image ? <img src={image} alt="" /> : <Upload size={16} />}
                       <span className="qwen-asset-label">
@@ -314,6 +349,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                 )
               })}
             </div>}
+            {!!candidates.length && <p className="qwen-mode-help">也可按 Ctrl+V / ⌘V 粘贴图片</p>}
             {hasMask && source && dims && <button type="button" className="qwen-edit-mask"
               onClick={() => setMaskOpen(true)}><Brush size={15} />{mask ? '编辑遮罩' : '绘制遮罩'}</button>}
             {primary.map(renderField)}
@@ -347,9 +383,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
           }} onDrop={event => {
             if (!enabled || !candidates.some(item => item.key === 'image')) return
             event.preventDefault()
-            const keys = candidates.filter(item => item.key !== 'mask').map(item => item.key)
-            const empty = keys.filter(key => !toImageUrl(values[key]))
-            void loadFiles(Array.from(event.dataTransfer.files), empty.length ? empty : keys)
+            void loadFiles(Array.from(event.dataTransfer.files), availableSlots)
           }}>
             {showPlan ? <OutpaintFrame key={source} image={source} dimensions={dims} values={Object.fromEntries(outpaintFields.map(param => [paramKey(param)!.slice(9), Number(values[paramKey(param)!]) || 0])) as OutpaintValues}
               limits={Object.fromEntries(outpaintFields.map(param => [paramKey(param)!.slice(9), Number(param.constraints?.max ?? 200)])) as OutpaintValues}
