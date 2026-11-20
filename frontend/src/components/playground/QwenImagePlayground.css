@@ -1,6 +1,6 @@
 .qwen-playground { display: grid; gap: 10px; min-width: 0; }
 .qwen-modes, .qwen-preview-tabs, .qwen-mask-tools { display: flex; flex-wrap: wrap; gap: 5px; }
-.qwen-modes label, .qwen-playground button, .qwen-mask button, .qwen-playground select {
+.qwen-modes label, .qwen-playground button, .qwen-mask button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -102,7 +102,7 @@
 
 .qwen-outpaint { width: 100%; display: grid; gap: 8px; }
 .qwen-outpaint-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 130px)); justify-content: center; gap: 8px; }
-.qwen-outpaint-controls .qwen-extent-ratio { grid-column: 1 / -1; }
+.qwen-outpaint-controls .qwen-extent-ratio { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); color: var(--muted); font-size: 11px; }
 .qwen-outpaint-controls > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: end; }
 .qwen-outpaint small { text-align: center; color: var(--muted); }
 .qwen-extent-stage { min-height: 310px; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 15px; }

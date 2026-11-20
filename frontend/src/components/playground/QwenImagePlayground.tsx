@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
+import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 import { Field } from './SchemaDrivenForm'
 import { classifyField, defaultFor, isFieldRequired, isFieldVisible, optionDependency, staticOptions } from './fieldKind'
 import ImageMaskDialog from './ImageMaskDialog'
@@ -250,26 +251,26 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
             readOnly={seedPolicy === 'randomize'}
             onChange={event => update('seed', event.currentTarget.value === '' ? '' : Number(event.currentTarget.value))} /></label>
           <button type="button" title="随机种子" aria-label="随机种子" onClick={chooseRandom}><Dices size={15} /></button>
-          <select aria-label="种子模式" value={seedPolicy} onChange={event => {
-            const choice = event.currentTarget.value as SeedPolicy
+          <NodeSelectPopover appearance="console" topLayer ariaLabel="种子模式" width={82}
+            value={seedPolicy} onChange={value => {
+            const choice = value as SeedPolicy
             if (choice === 'randomize') chooseRandom()
             else { queuedSeed.current = null; setSeedPolicy(choice) }
-          }}>
-            <option value="fixed">固定</option><option value="increment">递增</option>
-            <option value="decrement">递减</option><option value="randomize">随机</option>
-          </select>
+          }} options={[
+            { value: 'fixed', label: '固定' }, { value: 'increment', label: '递增' },
+            { value: 'decrement', label: '递减' }, { value: 'randomize', label: '随机' },
+          ]} />
         </div>
       )
     }
     if (key === 'use_deepseek') {
-      return <label key={key} className="qwen-optimizer">
+      return <div key={key} className="qwen-optimizer">
         <span>提示词优化模型</span>
-        <select value={values[key] === true ? 'deepseek' : 'local'}
-          onChange={event => update(key, event.currentTarget.value === 'deepseek')}>
-          <option value="local">本机 Qwen</option>
-          <option value="deepseek">DeepSeek</option>
-        </select>
-      </label>
+        <NodeSelectPopover appearance="console" topLayer ariaLabel="提示词优化模型"
+          value={values[key] === true ? 'deepseek' : 'local'}
+          onChange={value => update(key, value === 'deepseek')}
+          options={[{ value: 'local', label: '本机 Qwen' }, { value: 'deepseek', label: 'DeepSeek' }]} />
+      </div>
     }
     if (classifyField(param) === 'boolean') {
       return <label key={key} className="qwen-toggle">

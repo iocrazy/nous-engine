@@ -7,8 +7,10 @@
  * 没用 radix/shadcn(nous 风格 = 自定义轻量组件,无新 dep);用 lucide-react Check/ChevronDown +
  * nous CSS 变量贴主题。WidgetDef.options 现支持 {value,label,description?,color?}。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
+import './NodeSelectPopover.css'
 
 export interface SelectOption {
   value: string
@@ -32,6 +34,9 @@ export interface NodeSelectPopoverProps {
   /** 触发按钮宽度,默认 100%。 */
   width?: string | number
   topLayer?: boolean
+  appearance?: 'console'
+  ariaLabel?: string
+  disabled?: boolean
 }
 
 export function NodeSelectPopover({
@@ -42,12 +47,20 @@ export function NodeSelectPopover({
   size = 'normal',
   width = '100%',
   topLayer = false,
+  appearance,
+  ariaLabel,
+  disabled = false,
 }: NodeSelectPopoverProps) {
   const [open, setOpen] = useState(false)
   const [onlyLoaded, setOnlyLoaded] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const listId = useId()
+  const consoleStyle = appearance === 'console'
   const popupRef = useRef<HTMLDivElement>(null)
   const useTopLayer = topLayer && typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype
+  const portal = topLayer && consoleStyle && !useTopLayer
+  const floating = useTopLayer || portal
   const current = options.find((o) => o.value === value)
   // 任一 option 带 loaded 语义 → 显示「只看已加载」筛选(模型/组件下拉);否则不显示(dtype/device)。
   const hasLoadedInfo = options.some((o) => o.loaded !== undefined)
@@ -60,7 +73,8 @@ export function NodeSelectPopover({
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (!wrapRef.current?.contains(target) && !popupRef.current?.contains(target)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
@@ -76,19 +90,19 @@ export function NodeSelectPopover({
   useLayoutEffect(() => {
     const popup = popupRef.current
     const anchor = wrapRef.current
-    if (!open || !useTopLayer || !popup || !anchor) return
+    if (!open || !floating || !popup || !anchor) return
 
     const rect = anchor.getBoundingClientRect()
     const gap = 4
     const below = window.innerHeight - rect.bottom - gap
     const above = rect.top - gap
-    const upward = below < Math.min(280, above)
     popup.style.left = `${rect.left}px`
     popup.style.width = `${rect.width}px`
+    if (useTopLayer) popup.showPopover()
+    const upward = below < Math.min(280, popup.scrollHeight) && above > below
     popup.style.maxHeight = `${Math.max(0, Math.min(280, upward ? above : below))}px`
     if (upward) popup.style.bottom = `${window.innerHeight - rect.top + gap}px`
     else popup.style.top = `${rect.bottom + gap}px`
-    popup.showPopover()
 
     const onScroll = (event: Event) => {
       if (event.target instanceof Node && popup.contains(event.target)) return
@@ -98,27 +112,77 @@ export function NodeSelectPopover({
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', onResize)
     return () => {
-      if (popup.matches(':popover-open')) popup.hidePopover()
+      if (useTopLayer && popup.matches(':popover-open')) popup.hidePopover()
       window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', onResize)
     }
-  }, [open, useTopLayer])
+  }, [open, floating, useTopLayer])
+
+  const focusOption = (key: string) => {
+    const options = Array.from(popupRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:enabled') ?? [])
+    const currentIndex = options.findIndex(option => option === document.activeElement)
+    const selectedIndex = options.findIndex(option => option.getAttribute('aria-selected') === 'true')
+    const last = options.length - 1
+    const index = key === 'Home' ? 0 : key === 'End' ? last
+      : currentIndex < 0 ? (selectedIndex >= 0 ? selectedIndex : key === 'ArrowUp' ? last : 0)
+      : Math.max(0, Math.min(last, currentIndex + (key === 'ArrowUp' ? -1 : 1)))
+    focusVisibleOption(popupRef.current, options[index])
+  }
+
+  const onKeyDown = (event: ReactKeyboardEvent) => {
+    if (open && event.key === 'Tab') closeAndFocus()
+    else if (open && event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeAndFocus()
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
+      (open && (event.key === 'Home' || event.key === 'End'))) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!open) setOpen(true)
+      else focusOption(event.key)
+    }
+  }
+
+  const closeAndFocus = () => {
+    setOpen(false)
+    triggerRef.current?.focus({ preventScroll: true })
+  }
+
+  useLayoutEffect(() => {
+    if (open && consoleStyle) {
+      const popup = popupRef.current
+      const selected = popup?.querySelector<HTMLButtonElement>('[aria-selected="true"]:enabled')
+      const first = popup?.querySelector<HTMLButtonElement>('[role="option"]:enabled')
+      focusVisibleOption(popup, selected ?? first)
+    }
+  }, [open, consoleStyle])
 
   const compact = size === 'compact'
   const fs = compact ? 10 : 12
   const triggerPad = compact ? '3px 8px' : '4px 10px'
 
   return (
-    <div ref={wrapRef} className="nodrag" style={{ position: 'relative', width }}>
+    <div ref={wrapRef} className="nodrag" style={{ position: 'relative', width }}
+      onKeyDown={consoleStyle ? onKeyDown : undefined}
+      onBlur={consoleStyle && open ? event => {
+        if (!wrapRef.current?.contains(event.relatedTarget) && !popupRef.current?.contains(event.relatedTarget)) setOpen(false)
+      } : undefined}>
       <button
+        ref={triggerRef}
         type="button"
+        className={consoleStyle ? 'console-select-trigger' : undefined}
+        role={consoleStyle ? 'combobox' : undefined}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-controls={open ? listId : undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={(e) => {
           e.preventDefault()
           setOpen((o) => !o)
         }}
-        style={{
+        style={consoleStyle ? undefined : {
           width: '100%',
           padding: triggerPad,
           fontSize: fs,
@@ -135,10 +199,10 @@ export function NodeSelectPopover({
           transition: 'border-color 0.15s, background 0.15s',
         }}
         onMouseEnter={(e) => {
-          if (!open) e.currentTarget.style.borderColor = 'var(--border-strong)'
+          if (!consoleStyle && !open) e.currentTarget.style.borderColor = 'var(--border-strong)'
         }}
         onMouseLeave={(e) => {
-          if (!open) e.currentTarget.style.borderColor = 'var(--border)'
+          if (!consoleStyle && !open) e.currentTarget.style.borderColor = 'var(--border)'
         }}
       >
         {current?.color && (
@@ -163,26 +227,33 @@ export function NodeSelectPopover({
         >
           {current?.label ?? placeholder ?? ''}
         </span>
-        <ChevronDown size={compact ? 10 : 12} style={{ flexShrink: 0, color: 'var(--muted)' }} />
+        <ChevronDown size={consoleStyle ? 14 : compact ? 10 : 12} style={{ flexShrink: 0, color: 'var(--muted)' }} />
       </button>
 
-      {open && (
+      {open && (portal ? createPortal(renderOptions(), document.body) : renderOptions())}
+    </div>
+  )
+
+  function renderOptions() {
+    return (
         <div
           ref={popupRef}
+          id={listId}
           role="listbox"
+          aria-label={ariaLabel}
           popover={useTopLayer ? 'manual' : undefined}
-          className="nowheel"
+          className={consoleStyle ? 'nowheel console-select-options' : 'nowheel'}
           style={{
-            ...(useTopLayer
+            ...(floating
               ? { position: 'fixed', inset: 'auto', margin: 0 }
               : { position: 'absolute', top: 'calc(100% + 4px)', left: 0, minWidth: '100%', maxHeight: 280 }),
 
             overflowY: 'auto',
             background: 'var(--bg-elevated)',
             border: '1px solid var(--border)',
-            borderRadius: 6,
+            borderRadius: consoleStyle ? 8 : 6,
             boxShadow: 'var(--shadow-md)',
-            padding: 4,
+            padding: consoleStyle ? 5 : 4,
             zIndex: 1000,
           }}
         >
@@ -230,14 +301,16 @@ export function NodeSelectPopover({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                tabIndex={consoleStyle ? -1 : undefined}
                 aria-disabled={disabled}
                 disabled={disabled}
                 onClick={() => {
                   if (disabled) return
                   onChange(opt.value)
-                  setOpen(false)
+                  if (consoleStyle) closeAndFocus()
+                  else setOpen(false)
                 }}
-                style={{
+                style={consoleStyle ? undefined : {
                   width: '100%',
                   display: 'flex',
                   alignItems: 'flex-start',
@@ -254,13 +327,13 @@ export function NodeSelectPopover({
                   transition: 'background 0.1s',
                 }}
                 onMouseEnter={(e) => {
-                  if (!selected && !disabled) e.currentTarget.style.background = 'var(--bg-hover)'
+                  if (!consoleStyle && !selected && !disabled) e.currentTarget.style.background = 'var(--bg-hover)'
                 }}
                 onMouseLeave={(e) => {
-                  if (!selected) e.currentTarget.style.background = 'transparent'
+                  if (!consoleStyle && !selected) e.currentTarget.style.background = 'transparent'
                 }}
               >
-                <span
+                {!consoleStyle && <span
                   style={{
                     width: 14,
                     height: 14,
@@ -283,7 +356,7 @@ export function NodeSelectPopover({
                       style={{ width: 8, height: 8, borderRadius: '50%', background: opt.color }}
                     />
                   ) : null}
-                </span>
+                </span>}
                 <span
                   style={{
                     display: 'flex',
@@ -293,20 +366,29 @@ export function NodeSelectPopover({
                     minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: fs, color: 'var(--text)', overflowWrap: 'anywhere' }}>{opt.label}</span>
+                  <span style={{ fontSize: consoleStyle ? undefined : fs, overflowWrap: 'anywhere' }}>{opt.label}</span>
                   {opt.description && (
                     <span style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
                       {opt.description}
                     </span>
                   )}
                 </span>
+                {consoleStyle && selected && <Check size={14} aria-hidden="true" />}
               </button>
             )
           })}
         </div>
-      )}
-    </div>
-  )
+    )
+  }
+}
+
+function focusVisibleOption(popup: HTMLDivElement | null, option?: HTMLButtonElement | null) {
+  if (!option || !popup) return
+  option.focus({ preventScroll: true })
+  const optionTop = option.offsetTop
+  const optionBottom = optionTop + option.offsetHeight
+  if (optionTop < popup.scrollTop) popup.scrollTop = optionTop
+  else if (optionBottom > popup.scrollTop + popup.clientHeight) popup.scrollTop = optionBottom - popup.clientHeight
 }
 
 export default NodeSelectPopover
