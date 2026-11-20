@@ -181,3 +181,23 @@ it('图库详情区分任务缩略图和同任务产物，可保存标签并打�
   expect(screen.getByAltText('preview')).toHaveAttribute('src', '/third.png')
   await waitFor(() => expect(screen.queryByRole('navigation', { name: '同任务图集' })).toBeNull())
 })
+
+
+it('缩略图滚动返回 Promise 时仍能关闭图库详情', () => {
+  const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+  const scroll = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+  try {
+    galleryFetch.mockResolvedValue({ tags: [] })
+    const { unmount } = render(<Lightbox />)
+    act(() => useLightboxStore.getState().openItems([
+      { url: '/first.png', meta: { historyTaskId: '201' } },
+      { url: '/second.png', meta: { historyTaskId: '202' } },
+    ], 0))
+    expect(scroll).toHaveBeenCalled()
+    expect(() => unmount()).not.toThrow()
+  } finally {
+    if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous)
+    else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  }
+})
