@@ -2,8 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import * as comfyTemplates from '../../api/comfyTemplates'
+import { useImageTasks } from '../../api/tasks'
 import type { ExposedParam } from '../../api/services'
 import QwenImagePlayground from './QwenImagePlayground'
+
+vi.mock('../../api/tasks', () => ({ useImageTasks: vi.fn() }))
 
 const fields: ExposedParam[] = [
   { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'text',
@@ -269,4 +272,57 @@ it('compares the selected reference rather than always using the first image', (
   expect(screen.getByAltText('原图')).toHaveAttribute('src', '/second.png')
   fireEvent.click(screen.getByRole('button', { name: '并排' }))
   expect(screen.getByAltText('原图')).toHaveAttribute('src', '/second.png')
+})
+
+it('本地拖放到指定槽位，再从图库将原图添加到另一个槽位', async () => {
+  const url = '/api/v1/tasks/gallery/100/image/0'
+  vi.mocked(useImageTasks).mockReturnValue({
+    data: { pages: [{ items: [{ kind: 'image', workflow_name: '图库任务', output_thumbnails: [url] }] }] },
+  } as ReturnType<typeof useImageTasks>)
+  const fetchOriginal = vi.spyOn(window, 'fetch').mockResolvedValue({
+    ok: true, headers: new Headers({ 'content-type': 'image/png' }),
+    blob: async () => new Blob(['original'], { type: 'image/png' }),
+  } as Response)
+  const dialogMethods = {
+    showModal(this: HTMLDialogElement) { this.open = true },
+    close(this: HTMLDialogElement) { this.open = false },
+  }
+  const dialogPrototype = HTMLDialogElement.prototype
+  const descriptors = Object.getOwnPropertyDescriptors(dialogPrototype)
+  for (const [key, value] of Object.entries(dialogMethods)) {
+    Object.defineProperty(dialogPrototype, key, { configurable: true, value })
+  }
+  const onRun = vi.fn()
+  try {
+    render(<QwenImagePlayground inputs={[
+      { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'edit' },
+      { node_id: 'bridge', key: 'image', type: 'image' },
+      { node_id: 'bridge', key: 'image_2', type: 'image' },
+    ]} running={false} onRun={onRun} />)
+    const target = screen.getByRole('button', { name: '参考图 2' })
+    fireEvent.drop(target, {
+      dataTransfer: { files: [new File(['reference'], 'ref.png', { type: 'image/png' })], types: ['Files'] },
+    })
+    await screen.findByRole('button', { name: '移除参考图 2' })
+    fireEvent.click(within(screen.getByRole('region', { name: '素材' })).getByRole('button', { name: '原图' }))
+    fireEvent.click(screen.getByRole('button', { name: '从图库选择' }))
+    const picker = within(screen.getByRole('dialog', { name: '从图库选择' }))
+    expect(picker.getByText('添加到原图')).toBeVisible()
+    const option = picker.getByRole('button', { name: '图库任务 · 图片 1' })
+    expect(option.querySelector('img')).toHaveAttribute('src', url + '?preview=1')
+    fireEvent.click(option)
+    fireEvent.click(picker.getByRole('button', { name: '使用图片' }))
+    await screen.findByRole('button', { name: '移除原图' })
+    expect(fetchOriginal).toHaveBeenCalledWith(url, expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    fireEvent.click(screen.getByRole('button', { name: '编辑图片' }))
+    expect(onRun).toHaveBeenCalledWith({
+      input_mode: 'edit', image: 'data:image/png;base64,b3JpZ2luYWw=', image_2: 'data:image/png;base64,cmVmZXJlbmNl',
+    })
+  } finally {
+    fetchOriginal.mockRestore()
+    for (const key of Object.keys(dialogMethods)) {
+      if (descriptors[key]) Object.defineProperty(dialogPrototype, key, descriptors[key])
+      else Reflect.deleteProperty(dialogPrototype, key)
+    }
+  }
 })
