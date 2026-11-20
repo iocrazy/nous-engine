@@ -304,6 +304,7 @@ function FieldInput({
         source={dep.source}
         dependsValue={dependsValue}
         fallback={staticOptions(param)}
+        selectLabel={param.label || paramKey(param) || undefined}
         topLayerSelect={topLayerSelect}
         multiple={c.multiple === true}
         value={value}
@@ -353,6 +354,8 @@ function FieldInput({
         onChange={onChange}
         options={opts.map((o, i) => ({ value: String(o), label: labelFor(o, i) }))}
         placeholder="请选择"
+        appearance={topLayerSelect ? 'console' : undefined}
+        ariaLabel={topLayerSelect ? param.label || paramKey(param) || undefined : undefined}
         topLayer={topLayerSelect}
       />
     )

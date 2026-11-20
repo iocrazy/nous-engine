@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
+import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 
 const edges = ['left', 'right', 'top', 'bottom'] as const
 type Edge = typeof edges[number]
@@ -98,17 +99,16 @@ export default function OutpaintFrame({ image, dimensions, values, limits, onCha
             </div>
           )
         })}
-        <label className="qwen-extent-ratio">画幅预设
-          <select value="" disabled={disabled || (locked.width && locked.height)} onChange={event => {
-            const ratio = ratios[event.currentTarget.value as keyof typeof ratios]
+        <div className="qwen-extent-ratio">
+          <span>画幅预设</span>
+          <NodeSelectPopover appearance="console" topLayer ariaLabel="画幅预设" value=""
+            disabled={disabled || (locked.width && locked.height)} onChange={value => {
+            const ratio = ratios[value as keyof typeof ratios]
             if (!ratio) return
             const axis = locked.width || (!locked.height && width / height >= ratio) ? 'height' : 'width'
             changeDimension(axis, axis === 'width' ? height * ratio : width / ratio)
-          }}>
-            <option value="">自由</option>
-            {Object.keys(ratios).map(ratio => <option key={ratio} value={ratio}>{ratio}</option>)}
-          </select>
-        </label>
+          }} options={[{ value: '', label: '自由' }, ...Object.keys(ratios).map(value => ({ value, label: value }))]} />
+        </div>
       </div>
       <div className="qwen-extent-stage">
         <div ref={frameRef} className="qwen-extent-frame" style={{

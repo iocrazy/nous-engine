@@ -1,0 +1,49 @@
+button.console-select-trigger[role='combobox'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-accent);
+  color: var(--text);
+  font: 500 13px/1.3 var(--font);
+  cursor: pointer;
+}
+
+button.console-select-trigger:is(:enabled:hover, [aria-expanded='true']) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+button.console-select-trigger:disabled { opacity: .55; cursor: default; }
+.console-select-trigger[aria-expanded='true'] > svg { transform: rotate(180deg); }
+.console-select-options { box-sizing: border-box; }
+
+.console-select-options > button[role='option'] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: 400 13px/1.3 var(--font);
+  text-align: start;
+  cursor: pointer;
+}
+
+.console-select-options > button[aria-selected='true'] {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.console-select-options > button[role='option']:enabled:not([aria-selected='true']):hover { background: var(--bg-hover); }
+.console-select-options > button[role='option']:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.console-select-options > button[role='option']:disabled { opacity: .45; cursor: default; }
+.console-select-options > button[role='option'] > svg { flex-shrink: 0; }

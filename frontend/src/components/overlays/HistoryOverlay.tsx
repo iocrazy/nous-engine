@@ -7,6 +7,7 @@ import { confirmDialog } from '../../stores/confirm'
 import { useLightboxStore, type LightboxItem } from '../../stores/lightbox'
 import { usePanelStore } from '../../stores/panel'
 import { useToastStore } from '../../stores/toast'
+import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 import './HistoryOverlay.css'
 
 const mediaFilters = [
@@ -238,19 +239,22 @@ export default function HistoryOverlay() {
               onClick={() => { setDays(filter.value); resetFilters() }}>{filter.label}</button>
           ))}
         </div>
-        <label className="history-picker">模型
-          <select aria-label="筛选模型" value={model} onChange={event => { setModel(event.currentTarget.value); resetFilters() }}>
-            <option value="">全部模型</option>
-            {models?.map(name => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </label>
-        <label className="history-picker">排序
-          <select aria-label="图库排序" value={sort} onChange={event => { setSort(event.currentTarget.value as GallerySort); resetFilters() }}>
-            <option value="newest">最新优先</option>
-            <option value="oldest">最早优先</option>
-            <option value="model">按模型</option>
-          </select>
-        </label>
+        <div className="history-picker">
+          <span>模型</span>
+          <NodeSelectPopover appearance="console" topLayer ariaLabel="筛选模型" width={140}
+            value={model} onChange={value => { setModel(value); resetFilters() }}
+            options={[{ value: '', label: '全部模型' }, ...(models ?? []).map(name => ({ value: name, label: name }))]} />
+        </div>
+        <div className="history-picker">
+          <span>排序</span>
+          <NodeSelectPopover appearance="console" topLayer ariaLabel="图库排序" width={110}
+            value={sort} onChange={value => { setSort(value as GallerySort); resetFilters() }}
+            options={[
+              { value: 'newest', label: '最新优先' },
+              { value: 'oldest', label: '最早优先' },
+              { value: 'model', label: '按模型' },
+            ]} />
+        </div>
         {!!items.length && <span className="history-count">已加载 {items.length} 条</span>}
       </div>
 

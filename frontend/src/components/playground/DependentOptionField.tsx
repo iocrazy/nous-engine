@@ -13,6 +13,7 @@ export interface DependentOptionFieldProps {
   fallback: FieldOption[]
   multiple: boolean
   topLayerSelect?: boolean
+  selectLabel?: string
   value: unknown
   onChange: (v: unknown) => void
 }
@@ -35,6 +36,7 @@ export default function DependentOptionField({
   fallback,
   multiple,
   topLayerSelect,
+  selectLabel,
   value,
   onChange,
 }: DependentOptionFieldProps) {
@@ -88,6 +90,8 @@ export default function DependentOptionField({
           options={options.map((o) => ({ value: o.value, label: o.label ?? o.value }))}
           placeholder="请选择"
           topLayer={topLayerSelect}
+          appearance={topLayerSelect ? 'console' : undefined}
+          ariaLabel={selectLabel}
         />
       )}
     </div>
