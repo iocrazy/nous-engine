@@ -41,6 +41,7 @@ export interface ComfyTemplateRow {
 export interface ComfyCanvasLayout {
   nodes: { id: string; type: string; pos: [number, number] }[]
   groups: { title: string; bounding: [number, number, number, number] }[]
+  source?: Record<string, unknown>
 }
 
 export interface ComfyTemplateUpdate {
@@ -156,7 +157,7 @@ export function previewComfyTemplateUpdate(
 export function reuploadComfyTemplate(
   id: string | number,
   update: ComfyTemplateUpdate,
-): Promise<{ stale_keys: string[]; revision?: string }> {
+): Promise<{ stale_keys: string[]; revision?: string; has_canvas_source?: boolean }> {
   return apiFetch(`/api/v1/comfy-templates/${id}`, {
     method: 'PUT',
     body: JSON.stringify(update),

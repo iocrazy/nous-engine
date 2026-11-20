@@ -351,8 +351,12 @@ export default function ComfyTemplateEditor({ templateId, serviceId, currentMode
       <div className="comfy-editor-header">
         <SidecarStatusLine health={health} />
         <ComfyWorkflowUpdate key={idStr} detail={detail} fields={exposedParams} busy={updating || saving}
-          onBusy={setUpdating} onReview={setReviewing} onApplied={next => {
+          onBusy={setUpdating} onReview={setReviewing} onApplied={(next, addedNodes) => {
             setDetail(next)
+            if (addedNodes) {
+              setMode('all')
+              setSearch('')
+            }
             setExposedParams(next.exposed_params)
             setStaleKeys(next.stale_keys ?? [])
             setModelIssues(findInvalidModelRefs(next.workflow_json as ComfyWorkflow, objectInfo))
@@ -375,7 +379,7 @@ export default function ComfyTemplateEditor({ templateId, serviceId, currentMode
 
       {!!staleKeys.length && (
         <div role="alert" className="comfy-editor-warning">
-          待处理字段 · {staleKeys.join('、')}。可在字段列表移除，或上传时重新绑定。
+          失效字段 · {staleKeys.join('、')}。可在字段列表移除，或上传时重新绑定。
         </div>
       )}
 
