@@ -32,6 +32,7 @@ const ROUTE_TO_OVERLAY: Record<string, OverlayId> = {
   '/logs': 'logs',
   '/node-packages': 'node-packages',
   '/usage': 'usage',
+  '/gallery': 'history',
   '/history': 'history',
   '/status': 'status',
 }

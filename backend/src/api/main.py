@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # 提成模块常量:一处集中、可 grep、也是未来引入 alembic 时 baseline 的清单来源。
 _MICRO_MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS input_json JSONB",
+    "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS gallery_tags JSON",
     # 归属列(IDOR 防护):predictions by-id 端点据 api_key_id 校验 owner。
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS api_key_id BIGINT",
     "ALTER TABLE execution_tasks ADD COLUMN IF NOT EXISTS webhook_url VARCHAR(500)",

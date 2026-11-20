@@ -52,6 +52,7 @@ class ExecutionTask(Base):
     # 服务层 API spec PR-2:统一 prediction 契约。请求 input(按 exposed_inputs 注入快照前的原始
     # input 对象)持久化,供 GET /predictions/{id} 回显(Cog Prediction.input)。nullable —— 老行 NULL。
     input_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    gallery_tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # PR-3:webhook 回调(对齐 Cog)。webhook_url = 完成/开始时 POST 整个 Prediction 对象的 URL;
     # webhook_events = 过滤(["start","completed",...]),空=全发。nullable。
     webhook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)

@@ -68,8 +68,8 @@ export default function ConfirmHost() {
             onClick={() => resolve(true)}
             style={{
               padding: '7px 14px', fontSize: 12, borderRadius: 6, cursor: 'pointer', fontWeight: 600,
-              background: danger ? 'var(--accent)' : 'var(--text)',
-              color: danger ? '#fff' : 'var(--bg)',
+              background: danger ? 'var(--error)' : 'var(--text)',
+              color: danger ? 'var(--on-danger)' : 'var(--bg)',
               border: '1px solid transparent',
             }}
           >

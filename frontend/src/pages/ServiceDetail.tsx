@@ -939,7 +939,7 @@ function AppEditorTab({ svc }: { svc: ServiceDetailT }) {
           onClick={save}
           disabled={patch.isPending}
           style={{
-            fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: '#fff',
+            fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: 'var(--on-accent)',
             border: 'none', borderRadius: 4, cursor: patch.isPending ? 'not-allowed' : 'pointer',
             opacity: patch.isPending ? 0.6 : 1,
           }}

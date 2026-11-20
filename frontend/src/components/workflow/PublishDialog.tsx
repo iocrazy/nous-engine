@@ -280,7 +280,7 @@ const btnGhost = {
 
 const btnPrimary = (enabled: boolean) =>
   ({
-    padding: '7px 14px', fontSize: 12, background: 'var(--accent)', color: '#fff',
+    padding: '7px 14px', fontSize: 12, background: 'var(--accent)', color: 'var(--on-accent)',
     border: 'none', borderRadius: 4, cursor: enabled ? 'pointer' : 'not-allowed',
     opacity: enabled ? 1 : 0.5,
   }) as const

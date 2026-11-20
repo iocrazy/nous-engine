@@ -143,7 +143,8 @@ export default function App() {
           <Route path="/logs" element={<MainLayout />} />
           <Route path="/node-packages" element={<MainLayout />} />
           <Route path="/usage" element={<MainLayout />} />
-          <Route path="/history" element={<MainLayout />} />
+          <Route path="/gallery" element={<MainLayout />} />
+          <Route path="/history" element={<Navigate to="/gallery" replace />} />
           <Route path="/status" element={<MainLayout />} />
           <Route path="/services/:id" element={<MainLayout />} />
         </Routes>

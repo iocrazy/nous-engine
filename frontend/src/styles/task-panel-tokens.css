@@ -16,26 +16,22 @@
  */
 
 :root {
-  /* === Task panel · background layers === */
-  --tp-bg-base: #0a0a0c;         /* canvas / 整体底色 */
-  --tp-bg-panel: #0d0d0f;        /* sidebar / panel 容器 */
-  --tp-bg-card: #18181b;         /* task card / modal */
-  --tp-bg-hover: #16161a;        /* row hover */
-  --tp-bg-elevated: #1a1a1c;     /* header bar / inset */
-  --tp-bg-mono: #1f1f22;         /* button bg / chip bg */
-
-  /* === Task panel · borders === */
-  --tp-border-faint: #1a1a1c;    /* section divider */
-  --tp-border: #1f1f22;          /* card border */
-  --tp-border-strong: #2a2a2d;   /* button border / modal border / node box border */
-  --tp-border-node-strong: #383839;
-
-  /* === Task panel · text === */
-  --tp-text: #ededee;
-  --tp-text-muted: #888;
-  --tp-text-dim: #666;
-  --tp-text-faint: #555;
-  --tp-text-ghost: #444;
+  --tp-bg-base: var(--bg);
+  --tp-bg-panel: var(--bg-accent);
+  --tp-bg-card: var(--card);
+  --tp-bg-card-subtle: var(--bg-accent);
+  --tp-bg-hover: var(--bg-hover);
+  --tp-bg-elevated: var(--bg-elevated);
+  --tp-bg-mono: var(--card-hl);
+  --tp-border-faint: var(--border);
+  --tp-border: var(--border);
+  --tp-border-strong: var(--border-strong);
+  --tp-border-node-strong: var(--border-strong);
+  --tp-text: var(--text);
+  --tp-text-muted: var(--muted);
+  --tp-text-dim: var(--muted-strong);
+  --tp-text-faint: var(--muted-strong);
+  --tp-text-ghost: var(--border-strong);
 
   /* === Status (跨 service 通用,不被 type 色覆盖) === */
   --status-running: #4ade80;     /* green — active task glow + callout border + 状态 chip */

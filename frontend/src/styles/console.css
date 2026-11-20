@@ -9,54 +9,6 @@
   --console-surface: var(--card);
 }
 
-[data-theme="dark"] .console-shell {
-  --bg: #10141e;
-  --bg-accent: #151b28;
-  --bg-elevated: #1b2333;
-  --bg-hover: #242e42;
-  --card: #171e2c;
-  --text: #e4ebf5;
-  --text-strong: #f5f8fc;
-  --muted: #a2b0c6;
-  --muted-strong: #8596af;
-  --border: #29354a;
-  --border-strong: #43516c;
-  --accent: #a9b8ff;
-  --accent-hover: #c0cbff;
-  --accent-subtle: #273354;
-  --info: #a9b8ff;
-  --accent-2: #64d6c5;
-  --ok: #72dfb0;
-  --warn: #ffcf82;
-  --error: #ffa3ad;
-  --tp-bg-panel: #121926;
-  --tp-border-faint: #29354a;
-  --tp-text: #e4ebf5;
-  --tp-text-muted: #a2b0c6;
-}
-
-[data-theme="light"] .console-shell {
-  --bg: #f3f6fb;
-  --bg-accent: #f9fbff;
-  --bg-elevated: #fff;
-  --bg-hover: #e8edf8;
-  --card: #fff;
-  --text: #242e42;
-  --text-strong: #141d30;
-  --muted: #54637c;
-  --muted-strong: #60708c;
-  --border: #d9e0ee;
-  --border-strong: #bdc9dc;
-  --accent: #3b52aa;
-  --accent-hover: #2e428f;
-  --accent-subtle: #e7ecff;
-  --info: #3b52aa;
-  --tp-bg-panel: #f9fbff;
-  --tp-border-faint: #d9e0ee;
-  --tp-text: #242e42;
-  --tp-text-muted: #54637c;
-}
-
 .console-page {
   width: 100%;
   max-width: var(--console-main-width, 1720px);
@@ -187,7 +139,7 @@
 
 .rail-mark {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 .console-shell .rail-mark {
   background: var(--accent-subtle);

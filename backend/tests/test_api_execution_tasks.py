@@ -498,7 +498,7 @@ async def test_gallery_pages_skip_non_media_and_load_full_parameters_on_demand(d
     assert Image.open(BytesIO(preview.content)).size == (384, 192)
     assert (await db_client.get(image_url)).content == png.getvalue()
     metadata = await db_client.get("/api/v1/tasks/gallery/103/metadata")
-    assert metadata.json() == {"prompt": "paint the sky", "fields": [{"label": "seed", "value": "4"}]}
+    assert metadata.json() == {"prompt": "paint the sky", "fields": [{"label": "seed", "value": "4"}], "tags": []}
     summary = await db_client.get("/api/v1/tasks?include_input=false")
     assert all("input_json" not in item for item in summary.json())
     assert (await db_client.get("/api/v1/tasks/103")).json()["input_json"]["image"] == inline
@@ -611,3 +611,22 @@ async def test_gallery_permanent_delete_rejects_a_symlinked_storage_day(db_clien
     assert response.status_code == 409
     assert original.read_bytes() == b"comfy original"
     assert (await db_client.get("/api/v1/tasks/62")).status_code == 200
+
+
+async def test_gallery_tags_are_persisted_searchable_and_removable(db_client, db_session):
+    from src.models.execution_task import ExecutionTask
+
+    db_session.add(ExecutionTask(id=121, status="completed", workflow_name="image job", result={
+        "node": {"image_url": "/new.png"},
+    }))
+    await db_session.commit()
+    endpoint = "/api/v1/tasks/gallery/121/tags"
+    saved = await db_client.put(endpoint, json={"tags": [" 参考图 ", "Pose", "pose"]})
+    assert saved.json() == {"tags": ["参考图", "pose"]}
+    details = await db_client.get("/api/v1/tasks/gallery/121/metadata")
+    assert details.json()["tags"] == ["参考图", "pose"]
+    gallery = await db_client.get("/api/v1/tasks/gallery", params={"q": "参考图"})
+    assert [item["id"] for item in gallery.json()["items"]] == ["121"]
+    assert (await db_client.put(endpoint, json={"tags": []})).json() == {"tags": []}
+    assert (await db_client.get("/api/v1/tasks/gallery", params={"q": "参考图"})).json()["items"] == []
+    assert (await db_client.put(endpoint, json={"tags": ["x" * 33]})).status_code == 400
