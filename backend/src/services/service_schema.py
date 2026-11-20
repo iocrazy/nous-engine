@@ -170,9 +170,13 @@ def build_service_io_schema(exposed_inputs, exposed_outputs, snapshot) -> dict:
             continue
         ct = cmap.get(str(e.get("node_id")))
         widget = _widget_index(ct).get(e.get("input_name") or e.get("param_key"))
-        in_props[key] = _input_property(e, widget)
+        prop = in_props[key] = _input_property(e, widget)
         if e.get("required", True):
-            required.append(key)
+            visible_when = prop.get("x-visible-when")
+            if visible_when:
+                prop["x-required-when"] = visible_when
+            else:
+                required.append(key)
     input_schema: dict[str, Any] = {"type": "object", "properties": in_props}
     if required:
         input_schema["required"] = required
@@ -203,6 +207,15 @@ def _enum_hint(values: list) -> str:
     return f"{values[:20]}…(共 {len(values)} 项)"
 
 
+def matches_input_conditions(conditions: dict, values: dict) -> bool:
+    for source, expected in conditions.items():
+        value = values.get(source)
+        allowed = expected if isinstance(expected, list) else [expected]
+        if not any(type(value) is type(item) and value == item for item in allowed):
+            return False
+    return True
+
+
 def validate_service_input(
     input_schema: dict, payload: Any, dynamic_enums: dict[str, list] | None = None,
 ) -> list[str]:
@@ -222,21 +235,14 @@ def validate_service_input(
     for k in (input_schema or {}).get("required") or []:
         if payload.get(k) is None:
             errors.append(f"missing required input: {k}")
+    condition_values = {key: spec.get("default") for key, spec in props.items()}
+    condition_values.update({key: value for key, value in payload.items() if value is not None})
     for key, spec in props.items():
         conditions = spec.get("x-required-when")
         value = payload.get(key, spec.get("default"))
-        if conditions and (value is None or isinstance(value, str) and not value.strip()):
-            matches = True
-            for source, expected in conditions.items():
-                source_value = payload.get(source)
-                if source_value is None:
-                    source_value = props.get(source, {}).get("default")
-                allowed = expected if isinstance(expected, list) else [expected]
-                if not any(type(source_value) is type(item) and source_value == item for item in allowed):
-                    matches = False
-                    break
-            if matches:
-                errors.append(f"missing required input: {key}")
+        if (conditions and (value is None or isinstance(value, str) and not value.strip())
+                and matches_input_conditions(conditions, condition_values)):
+            errors.append(f"missing required input: {key}")
     for k, v in payload.items():
         spec = props.get(k)
         if spec is None or v is None:

@@ -42,6 +42,7 @@ from src.services.comfy.upload_inputs import (
 from src.services.comfy.video_audio import ensure_audio_track
 from src.services.image_output_storage import write_image as _write_media_sync
 from src.services.nodes.registry import register
+from src.services.service_schema import matches_input_conditions
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,8 @@ class ComfyUIWorkflowNode:
         if omitted:
             graph = await _prune_omitted(graph, omitted, template_id)
 
+        condition_values = {m["key"]: m.get("default") for m in exposed_params}
+        condition_values.update({key: value for key, value in data.items() if value is not None})
         for m in exposed_params:
             key = m["key"]
             value = data.get(key, m.get("default"))
@@ -244,7 +247,9 @@ class ComfyUIWorkflowNode:
                 seed = value
 
             if m.get("required") and (value is None or value == ""):
-                raise ValueError(f"缺少必填参数:{key}")
+                visible_when = (m.get("constraints") or {}).get("visible_when") or {}
+                if matches_input_conditions(visible_when, condition_values):
+                    raise ValueError(f"缺少必填参数:{key}")
 
             # Intentional: an optional param the caller didn't supply (and
             # with no mapping default) stays untouched rather than patching
