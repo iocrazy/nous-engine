@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.services.comfy.lora_options import LORA_LIST, LORA_LIST_TYPE, validate_lora_inputs
+
 # node.yaml widget → JSON-Schema base type(select/slider 另行处理)。
 _WIDGET_BASE_TYPE = {"slider": "number", "checkbox": "boolean", "seed": "integer"}
 # ExposedParam.type 粗类型 → JSON-Schema type。
@@ -91,7 +93,11 @@ def _input_property(exposed: dict, widget: dict | None) -> dict:
     else:
         # 无 widget / 文本类:回退 ExposedParam.type。
         t = str(exposed.get("type") or "string").lower()
-        prop["type"] = _EXPOSED_TYPE.get(t, "string")
+        if t == LORA_LIST_TYPE:
+            items = LORA_LIST.json_schema()["$defs"]["LoraSelection"]
+            prop.update(type="array", items=items, **{"x-widget": LORA_LIST_TYPE})
+        else:
+            prop["type"] = _EXPOSED_TYPE.get(t, "string")
     # I3 fix:exposed_input 自带的 `constraints`(comfy_templates.py 桥映射写入的
     # min/max/step/enum/random,见 _mapping_to_exposed_input)—— 独立于上面的 node.yaml
     # widget 分支:桥节点 class_type 是 "comfyui_workflow",从来没有 widgets 定义,
@@ -219,6 +225,9 @@ def validate_service_input(
     if not isinstance(payload, dict):
         return ["input must be a JSON object"]
     props = (input_schema or {}).get("properties") or {}
+    errors.extend(validate_lora_inputs(
+        [key for key, spec in props.items() if spec.get("x-widget") == LORA_LIST_TYPE], payload,
+    ))
     for k in (input_schema or {}).get("required") or []:
         if payload.get(k) is None:
             errors.append(f"missing required input: {k}")

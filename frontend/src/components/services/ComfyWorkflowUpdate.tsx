@@ -10,7 +10,7 @@ import {
   type ComfyTemplateUpdate,
 } from '../../api/comfyTemplates'
 import { isComfyNodeRef, type ComfyWorkflow } from './comfyGraphLayout'
-import { mappingDependents } from './comfyMapping'
+import { mappingDependents, POWER_LORA_LOADER, powerLoraRows } from './comfyMapping'
 
 function numericTuple(value: unknown, length: number): value is number[] {
   return Array.isArray(value) && value.length >= length &&
@@ -70,6 +70,7 @@ function readFile(file: File): Promise<unknown> {
 function bindingChanged(field: ComfyExposedParam, before: ComfyWorkflow, after: ComfyWorkflow, ids: Set<string>) {
   const node = after[field.comfy_node_id]
   const old = before[field.comfy_node_id]
+  if (field.type === 'lora_list') return node?.class_type !== POWER_LORA_LOADER || field.comfy_input !== 'loras'
   if (!node || node.class_type !== old?.class_type || !Object.hasOwn(node.inputs, field.comfy_input)) return true
   const value = node.inputs[field.comfy_input]
   const oldValue = old.inputs[field.comfy_input]
@@ -79,6 +80,10 @@ function bindingChanged(field: ComfyExposedParam, before: ComfyWorkflow, after: 
 function bindingOptions(field: ComfyExposedParam, workflow: ComfyWorkflow, fields: ComfyExposedParam[]) {
   const ids = new Set(Object.keys(workflow))
   const kind = field.type?.toLowerCase()
+  if (kind === 'lora_list') return Object.entries(workflow).flatMap(([id, node]) =>
+    node.class_type === POWER_LORA_LOADER && !fields.some(other => other.key !== field.key
+      && id === other.comfy_node_id && other.type === kind)
+      ? [{ id, input: 'loras', title: node._meta?.title ?? node.class_type }] : [])
   return Object.entries(workflow).flatMap(([id, node]) => Object.entries(node.inputs ?? {}).flatMap(([input, value]) => {
     if (isComfyNodeRef(value, ids) || fields.some(other => other.key !== field.key
       && id === other.comfy_node_id && input === other.comfy_input)) return []
@@ -131,7 +136,13 @@ export default function ComfyWorkflowUpdate({ detail, fields, busy, onBusy, onRe
       const unresolved = fields.filter(field => (detail.stale_keys ?? []).includes(field.key) ||
         (body.workflow && (changes.stale_keys.includes(field.key) || bindingChanged(field, before, workflow, ids))))
         .map(field => field.key)
-      setPending({ body, workflow, changes, mapping: fields, unresolved })
+      const mapping = fields.map(field => {
+        const node = workflow[field.comfy_node_id]
+        return field.type === 'lora_list' && node?.class_type === POWER_LORA_LOADER
+          && (changes.changed_inputs.includes(field.comfy_node_id) || changes.changed_classes.includes(field.comfy_node_id))
+          ? { ...field, default: powerLoraRows(node.inputs) } : field
+      })
+      setPending({ body, workflow, changes, mapping, unresolved })
       onReview(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

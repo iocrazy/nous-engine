@@ -111,7 +111,7 @@
     "inputs": {
       "cfg": 3,
       "model": [
-        "339",
+        "773",
         0
       ],
       "positive": [
@@ -450,7 +450,7 @@
     }
   },
   "166": {
-    "class_type": "Lora Loader Stack (rgthree)",
+    "class_type": "Power Lora Loader (rgthree)",
     "_meta": {
       "title": "Qwen 编辑 LoRA"
     },
@@ -463,14 +463,11 @@
         "471",
         0
       ],
-      "lora_01": "qwen2.1/Qwen2.1 一致性无偏移_GH_V1.0.safetensors",
-      "strength_01": 0.5,
-      "lora_02": "None",
-      "strength_02": 0.9,
-      "lora_03": "None",
-      "strength_03": 1,
-      "lora_04": "None",
-      "strength_04": 1
+      "lora_1": {
+        "lora": "qwen2.1/Qwen2.1 一致性无偏移_GH_V1.0.safetensors",
+        "on": true,
+        "strength": 0.5
+      }
     }
   },
   "173": {
@@ -1558,7 +1555,7 @@
     }
   },
   "397": {
-    "class_type": "Lora Loader Stack (rgthree)",
+    "class_type": "Power Lora Loader (rgthree)",
     "_meta": {
       "title": "MOSS 风格 LoRA"
     },
@@ -1571,14 +1568,21 @@
         "396",
         0
       ],
-      "lora_01": "moss/KOOK-MOSS-SFT-观澜.safetensors",
-      "strength_01": 1,
-      "lora_02": "moss/feverdream-epoch-07.safetensors",
-      "strength_02": 0.5,
-      "lora_03": "None",
-      "strength_03": 0.7,
-      "lora_04": "None",
-      "strength_04": 1
+      "lora_1": {
+        "lora": "moss/KOOK-MOSS-SFT-观澜.safetensors",
+        "on": true,
+        "strength": 1
+      },
+      "lora_2": {
+        "lora": "moss/feverdream-epoch-07.safetensors",
+        "on": true,
+        "strength": 0.5
+      },
+      "lora_3": {
+        "lora": "moss/TJFilmMossV2.safetensors",
+        "on": false,
+        "strength": 0.7
+      }
     }
   },
   "398": {
@@ -2083,7 +2087,7 @@
     }
   },
   "514": {
-    "class_type": "Lora Loader Stack (rgthree)",
+    "class_type": "Power Lora Loader (rgthree)",
     "_meta": {
       "title": "OLDX 人物替换 LoRA"
     },
@@ -2096,14 +2100,16 @@
         "471",
         0
       ],
-      "lora_01": "qwen2.1/oldx_personswap_qwenimage2.1.safetensors",
-      "strength_01": 0.9,
-      "lora_02": "qwen2.1/p_q_image_2.1_6_steps_v0.2.safetensors",
-      "strength_02": 1,
-      "lora_03": "None",
-      "strength_03": 1,
-      "lora_04": "None",
-      "strength_04": 1
+      "lora_1": {
+        "lora": "qwen2.1/oldx_personswap_qwenimage2.1.safetensors",
+        "on": true,
+        "strength": 0.9
+      },
+      "lora_2": {
+        "lora": "qwen2.1/p_q_image_2.1_6_steps_v0.2.safetensors",
+        "on": true,
+        "strength": 1
+      }
     }
   },
   "516": {
@@ -3203,6 +3209,18 @@
         "756",
         0
       ]
+    }
+  },
+  "773": {
+    "class_type": "Power Lora Loader (rgthree)",
+    "inputs": {
+      "model": [
+        "339",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Qwen 生图 LoRA"
     }
   }
 }

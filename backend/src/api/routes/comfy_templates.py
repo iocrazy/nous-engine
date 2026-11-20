@@ -34,6 +34,7 @@ from src.models.database import get_async_session
 from src.models.service_instance import ServiceInstance
 from src.services.comfy.client import ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
+from src.services.comfy.lora_options import LORA_LIST, LORA_LIST_TYPE, POWER_LORA_LOADER, lora_files
 from src.services.comfy.upload_inputs import UPLOAD_TYPES
 from src.services.workflow_snapshot import NAME_RE, NAME_RULE_MSG
 
@@ -160,7 +161,14 @@ class MappingBody(BaseModel):
         """
         keys = {p.key for p in self.exposed_params}
         params = {p.key: p for p in self.exposed_params}
+        lora_nodes = set()
         for p in self.exposed_params:
+            if p.type == LORA_LIST_TYPE:
+                if p.comfy_input != "loras" or p.comfy_node_id in lora_nodes:
+                    raise ValueError(f"{p.key}: LoRA list must be the only list mapped to the node")
+                lora_nodes.add(p.comfy_node_id)
+                if p.default is not None:
+                    LORA_LIST.validate_python(p.default)
             if p.widget == "radio" and not p.options:
                 raise ValueError(f"{p.key}: radio widget requires options")
             for field, conditions in (("visible_when", p.visible_when), ("required_when", p.required_when)):
@@ -456,6 +464,10 @@ def _stale_keys(exposed_inputs: list[dict], workflow: dict, previous: dict | Non
     for item in exposed_inputs:
         node_id = item.get("comfy_node_id")
         input_name = item.get("comfy_input")
+        if item.get("type") == LORA_LIST_TYPE:
+            if input_name != "loras" or _node_class(workflow, node_id) != POWER_LORA_LOADER:
+                stale.append(item.get("key"))
+            continue
         inputs = _node_inputs(workflow, node_id)
         if input_name not in inputs or _input_kind(inputs[input_name], workflow) == "link":
             stale.append(item.get("key"))
@@ -604,7 +616,7 @@ async def update_mapping(
     tpl, svc = await _get_template_and_service(session, template_id, lock=True)
     _check_revision(tpl, body.revision)
     mapping = [_mapping_to_exposed_input(m) for m in body.exposed_params]
-    if body.revision is not None:
+    if body.revision is not None or any(item.get("type") == LORA_LIST_TYPE for item in mapping):
         stale = _stale_keys(mapping, tpl.workflow_json)
         if stale:
             raise HTTPException(400, detail=f"无效的字段绑定：{', '.join(stale)}")
@@ -804,6 +816,14 @@ async def comfy_free(idle_only: bool = False):
             break
     return {"ok": True, "settled": settled, "freed_bytes": max(0, before - _used_of(devices)),
             "devices": devices}
+
+
+@health_router.get("/loras", dependencies=[Depends(require_admin)])
+async def comfy_loras():
+    try:
+        return await lora_files()
+    except (ComfyError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, detail="无法读取 ComfyUI LoRA 文件清单") from exc
 
 
 @health_router.get("/object-info")
