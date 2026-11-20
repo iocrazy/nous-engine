@@ -62,6 +62,26 @@ async def test_reviewed_upgrade_rebinds_reused_node_ids_and_saves_layout_atomica
 
 
 @pytest.mark.asyncio
+async def test_original_canvas_roundtrip_and_invalidation(client):
+    created = await client.post("/api/v1/comfy-templates", json={"name": "nous-canvas-download", "workflow": WF})
+    path = f"/api/v1/comfy-templates/{created.json()['id']}"
+    nodes = [{"id": 138, "type": "PrimitiveStringMultiline", "pos": [72, 80], "widgets_values": [None]}]
+    source = {"version": 0.4, "nodes": nodes, "links": [[1, 138, 0, 92, 0, "STRING"]], "extra": {"zoom": 1}}
+    layout = {"nodes": [{"id": "138", "type": "PrimitiveStringMultiline", "pos": [72, 80]}]}
+    uploaded = await client.put(path, json={"canvas_layout": {**layout, "source": source}})
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["has_canvas_source"]
+    assert (await client.get(path)).json()["canvas_layout"]["source"] == source
+
+    unchanged = await client.put(path, json={"workflow": WF})
+    assert unchanged.json()["has_canvas_source"]
+    updated = await client.put(path, json={"workflow": {"92": WF["92"]}})
+    assert updated.status_code == 200, updated.text
+    assert not updated.json()["has_canvas_source"]
+    assert (await client.get(path)).json()["canvas_layout"] == {**layout, "groups": []}
+
+
+@pytest.mark.asyncio
 async def test_mapping_constraints_surface_in_service_schema(client):
     """I3 fix:min/max/step/options 存进 exposed_inputs 时嵌套在 `constraints` 下
     (comfy_templates.py::_mapping_to_exposed_input),`/v1/services/{name}/schema`

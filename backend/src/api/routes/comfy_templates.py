@@ -242,6 +242,14 @@ class CanvasGroup(BaseModel):
 class CanvasLayout(BaseModel):
     nodes: list[CanvasNode] = Field(min_length=1, max_length=3000)
     groups: list[CanvasGroup] = Field(default_factory=list, max_length=300)
+    source: dict[str, Any] | None = None
+
+    @field_validator("source")
+    @classmethod
+    def _check_source(cls, value):
+        if value is not None and not isinstance(value.get("nodes"), list):
+            raise ValueError("expected a ComfyUI canvas workflow")
+        return value
 
 
 class ReuploadBody(BaseModel):
@@ -637,14 +645,20 @@ async def reupload_template(
         svc.exposed_inputs = proposed
     elif body.revision is not None and body.workflow is not None and stale:
         raise HTTPException(409, detail="请重新绑定或移除失效字段")
+    if body.canvas_layout is not None:
+        tpl.canvas_layout = body.canvas_layout.model_dump(mode="json", exclude_none=True)
+    elif workflow != tpl.workflow_json and tpl.canvas_layout and "source" in tpl.canvas_layout:
+        tpl.canvas_layout = {key: value for key, value in tpl.canvas_layout.items() if key != "source"}
     if body.workflow is not None:
         tpl.workflow_json = workflow
-    if body.canvas_layout is not None:
-        tpl.canvas_layout = body.canvas_layout.model_dump(mode="json")
     tpl.updated_at = datetime.now(timezone.utc)
     await session.commit()
     invalidate("services")
-    return {"stale_keys": stale, "revision": tpl.updated_at.isoformat()}
+    return {
+        "stale_keys": stale,
+        "revision": tpl.updated_at.isoformat(),
+        "has_canvas_source": bool(tpl.canvas_layout and tpl.canvas_layout.get("source")),
+    }
 
 
 @router.delete("/{template_id}", status_code=204, dependencies=[Depends(require_admin)])

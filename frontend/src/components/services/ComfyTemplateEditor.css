@@ -57,17 +57,17 @@
 .comfy-numeric-bounds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .comfy-remove-field { align-self: flex-start; }
 
-.comfy-workflow-upload { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.comfy-workflow-upload > label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+.comfy-workflow-upload { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; font-size: 12px; }
+.comfy-workflow-upload > :is(button, label) { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .comfy-workflow-upload > label:focus-within { outline: 2px solid var(--accent); }
 .comfy-workflow-upload input[type='file'] { width: 1px; height: 1px; position: absolute; clip-path: inset(50%); }
 .comfy-workflow-upload > span { color: var(--muted); }
 .comfy-workflow-upload > [role='alert'] { flex-basis: 100%; }
-.comfy-update-review { flex-basis: 100%; display: grid; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--card); }
+.comfy-update-review { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--card); }
 .comfy-update-review summary { cursor: pointer; }
-.comfy-update-review details > div { padding-inline-start: 14px; color: var(--muted); }
+.comfy-update-review details > div { padding-inline-start: 14px; color: var(--muted); overflow-wrap: anywhere; }
 .comfy-rebind-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 1fr) auto; align-items: center; gap: 7px; }
-.comfy-rebind-row code { display: block; color: var(--muted); }
+.comfy-rebind-row :is(code, small) { display: block; color: var(--muted); overflow-wrap: anywhere; }
 
 .comfy-canvas-group {
   border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));

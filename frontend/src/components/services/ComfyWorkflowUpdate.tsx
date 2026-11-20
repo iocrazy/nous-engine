@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Upload } from 'lucide-react'
+import { Download, Upload } from 'lucide-react'
 import {
   previewComfyTemplateUpdate,
   reuploadComfyTemplate,
@@ -31,7 +31,20 @@ function asCanvas(data: unknown): ComfyCanvasLayout | null {
     if (width <= 0 || height <= 0) return []
     return [{ title: group.title, bounding: [x, y, width, height] as [number, number, number, number] }]
   }) : []
-  return { nodes, groups }
+  return { nodes, groups, source: { ...data } }
+}
+
+function downloadWorkflow(detail: ComfyTemplateDetail) {
+  const source = detail.canvas_layout?.source
+  const content = JSON.stringify(source ?? detail.workflow_json, null, 2)
+  const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${detail.service_name}${source ? '.json' : '.api.json'}`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 function apiWorkflow(value: unknown): value is ComfyWorkflow {
@@ -91,7 +104,7 @@ export default function ComfyWorkflowUpdate({ detail, fields, busy, onBusy, onRe
   busy: boolean
   onBusy: (value: boolean) => void
   onReview: (value: boolean) => void
-  onApplied: (detail: ComfyTemplateDetail) => void
+  onApplied: (detail: ComfyTemplateDetail, addedNodes: boolean) => void
 }) {
   const [pending, setPending] = useState<PendingUpdate | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -143,10 +156,13 @@ export default function ComfyWorkflowUpdate({ detail, fields, busy, onBusy, onRe
     try {
       const { body, workflow, mapping } = pending
       const result = await reuploadComfyTemplate(detail.id, { ...body, mapping: { exposed_params: mapping } })
+      const canvas = body.canvas_layout ?? detail.canvas_layout
+      const canvasLayout = result.has_canvas_source === false && canvas
+        ? { ...canvas, source: undefined } : canvas
       onApplied({
-        ...detail, workflow_json: workflow, canvas_layout: body.canvas_layout ?? detail.canvas_layout,
+        ...detail, workflow_json: workflow, canvas_layout: canvasLayout,
         revision: result.revision, stale_keys: result.stale_keys, exposed_params: mapping,
-      })
+      }, pending.changes.added.length > 0)
       setPending(null)
       onReview(false)
     } catch (e) {
@@ -158,6 +174,10 @@ export default function ComfyWorkflowUpdate({ detail, fields, busy, onBusy, onRe
 
   return (
     <div className="comfy-workflow-upload">
+      <button type="button" onClick={() => downloadWorkflow(detail)} disabled={busy}>
+        <Download size={14} />
+        下载工作流
+      </button>
       <label>
         <Upload size={14} />
         更新工作流
@@ -169,7 +189,10 @@ export default function ComfyWorkflowUpdate({ detail, fields, busy, onBusy, onRe
             if (files.length) void preview(files)
           }} />
       </label>
-      <span>可同时选择 API JSON 和原画布 JSON</span>
+      <span>
+        在 ComfyUI 编辑模式打开工作流，修改后导出 API JSON 上传，可同时上传原画布 JSON。
+        {!detail.canvas_layout?.source && ' 当前下载的是 API JSON。若要保留原画布布局和备注，请在 ComfyUI 打开原文件。'}
+      </span>
       {error && <div role="alert">{error}</div>}
       {pending && (
         <section className="comfy-update-review" aria-label="工作流更新预览">
@@ -178,20 +201,30 @@ export default function ComfyWorkflowUpdate({ detail, fields, busy, onBusy, onRe
             ['新增节点', pending.changes.added], ['删除节点', pending.changes.removed],
             ['节点类型变化', pending.changes.changed_classes], ['节点输入变化', pending.changes.changed_inputs],
           ] as const).map(([name, ids]) => (
-            <details key={name}>
+            <details key={name} open={ids.length > 0}>
               <summary>{name} · {ids.length}</summary>
-              {ids.map(id => <div key={id}>#{id} · {(pending.workflow[id] ?? before[id])?.class_type}</div>)}
+              {ids.map(id => {
+                const node = pending.workflow[id] ?? before[id]
+                return <div key={id}>#{id} · {node?._meta?.title ?? node?.class_type}</div>
+              })}
             </details>
           ))}
+          {!pending.body.workflow && <span>只更新画布。要应用节点增删，请同时上传 API JSON。</span>}
+          {pending.changes.added.length > 0 && <span>应用后可在节点画布中为新增节点配置运行参数。</span>}
           {pending.body.canvas_layout && <span>{pending.body.canvas_layout.groups.length} 个原画布分组</span>}
-          {pending.unresolved.length > 0 && <strong data-testid="stale-keys-warning">待处理字段 · {pending.unresolved.length}</strong>}
+          {pending.unresolved.length > 0 && (
+            <strong data-testid="stale-keys-warning">失效字段 · {pending.unresolved.length}，请重新绑定或移除</strong>
+          )}
           {pending.unresolved.map(key => {
             const field = pending.mapping.find(item => item.key === key)!
             const options = bindingOptions(field, pending.workflow, pending.mapping)
             const dependents = mappingDependents(pending.mapping, key)
             return (
               <div key={key} className="comfy-rebind-row">
-                <span>{field.label || key} <code>{key}</code></span>
+                <span>
+                  {field.label || key} <code>{key}</code>
+                  <small>#{field.comfy_node_id} · {field.comfy_input} · {pending.workflow[field.comfy_node_id] ? '绑定已变化' : '节点已删除'}</small>
+                </span>
                 <select aria-label={`重新绑定 ${key}`} value="" disabled={busy || !options.length}
                   onChange={event => {
                     const binding = event.currentTarget.value === '' ? undefined : options[Number(event.currentTarget.value)]

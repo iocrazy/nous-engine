@@ -275,22 +275,58 @@ describe('ComfyTemplateEditor', () => {
     await waitFor(() => expect(within(preview).getByText('步数')).toBeInTheDocument())
   })
 
+  it('下载原画布，已有模板只有 API 格式时下载 API 工作流', async () => {
+    const source = { nodes: [{ id: 1 }], links: [[1, 1, 0, 2, 0, 'IMAGE']] }
+    vi.mocked(api.getComfyTemplate)
+      .mockResolvedValueOnce({ ...baseDetail(), canvas_layout: { nodes: [], groups: [], source } })
+      .mockResolvedValueOnce(baseDetail())
+    const createObjectURL = vi.fn(() => 'blob:workflow')
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL: vi.fn() }))
+    const downloads: string[] = []
+    const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download)
+    })
+    try {
+      const first = renderEditor({ templateId: '7' })
+      fireEvent.click(await screen.findByRole('button', { name: '下载工作流' }))
+      first.unmount()
+      renderEditor({ templateId: '8' })
+      fireEvent.click(await screen.findByRole('button', { name: '下载工作流' }))
+      expect(downloads).toEqual(['svc-7.json', 'svc-7.api.json'])
+      expect(createObjectURL).toHaveBeenCalledTimes(2)
+    } finally {
+      anchor.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('预览更新后，必须先处理失效字段才可应用', async () => {
-    vi.mocked(api.getComfyTemplate).mockResolvedValue(baseDetail([
+    const original = baseDetail([
       { key: 'gone', label: 'gone', type: 'string', comfy_node_id: '99', comfy_input: 'x' },
-    ]))
+    ])
+    vi.mocked(api.getComfyTemplate).mockResolvedValue({
+      ...original, workflow_json: { ...WORKFLOW, '99': { class_type: 'OldNode', inputs: { x: '' } } },
+    })
+    const updated = { ...WORKFLOW, '100': { class_type: 'NewNode', inputs: {} } }
+    vi.mocked(api.previewComfyTemplateUpdate).mockResolvedValue({
+      added: ['100'], removed: ['99'], changed_classes: [], changed_inputs: [], stale_keys: ['gone'],
+    })
     renderEditor({ templateId: '7' })
 
-    const file = new File([JSON.stringify(WORKFLOW)], 'wf.json', { type: 'application/json' })
+    const file = new File([JSON.stringify(updated)], 'wf.json', { type: 'application/json' })
     fireEvent.change(await screen.findByTestId('comfy-reupload-input'), { target: { files: [file] } })
     await screen.findByTestId('stale-keys-warning')
+    expect(screen.getByText('#99 · OldNode')).toBeVisible()
+    expect(screen.getByText('#100 · NewNode')).toBeVisible()
+    expect(screen.getByText(/#99 · x · 节点已删除/)).toBeVisible()
     expect(api.reuploadComfyTemplate).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '应用更新' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '移除参数' }))
     fireEvent.click(screen.getByRole('button', { name: '应用更新' }))
     await waitFor(() => expect(api.reuploadComfyTemplate).toHaveBeenCalledWith('7', {
-      workflow: WORKFLOW, mapping: { exposed_params: [] },
+      workflow: updated, mapping: { exposed_params: [] },
     }))
+    expect(await screen.findByRole('button', { name: 'NewNode #100' })).toBeVisible()
   })
 
   it('移除节点参数后，保存的映射不再包含该字段', async () => {
