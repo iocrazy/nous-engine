@@ -267,7 +267,11 @@ function MetaPanel({ meta, fallbackRes, media, tags, onTagsSaved }: {
       {history && (
         <header>
           <strong>{meta.title}</strong>
-          <span className="history-detail-kind">{media?.video ? '视频' : '图片'}</span>
+          <div className="history-media-facts">
+            <strong className="history-detail-model">{meta.model}</strong>
+            <span className="history-detail-kind">{media?.video ? '视频' : '图片'}</span>
+            {meta.keyParameters?.map(value => <span key={value}>{value}</span>)}
+          </div>
           {meta.createdAt && <time dateTime={meta.createdAt}>生成于 {dateFormat.format(new Date(meta.createdAt))}</time>}
           {meta.expiresAt && <time dateTime={meta.expiresAt}>
             {meta.expired ? '已到期' : '预计到期'} · {dateFormat.format(new Date(meta.expiresAt))}

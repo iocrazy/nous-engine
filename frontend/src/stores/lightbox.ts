@@ -18,6 +18,8 @@ export interface LightboxMeta {
   durationMs?: number | null
   historyTaskId?: string
   title?: string
+  model?: string
+  keyParameters?: string[]
   createdAt?: string
   expiresAt?: string
   expired?: boolean

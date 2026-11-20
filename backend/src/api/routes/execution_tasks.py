@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from anyio import to_thread
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import Text, case, cast, delete, desc, exists, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import with_expression
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,10 +89,60 @@ def _video_url(result: object) -> str | None:
     return None
 
 
+def _gallery_model(t):
+    inputs = t.input_json
+    workflow = func.lower(t.workflow_name)
+    mode = inputs["input_mode"].as_string()
+    is_qwen = workflow.contains("qwen21") | workflow.contains("qwen-image-2.1")
+    is_moss = workflow.contains("moss-image")
+    declared = func.coalesce(
+        func.nullif(inputs["model"].as_string(), ""),
+        func.nullif(inputs["model_name"].as_string(), ""),
+        func.nullif(inputs["ckpt_name"].as_string(), ""),
+        func.nullif(inputs["unet_name"].as_string(), ""),
+    )
+    return case(
+        (declared.op("~")(r"^[^:{}\[\]]{1,160}$"), func.regexp_replace(declared, r"^.*/", "")),
+        ((is_qwen | is_moss) & (mode == "upscale"), "SeedVR2"),
+        (is_moss | (is_qwen & ((mode == "moss_text") |
+         ((mode == "reference") & (inputs["reference_engine"].as_string() == "moss")))), "MOSS Image"),
+        (is_qwen, "Qwen Image 2.1"),
+        (workflow.contains("seedvr2"), "SeedVR2"),
+        (workflow.contains("vosr2"), "VOSR2"),
+        (workflow.contains("krea2"), "Krea 2"),
+        (workflow.contains("minimax-h3"), "MiniMax H3"),
+        else_="模型未记录",
+    ).collate("C")
+
+
+_GALLERY_PARAMETER_KEYS = (
+    "input_mode", "aspect_ratio", "moss_aspect_ratio", "seed", "width", "height",
+    "steps", "moss_steps", "cfg", "moss_cfg", "oldx_cfg", "megapixels", "moss_megapixels",
+    "oldx_megapixels", "fps", "duration",
+)
+
+
+@router.get("/gallery/models")
+async def list_gallery_models(session: AsyncSession = Depends(get_async_session)):
+    t = ExecutionTask
+    model = _gallery_model(t)
+    result = cast(t.result, JSONB)
+    media = or_(*(func.jsonb_path_exists(result, cast(f"$.**.{path} ? (@.type() == \"string\")", JSONPATH))
+                  for path in ("image_url", "video_url", "thumbnails[*]", "items[*].url")))
+    options = await session.scalars(
+        select(model).where(t.status == "completed", t.result.is_not(None), media).distinct().order_by(model)
+    )
+    return list(options)
+
+
 @router.get("/gallery")
 async def list_gallery(
     limit: int = Query(24, ge=1, le=48),
     before: int | None = Query(None, ge=1, le=2**63 - 1),
+    before_model: str | None = Query(None, max_length=160),
+    sort: Literal["newest", "oldest", "model"] = "newest",
+    model: str = Query("", max_length=160),
+    tag: str = Query("", max_length=32),
     media: Literal["all", "image", "video"] = "all",
     q: str = Query("", max_length=120),
     days: int | None = Query(None, ge=1, le=365),
@@ -99,20 +150,36 @@ async def list_gallery(
 ):
     t = ExecutionTask
     scan_limit = limit * 4
+    model_label = _gallery_model(t)
     stmt = (
-        select(t.id, t.workflow_id, t.workflow_name, t.created_at, t.duration_ms, t.result)
+        select(t.id, t.workflow_id, t.workflow_name, t.created_at, t.duration_ms, t.result, model_label.label("model"))
         .where(t.status == "completed", t.result.is_not(None))
-        .order_by(t.id.desc())
         .limit(scan_limit + 1)
     )
-    if before is not None:
-        stmt = stmt.where(t.id < before)
+    if sort == "model":
+        if before is not None:
+            if before_model is None:
+                raise HTTPException(400, "Model sort requires a model cursor")
+            stmt = stmt.where(or_(model_label > before_model, (model_label == before_model) & (t.id < before)))
+        stmt = stmt.order_by(model_label, t.id.desc())
+    elif sort == "oldest":
+        if before is not None:
+            stmt = stmt.where(t.id > before)
+        stmt = stmt.order_by(t.id)
+    else:
+        if before is not None:
+            stmt = stmt.where(t.id < before)
+        stmt = stmt.order_by(t.id.desc())
+    if model:
+        stmt = stmt.where(model_label == model)
+    gallery_tag = func.json_array_elements_text(t.gallery_tags).column_valued("gallery_tag")
+    if tag:
+        stmt = stmt.where(exists(select(1).where(func.lower(gallery_tag) == func.lower(tag)).correlate(t)))
     now = datetime.now(timezone.utc)
     if days is not None:
         stmt = stmt.where(t.created_at >= now - timedelta(days=days))
     if query := q.strip():
-        tag = func.json_array_elements_text(t.gallery_tags).column_valued("gallery_tag")
-        tag_matches = exists(select(1).where(cast(tag, Text).icontains(query, autoescape=True)).correlate(t))
+        tag_matches = exists(select(1).where(cast(gallery_tag, Text).icontains(query, autoescape=True)).correlate(t))
         matches = [
             t.workflow_name.icontains(query, autoescape=True),
             t.input_json["prompt"].as_string().icontains(query, autoescape=True),
@@ -126,12 +193,20 @@ async def list_gallery(
     rows = (await session.execute(stmt)).all()
     retention = timedelta(days=_retention_days())
     items = []
+    dimensions = {}
     next_before = None
+    next_model = None
     for index, row in enumerate(rows[:scan_limit]):
         urls = _image_urls(row.result)
         video = _video_url(row.result) if urls else None
         kind = "video" if video else "image"
         if urls and (media == "all" or media == kind):
+            if kind == "image":
+                info = _detect_image_meta(row.result)
+                if info["image_width"] and info["image_height"]:
+                    dimensions[str(row.id)] = {
+                        "width": str(info["image_width"]), "height": str(info["image_height"]),
+                    }
             expires_at = row.created_at + retention
             items.append({
                 "id": str(row.id),
@@ -147,14 +222,29 @@ async def list_gallery(
                 ],
                 "video_url": video,
                 "kind": kind,
+                "model": row.model,
             })
         if index + 1 < len(rows):
             next_before = str(row.id)
+            next_model = row.model if sort == "model" else None
         else:
-            next_before = None
+            next_before = next_model = None
         if len(items) == limit:
             break
-    return {"items": items, "next_before": next_before}
+    if items:
+        item_ids = [int(item["id"]) for item in items]
+        inputs = cast(t.input_json, JSONB)
+        object_inputs = case((func.jsonb_typeof(inputs) == "object", inputs))
+        parameter = func.jsonb_each_text(object_inputs).table_valued("key", "value")
+        fields = (
+            select(func.json_object_agg(parameter.c.key, func.left(parameter.c.value, 48)))
+            .where(parameter.c.key.in_(_GALLERY_PARAMETER_KEYS)).correlate(t).scalar_subquery()
+        )
+        projected = await session.execute(select(t.id, fields).where(t.id.in_(item_ids)))
+        parameters = {str(task_id): {k: v for k, v in (values or {}).items() if v} for task_id, values in projected}
+        for item in items:
+            item["parameters"] = {**parameters.get(item["id"], {}), **dimensions.get(item["id"], {})}
+    return {"items": items, "next_before": next_before, "next_model": next_model}
 
 
 class GalleryDeletion(BaseModel):
