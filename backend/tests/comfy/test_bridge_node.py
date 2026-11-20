@@ -97,6 +97,37 @@ async def test_optional_param_absent_keeps_template_default(fake):
 
 
 @pytest.mark.asyncio
+async def test_dynamic_loras_replace_node_rows_in_request_order(monkeypatch, fake):
+    template = {
+        **TEMPLATE_GRAPH,
+        "166": {"class_type": "Power Lora Loader (rgthree)", "inputs": {"model": ["138", 0],
+            "lora_9": {"lora": "baked.safetensors", "on": True, "strength": 1}}},
+    }
+    mapping = [*TEMPLATE_MAPPING, {"key": "edit_loras", "type": "lora_list",
+        "comfy_node_id": "166", "comfy_input": "loras", "default": []}]
+    rows = [{"lora": f"file-{n}.safetensors", "on": True, "strength": 0.5} for n in range(8)]
+
+    async def load(_tid):
+        return template, mapping
+
+    async def node_info(_class):
+        return {"input": {"required": {"lora_name": [[row["lora"] for row in rows]]}}}
+
+    monkeypatch.setattr(nb, "load_template", load)
+    monkeypatch.setattr(fake, "node_info", node_info, raising=False)
+    node = get_node_class("comfyui_workflow")()
+    await node.invoke({"template_id": 1, "prompt": "edit", "edit_loras": rows}, {})
+    assert fake.submitted["166"]["inputs"] == {
+        "model": ["138", 0], **{f"lora_{i}": row for i, row in enumerate(rows, 1)},
+    }
+    await node.invoke({"template_id": 1, "prompt": "edit", "edit_loras": []}, {})
+    assert fake.submitted["166"]["inputs"] == {"model": ["138", 0]}
+    with pytest.raises(ValueError, match="missing.safetensors"):
+        await node.invoke({"template_id": 1, "prompt": "edit",
+                           "edit_loras": [{**rows[0], "lora": "missing.safetensors"}]}, {})
+
+
+@pytest.mark.asyncio
 async def test_missing_required_raises(fake):
     node = get_node_class("comfyui_workflow")()
     with pytest.raises(ValueError, match="prompt"):

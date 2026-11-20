@@ -129,6 +129,7 @@ async def run_published_workflow(
     HTTPException(500) on execution failure.
     """
     from src.services.quota_gate import NoActiveGrant, consume_for_request
+    from src.services.comfy.lora_options import LORA_LIST_TYPE, validate_lora_inputs
     from src.services.resource_pack import QuotaExhausted
     from src.services.workflow_executor import ExecutionError, WorkflowExecutor
 
@@ -136,6 +137,10 @@ async def run_published_workflow(
         raise HTTPException(410, detail=f"Service '{svc.name}' is retired")
     if svc.status == "paused":
         raise HTTPException(403, detail=f"Service '{svc.name}' is paused")
+    lora_keys = [p["key"] for p in svc.exposed_inputs or [] if p.get("type") == LORA_LIST_TYPE]
+    lora_errors = validate_lora_inputs(lora_keys, inputs)
+    if lora_errors:
+        raise HTTPException(422, detail=lora_errors)
     # `deprecated` still serves (per v3 lifecycle spec).
 
     # 推理前拦已耗尽配额的 key(安全 P2)—— 否则工作流会先跑完 GPU 重活才在下面 best-effort

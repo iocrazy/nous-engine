@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import * as comfyTemplates from '../../api/comfyTemplates'
 import type { ExposedParam } from '../../api/services'
 import QwenImagePlayground from './QwenImagePlayground'
 
@@ -173,4 +175,36 @@ it('可粘贴原图和选中的遮罩，并沿用任务上传参数', async () =
     input_mode: 'remove', seed: 42,
     image: 'data:image/png;base64,b3JpZ2luYWw=', mask: 'data:image/png;base64,bWFzaw==',
   })
+})
+
+it('adds, configures, and removes local LoRA rows and submits the list', async () => {
+  const onRun = vi.fn()
+  const files = vi.spyOn(comfyTemplates, 'getComfyLoras')
+    .mockResolvedValue(['qwen/first.safetensors', 'qwen/second.safetensors'])
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  try {
+    render(<QueryClientProvider client={client}>
+      <QwenImagePlayground running={false} onRun={onRun} inputs={[
+        ...fields,
+        { node_id: 'bridge', key: 'qwen_loras', label: 'Qwen 生图 LoRA', type: 'lora_list' },
+      ]} />
+    </QueryClientProvider>)
+    fireEvent.click(screen.getByText('LoRA'))
+    const add = screen.getByRole('button', { name: '添加 LoRA' })
+    await waitFor(() => expect(add).toBeEnabled())
+    fireEvent.click(add)
+    fireEvent.click(add)
+    fireEvent.change(screen.getByRole('combobox', { name: 'LoRA 2 文件' }), {
+      target: { value: 'qwen/second.safetensors' },
+    })
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 LoRA 2' }))
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'LoRA 2 强度' }), { target: { value: '0.75' } })
+    fireEvent.click(screen.getByRole('button', { name: '移除 LoRA 1' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({
+      qwen_loras: [{ lora: 'qwen/second.safetensors', on: true, strength: 0.75 }],
+    }))
+  } finally {
+    files.mockRestore()
+  }
 })
