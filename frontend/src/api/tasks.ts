@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import { useLiveChannel } from './useLiveChannel'
 import { useTaskProgressStore } from '../stores/taskProgress'
@@ -179,5 +179,33 @@ export function useDeleteTask() {
   return useMutation({
     mutationFn: (id: string) => apiFetch(`/api/v1/tasks/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+
+type GalleryDeletion = {
+  deleted_ids: string[]
+  skipped: number
+  removed_files: number
+  missing_files: number
+  shared_files: number
+}
+
+export function useDeleteGalleryTasks() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { task_ids: string[]; permanent: boolean }) =>
+      apiFetch<GalleryDeletion>('/api/v1/tasks/gallery/delete', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: result => {
+      const deleted = new Set(result.deleted_ids)
+      qc.setQueriesData<InfiniteData<GalleryPage>>({ queryKey: ['tasks', 'gallery'] }, previous => previous && ({
+        ...previous,
+        pages: previous.pages.map(page => ({ ...page, items: page.items.filter(item => !deleted.has(item.id)) })),
+      }))
+      void qc.invalidateQueries({ queryKey: ['tasks'] })
+    },
   })
 }

@@ -25,7 +25,7 @@ export default function ConfirmHost() {
     <div
       onClick={() => resolve(false)}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10010,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >

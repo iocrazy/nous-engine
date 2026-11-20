@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, ImageOff, Play, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { CalendarDays, Check, ImageOff, ListChecks, Play, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { getTask, useDeleteTask, useImageTasks, type GalleryMedia, type GalleryTask } from '../../api/tasks'
+import { getTask, useDeleteGalleryTasks, useImageTasks, type GalleryMedia, type GalleryTask } from '../../api/tasks'
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { useLightboxStore, type LightboxItem } from '../../stores/lightbox'
@@ -17,6 +17,7 @@ const mediaFilters = [
 
 const date = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' })
 const dateTime = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+const selectionLimit = 100
 const localMedia = /^\/(?:files\/images\/|api\/v1\/tasks\/gallery\/)/
 
 function getPreviewUrl(task: GalleryTask) {
@@ -33,6 +34,9 @@ export default function HistoryOverlay() {
   const [keyword, setKeyword] = useState('')
   const [query, setQuery] = useState('')
   const [days, setDays] = useState<number | null>(null)
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const clearSelection = () => setSelected(new Set())
   const gridRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLDivElement>(null)
   const { data, isPending, isError, isFetchingNextPage, isFetchNextPageError, hasNextPage,
@@ -45,7 +49,7 @@ export default function HistoryOverlay() {
     return Array.from(byId.values())
   }, [data])
   const { data: services } = useServices()
-  const del = useDeleteTask()
+  const del = useDeleteGalleryTasks()
   const openItems = useLightboxStore(s => s.openItems)
 
   useEffect(() => {
@@ -78,6 +82,44 @@ export default function HistoryOverlay() {
     }
   }
 
+  const deleteRecords = async (ids: string[], permanent: boolean, fromDetails = false) => {
+    if (!ids.length || del.isPending) return
+    const action = permanent ? '永久删除' : '删除记录'
+    const approved = await confirmDialog({
+      title: `${action} ${ids.length} 条历史`,
+      message: permanent
+        ? '将立即删除记录及没有其他任务引用的本地图片、视频和封面。此操作无法撤销。'
+        : '将移除历史记录。本地文件之后由后台清理。',
+      danger: true,
+      confirmText: action,
+    })
+    if (!approved) return
+    const toasts = useToastStore.getState()
+    try {
+      const result = await del.mutateAsync({ task_ids: ids, permanent })
+      const done = new Set(result.deleted_ids)
+      setSelected(previous => new Set([...previous].filter(id => !done.has(id))))
+      if (fromDetails && done.size) useLightboxStore.getState().close()
+      const summary = [`已删除 ${done.size} 条记录`]
+      if (permanent) summary.push(`已清理 ${result.removed_files} 个文件`)
+      if (result.shared_files) summary.push(`保留 ${result.shared_files} 个共享文件`)
+      if (result.missing_files) summary.push(`${result.missing_files} 个文件已不存在`)
+      if (result.skipped) summary.push(`跳过 ${result.skipped} 条不可删除的记录`)
+      toasts.add(summary.join('，'), done.size ? 'success' : 'info')
+    } catch (error) {
+      toasts.add(error instanceof Error ? error.message : '删除历史失败，请重试', 'error')
+    }
+  }
+
+  const toggleSelection = (id: string) => {
+    setSelected(previous => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < selectionLimit) next.add(id)
+      return next
+    })
+  }
+
   const openTask = (task: GalleryTask) => {
     const gallery: LightboxItem[] = []
     let startIndex = 0
@@ -92,6 +134,7 @@ export default function HistoryOverlay() {
         durationMs: item.duration_ms,
         poster: item.video_url ? getPreviewUrl(item) : undefined,
         onRerun: serviceFor(item) ? () => rerun(item) : undefined,
+        onDelete: (permanent: boolean) => void deleteRecords([item.id], permanent, true),
       }
       if (item.video_url) gallery.push({ url: item.video_url, meta, kind: 'video' })
       else for (const url of item.output_thumbnails) gallery.push({ url, meta })
@@ -99,12 +142,19 @@ export default function HistoryOverlay() {
     openItems(gallery, startIndex)
   }
 
-  const resetScroll = () => gridRef.current?.scrollTo?.({ top: 0 })
+  const resetFilters = () => {
+    clearSelection()
+    gridRef.current?.scrollTo?.({ top: 0 })
+  }
 
   return (
     <div className="history-gallery absolute inset-0 z-30 flex flex-col">
       <header className="history-header">
         <h1 className="console-title">历史生成</h1>
+        <button type="button" className="history-manage" aria-pressed={selecting}
+          onClick={() => { setSelecting(!selecting); clearSelection() }}>
+          <ListChecks size={16} />{selecting ? '退出批量管理' : '批量管理'}
+        </button>
         <button type="button" className="history-icon" aria-label="关闭历史" onClick={() => setOverlay(null)}>
           <X size={18} />
         </button>
@@ -113,18 +163,18 @@ export default function HistoryOverlay() {
         <div className="history-filter-group" role="group" aria-label="媒体类型">
           {mediaFilters.map(filter => (
             <button type="button" key={filter.value} aria-pressed={media === filter.value}
-              onClick={() => { setMedia(filter.value); resetScroll() }}>{filter.label}</button>
+              onClick={() => { setMedia(filter.value); resetFilters() }}>{filter.label}</button>
           ))}
         </div>
         <label className="history-search">
           <Search size={16} aria-hidden="true" />
           <input type="search" aria-label="搜索历史" placeholder="搜索工作流、提示词或任务 ID"
-            maxLength={120} value={keyword} onChange={event => { setKeyword(event.currentTarget.value); resetScroll() }} />
+            maxLength={120} value={keyword} onChange={event => { setKeyword(event.currentTarget.value); resetFilters() }} />
         </label>
         <label className="history-date-filter">
           <CalendarDays size={16} aria-hidden="true" />
           <select value={days ?? ''} aria-label="生成时间"
-            onChange={event => { setDays(Number(event.currentTarget.value) || null); resetScroll() }}>
+            onChange={event => { setDays(Number(event.currentTarget.value) || null); resetFilters() }}>
             <option value="">全部时间</option>
             <option value="7">最近 7 天</option>
             <option value="30">最近 30 天</option>
@@ -133,6 +183,19 @@ export default function HistoryOverlay() {
         </label>
         {!!items.length && <span className="history-count">已加载 {items.length} 条</span>}
       </div>
+
+      {selecting && <div className="history-selection" aria-label="批量操作">
+        <strong>{selected.size ? `已选 ${selected.size} 条` : '选择要操作的记录'}</strong>
+        <button type="button" disabled={!items.length || del.isPending}
+          onClick={() => setSelected(new Set(items.slice(0, selectionLimit).map(item => item.id)))}>
+          {items.length > selectionLimit ? '选择前 100 条' : '全选已加载'}
+        </button>
+        <button type="button" disabled={!selected.size || del.isPending} onClick={clearSelection}>清空选择</button>
+        <button type="button" disabled={!selected.size || del.isPending}
+          onClick={() => void deleteRecords([...selected], false)}>删除记录</button>
+        <button type="button" className="history-danger" disabled={!selected.size || del.isPending}
+          onClick={() => void deleteRecords([...selected], true)}>永久删除</button>
+      </div>}
 
       <div ref={gridRef} className="console-page history-scroll">
         {isPending && <p className="history-status" role="status">正在加载历史…</p>}
@@ -143,18 +206,12 @@ export default function HistoryOverlay() {
           <p className="history-status">{media !== 'all' || query || days ? '没有符合条件的记录' : '还没有图片或视频记录'}</p>
         )}
         <div className="history-grid">
-          {items.map(task => <Card key={task.id} task={task} onOpen={() => openTask(task)}
+          {items.map(task => <Card key={task.id} task={task} selecting={selecting} selected={selected.has(task.id)}
+            selectionFull={selected.size >= selectionLimit}
+            onOpen={() => openTask(task)}
+            onSelect={() => toggleSelection(task.id)}
             onRerun={serviceFor(task) ? () => void rerun(task) : undefined}
-            onDelete={async () => {
-              if (await confirmDialog({
-                message: '删除这条生成记录？清理程序会回收此任务已无其他引用的本地输出。',
-                danger: true, confirmText: '删除',
-              })) {
-                del.mutate(task.id, {
-                  onError: () => useToastStore.getState().add('删除历史失败，请重试', 'error'),
-                })
-              }
-            }} />)}
+            onDelete={() => void deleteRecords([task.id], false)} />)}
         </div>
         {hasNextPage && <div ref={moreRef} className="history-status">
           <button type="button" disabled={isFetchingNextPage}
@@ -167,9 +224,13 @@ export default function HistoryOverlay() {
   )
 }
 
-function Card({ task, onOpen, onRerun, onDelete }: {
+function Card({ task, selecting, selected, selectionFull, onOpen, onSelect, onRerun, onDelete }: {
   task: GalleryTask
+  selecting: boolean
+  selected: boolean
+  selectionFull: boolean
   onOpen: () => void
+  onSelect: () => void
   onRerun?: () => void
   onDelete: () => void
 }) {
@@ -183,7 +244,10 @@ function Card({ task, onOpen, onRerun, onDelete }: {
   return (
     <article className="history-card" style={{ width: `clamp(132px, ${(ratio ?? (isVideo ? 16 / 9 : 4 / 3)) * 210}px, min(500px, 100%))` }}>
       <div className="history-card-visual">
-        <button type="button" className="history-card-open" onClick={onOpen} aria-label={`预览${isVideo ? '视频' : '图片'} · ${title}`}>
+        <button type="button" className="history-card-open" onClick={selecting ? onSelect : onOpen}
+          disabled={selecting && !selected && selectionFull}
+          aria-pressed={selecting ? selected : undefined}
+          aria-label={`${selecting ? '选择' : '预览'}${isVideo ? '视频' : '图片'} · ${title}`}>
           {preview && failedPreview !== preview ? (
             <img src={preview} alt="" loading="lazy" decoding="async" onLoad={event => {
               const { naturalWidth, naturalHeight } = event.currentTarget
@@ -193,12 +257,13 @@ function Card({ task, onOpen, onRerun, onDelete }: {
             {isVideo ? <Play size={22} /> : <ImageOff size={22} />}
             {failedPreview ? '封面不可用' : isVideo ? '点击播放' : '预览不可用'}
           </span>}
+          {selecting && <span className="history-select-marker" aria-hidden="true">{selected && <Check size={14} />}</span>}
           {isVideo && preview && failedPreview !== preview && <span className="history-play" aria-hidden="true"><Play size={17} fill="currentColor" /></span>}
         </button>
-        <div className="history-card-actions">
+        {!selecting && <div className="history-card-actions">
           {onRerun && <button type="button" className="history-icon" aria-label="重跑相同参数" title="重跑相同参数" onClick={onRerun}><RefreshCw size={14} /></button>}
           <button type="button" className="history-icon" aria-label="删除记录" title="删除记录" onClick={onDelete}><Trash2 size={14} /></button>
-        </div>
+        </div>}
         {!isVideo && count > 1 && <span className="history-card-count">×{count}</span>}
       </div>
       <div className="history-card-info">

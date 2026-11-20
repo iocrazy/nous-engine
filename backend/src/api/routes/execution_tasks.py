@@ -4,20 +4,23 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import logging
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from anyio import to_thread
-from sqlalchemy import case, select, desc, func, or_
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import Text, case, cast, delete, desc, func, or_, select, text
 from sqlalchemy.orm import with_expression
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.errors import ConflictError
 from src.models.database import get_async_session
 from src.models.execution_task import ExecutionTask
 from src.utils.constants import VALID_TASK_STATUSES
 from src.api.websocket import ws_manager
 from src.api.routes.image_files import preview_limiter, render_preview
+from src.services.image_output_storage import MANAGED_MEDIA_PATH, managed_media_path, unlink_managed_media
 from src.services.usage_retention import _retention_days
 # 序列化器下沉到 services 层(打破 workflow_runner→本模块 的反向依赖)。reaper
 # collect_referenced_image_uuids 仍在本文件(用 session),向下 import 抽 url 的纯 helper。
@@ -149,6 +152,73 @@ async def list_gallery(
         if len(items) == limit:
             break
     return {"items": items, "next_before": next_before}
+
+
+class GalleryDeletion(BaseModel):
+    task_ids: list[Annotated[str, StringConstraints(pattern=r"^[0-9]{1,19}$")]] = Field(min_length=1, max_length=100)
+    permanent: bool = False
+
+
+@router.post("/gallery/delete")
+async def delete_gallery_tasks(body: GalleryDeletion, session: AsyncSession = Depends(get_async_session)):
+    ids = set(map(int, body.task_ids))
+    if min(ids) < 1 or max(ids) > 2**63 - 1:
+        raise HTTPException(422, "Invalid task ID")
+
+    task = ExecutionTask
+    if body.permanent:
+        # Hold writes until reference checking and unlinking finish.
+        await session.execute(text("LOCK TABLE execution_tasks IN SHARE ROW EXCLUSIVE MODE"))
+    rows = (await session.execute(
+        select(task.id, task.result).where(task.id.in_(ids), task.status == "completed")
+        .order_by(task.id).with_for_update()
+    )).all()
+    selected = {row.id for row in rows}
+    candidates = {
+        path for row in rows for url in _image_urls(row.result, limit=10_000)
+        if (path := managed_media_path(url)) is not None
+    } if body.permanent else set()
+    preserved: set[str] = set()
+    removed = missing = 0
+    if candidates:
+        references = func.regexp_matches(
+            func.concat(cast(task.result, Text), ' ', cast(task.input_json, Text)),
+            MANAGED_MEDIA_PATH, "g",
+        )
+        for (match,) in (await session.execute(
+            select(references).distinct().where(task.id.not_in(selected))
+        )).all():
+            if match[0] in candidates:
+                preserved.add(match[0])
+
+        failed = 0
+        for path in sorted(candidates - preserved):
+            try:
+                if await to_thread.run_sync(unlink_managed_media, path):
+                    removed += 1
+                else:
+                    missing += 1
+            except OSError:
+                failed += 1
+                logger.exception("gallery permanent deletion failed for %s", path)
+        if failed:
+            raise ConflictError(
+                f"已删除 {removed} 个文件，{failed} 个文件删除失败。任务记录仍保留，可以重试。",
+                code="gallery_unlink_failed",
+            )
+
+    if selected:
+        await session.execute(delete(task).where(task.id.in_(selected)))
+    await session.commit()
+    for task_id in selected:
+        await ws_manager.broadcast_task_update("deleted", {"id": str(task_id), "status": "completed"})
+    return {
+        "deleted_ids": [str(task_id) for task_id in sorted(selected)],
+        "skipped": len(ids - selected),
+        "removed_files": removed,
+        "missing_files": missing,
+        "shared_files": len(preserved),
+    }
 
 
 @router.get("/gallery/{task_id}/image/{slot}")
