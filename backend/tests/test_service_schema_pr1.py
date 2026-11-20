@@ -124,3 +124,31 @@ def test_endpoint_wired():
     src = (_SRC / "api/routes/predictions.py").read_text()
     assert '"/services/{name}/schema"' in src
     assert "build_service_io_schema(" in src
+
+
+
+async def test_service_options_only_lists_loras_accepted_by_its_inputs(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from src.api.routes import predictions
+    from src.services.comfy import lora_options
+
+    service = SimpleNamespace(exposed_inputs=[
+        {"key": "qwen_loras", "type": "lora_list"},
+        {"key": "moss_loras", "type": "lora_list"},
+        {"key": "edit_loras", "type": "string"},
+    ], exposed_outputs=[], workflow_snapshot={})
+    resolve = AsyncMock(return_value=(service, None))
+    monkeypatch.setattr(predictions, "_resolve_service", resolve)
+    catalog = AsyncMock(return_value=[
+        "moss/style.safetensors", "other/style.safetensors", "qwen2.1/style.safetensors",
+    ])
+    monkeypatch.setattr(lora_options, "lora_files", catalog)
+    session, auth = object(), (None, None)
+    assert await predictions.get_service_options("nous-image", auth, session) == {
+        "qwen_loras": ["qwen2.1/style.safetensors"],
+        "moss_loras": ["moss/style.safetensors"],
+    }
+    resolve.assert_awaited_once_with(session, auth, "nous-image", reserve_rate_limit=False)
+    catalog.assert_awaited_once()

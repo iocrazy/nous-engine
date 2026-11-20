@@ -24,6 +24,11 @@ _MODEL_DIRECTORIES = {"qwen_loras": "qwen2.1/", "edit_loras": "qwen2.1/", "oldx_
                       "moss_loras": "moss/"}
 
 
+def lora_matches_input(key: str, filename: str) -> bool:
+    directory = _MODEL_DIRECTORIES.get(key)
+    return directory is None or filename.casefold().startswith(directory)
+
+
 def validate_lora_inputs(keys: Sequence[str], payload: dict) -> list[str]:
     if not keys:
         return []
@@ -41,7 +46,7 @@ def validate_lora_inputs(keys: Sequence[str], payload: dict) -> list[str]:
         directory = _MODEL_DIRECTORIES.get(key)
         if directory:
             errors.extend(f"{key}.{index}.lora: 文件必须位于 {directory}"
-                          for index, row in enumerate(rows) if row.on and not row.lora.casefold().startswith(directory))
+                          for index, row in enumerate(rows) if row.on and not lora_matches_input(key, row.lora))
     return errors
 
 
