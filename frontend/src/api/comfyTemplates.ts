@@ -183,7 +183,7 @@ export function getObjectInfo(): Promise<Record<string, unknown>> {
 }
 
 export function getComfyLoras(): Promise<string[]> {
-  return apiFetch<string[]>('/api/v1/comfy/loras')
+  return apiFetch<string[]>('/api/v1/comfy/loras', { cache: 'no-store' })
 }
 
 export function freeComfyVram(options?: { idleOnly: boolean }): Promise<FreeComfyVramResult> {

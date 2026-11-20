@@ -171,6 +171,8 @@
 .qwen-optimizer textarea { width: 100%; resize: vertical; padding: 7px 8px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 5px; }
 
 .qwen-lora-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.qwen-lora-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.qwen-lora-toolbar small { color: var(--muted); }
 .qwen-lora-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; }
 .qwen-lora-row select { grid-column: 1 / -1; min-width: 0; width: 100%; }
 .qwen-lora-row input[type='number'] { min-width: 0; width: 100%; }

@@ -159,3 +159,22 @@ async def test_file_field_never_gets_enum_whitelist(client):
     schema = (await client.get("/v1/services/nous-tpl-fileenum/schema")).json()["input_schema"]["properties"]
     assert "enum" not in schema["image"], "文件类字段不该带 enum 白名单"
     assert schema["mode"]["enum"] == ["fast", "quality"], "非文件类的真枚举要保留"
+
+
+@pytest.mark.asyncio
+async def test_lora_catalog_reads_fresh_files_on_every_request(client, monkeypatch):
+    files = ["qwen2.1/first.safetensors"]
+
+    async def lora_files():
+        return files.copy()
+
+    monkeypatch.setattr("src.api.routes.comfy_templates.lora_files", lora_files)
+    first = await client.get("/api/v1/comfy/loras")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-store"
+    assert first.json() == files
+
+    files.append("qwen2.1/added.safetensors")
+    refreshed = await client.get("/api/v1/comfy/loras")
+    assert refreshed.status_code == 200
+    assert refreshed.json() == files

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { getComfyLoras } from '../../api/comfyTemplates'
 
 type LoRARow = { lora: string; on: boolean; strength: number }
@@ -8,7 +9,8 @@ export default function LoRAListField({ value, onChange, directory }: {
   value: unknown; onChange: (value: LoRARow[]) => void; directory?: string
 }) {
   const rows = Array.isArray(value) ? value as LoRARow[] : []
-  const { data: catalog = [], isError, isPending } = useQuery({
+  const [syncRequested, setSyncRequested] = useState(false)
+  const { data: catalog = [], isError, isPending, isFetching, refetch } = useQuery({
     queryKey: ['comfy', 'loras'], queryFn: getComfyLoras, staleTime: 30_000,
   })
   const files = directory ? catalog.filter(file => file.toLowerCase().startsWith(directory)) : catalog
@@ -16,6 +18,15 @@ export default function LoRAListField({ value, onChange, directory }: {
     onChange(rows.map((row, at) => at === index ? { ...row, ...patch } : row))
 
   return <div className="qwen-lora-list">
+    <div className="qwen-lora-toolbar">
+      <button type="button" disabled={isFetching} onClick={() => {
+        setSyncRequested(true)
+        void refetch()
+      }}>
+        <RefreshCw size={14} />{syncRequested && isFetching ? '正在同步…' : '同步目录'}
+      </button>
+      {syncRequested && !isFetching && !isError && <small role="status">已同步 · {files.length} 个文件</small>}
+    </div>
     {rows.map((row, index) => <div key={index} className="qwen-lora-row">
       <select aria-label={`LoRA ${index + 1} 文件`} value={row.lora}
         onChange={event => update(index, { lora: event.currentTarget.value })}>
