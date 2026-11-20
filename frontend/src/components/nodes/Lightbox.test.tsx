@@ -117,6 +117,22 @@ describe('Lightbox zoom/pan wiring', () => {
     expect(scaleOf(img.style.transform)).toBeCloseTo(1)
   })
 
+  it('finishes a zoomed drag when mousemove and mouseup are batched', () => {
+    render(<Lightbox />)
+    act(() => useLightboxStore.setState({ open: true, images: [URL1], index: 0 }))
+    const img = screen.getByAltText('preview') as HTMLImageElement
+    Object.defineProperties(img, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
+    fireEvent.wheel(img.parentElement!, { deltaY: -300 })
+    fireEvent.mouseDown(img, { clientX: 100, clientY: 100 })
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 110, clientY: 115 }))
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 125, clientY: 130 }))
+      window.dispatchEvent(new MouseEvent('mouseup'))
+    })
+    expect(img.style.transform).toMatch(/^translate\(25px, 30px\) scale\(1\.15/)
+    expect(img.style.cursor).toBe('grab')
+  })
+
   it('wheel down past 1 stays clamped at 1', () => {
     render(<Lightbox />)
     act(() => useLightboxStore.setState({ open: true, images: [URL1], index: 0 }))
@@ -200,4 +216,26 @@ it('缩略图滚动返回 Promise 时仍能关闭图库详情', () => {
     if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous)
     else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
   }
+})
+
+it('图库缩略图可选择超过原先可见窗口的记录并追加下一页', async () => {
+  galleryFetch.mockResolvedValue({ tags: [] })
+  const records = Array.from({ length: 24 }, (_, i) => ({
+    url: `/image-${i}.png`, meta: { historyTaskId: String(i) },
+  }))
+  const loadNext = vi.fn().mockResolvedValue({
+    items: [{ url: '/last.png', meta: { historyTaskId: '24' } }],
+    hasNextPage: false,
+  })
+  render(<Lightbox />)
+  act(() => useLightboxStore.getState().openItems(records, 0, loadNext))
+  const rail = within(screen.getByRole('navigation', { name: '图库缩略图' }))
+  fireEvent.click(rail.getByRole('button', { name: '预览记录 23' }))
+  expect(screen.getByAltText('preview')).toHaveAttribute('src', '/image-23.png')
+  fireEvent.click(rail.getByRole('button', { name: '加载更多' }))
+  const last = await rail.findByRole('button', { name: '预览记录 24' })
+  expect(rail.getByRole('button', { name: '预览记录 23' })).toHaveAttribute('aria-current', 'true')
+  fireEvent.click(last)
+  expect(screen.getByAltText('preview')).toHaveAttribute('src', '/last.png')
+  expect(rail.queryByRole('button', { name: '加载更多' })).toBeNull()
 })
