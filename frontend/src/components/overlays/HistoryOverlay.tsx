@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ImageOff, ListChecks, Play, RefreshCw, Search, Trash2, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import { getTask, useDeleteGalleryTasks, useImageTasks, type GalleryMedia, type GalleryTask } from '../../api/tasks'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { getTask, useDeleteGalleryTasks, useGalleryModels, useImageTasks, type GalleryMedia, type GallerySort, type GalleryTask } from '../../api/tasks'
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { useLightboxStore, type LightboxItem } from '../../stores/lightbox'
@@ -34,20 +34,46 @@ function getPreviewUrl(task: GalleryTask) {
   return previewUrl(thumb)
 }
 
+function keyParameters(task: GalleryTask) {
+  const params = task.parameters ?? {}
+  const moss = task.model === 'MOSS Image'
+  const settings: string[] = []
+  if (/^\d+:\d+/.test(moss ? params.moss_aspect_ratio || '' : params.aspect_ratio || '')) {
+    settings.push((moss ? params.moss_aspect_ratio : params.aspect_ratio).split(' ')[0])
+  } else if (/^\d+$/.test(params.width || '') && /^\d+$/.test(params.height || '')) {
+    settings.push(`${params.width}×${params.height}`)
+  }
+  const pixels = moss ? params.moss_megapixels : params.oldx_megapixels || params.megapixels
+  if (/^\d+(?:\.\d+)?$/.test(pixels || '')) settings.push(`${pixels} MP`)
+  const steps = moss ? params.moss_steps : params.steps
+  if (/^\d+$/.test(steps || '')) settings.push(`${steps} 步`)
+  const cfg = moss ? params.moss_cfg : params.oldx_cfg || params.cfg
+  if (/^\d+(?:\.\d+)?$/.test(cfg || '')) settings.push(`CFG ${cfg}`)
+  if (/^\d+(?:\.\d+)?$/.test(params.fps || '')) settings.push(`${params.fps} FPS`)
+  if (/^\d+(?:\.\d+)?$/.test(params.duration || '')) settings.push(`${params.duration} 秒`)
+  if (/^\d+$/.test(params.seed || '')) settings.push(`种子 ${params.seed}`)
+  return settings
+}
+
 export default function HistoryOverlay() {
   const setOverlay = usePanelStore(s => s.setOverlay)
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tag = searchParams.get('tag')?.slice(0, 32) ?? ''
   const [media, setMedia] = useState<GalleryMedia>('all')
   const [keyword, setKeyword] = useState('')
   const [query, setQuery] = useState('')
   const [days, setDays] = useState<number | null>(null)
+  const [model, setModel] = useState('')
+  const [sort, setSort] = useState<GallerySort>('newest')
+  const { data: models } = useGalleryModels()
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const clearSelection = () => setSelected(new Set())
   const gridRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLDivElement>(null)
   const { data, isPending, isError, isFetchingNextPage, isFetchNextPageError, hasNextPage,
-    fetchNextPage, refetch } = useImageTasks(media, query, days)
+    fetchNextPage, refetch } = useImageTasks(media, query, days, model, sort, tag)
   const items = useMemo(() => {
     const byId = new Map<string, GalleryTask>()
     for (const page of data?.pages ?? []) {
@@ -139,6 +165,8 @@ export default function HistoryOverlay() {
       const meta = {
         historyTaskId: item.id,
         title: item.workflow_name || '生成记录',
+        model: item.model,
+        keyParameters: keyParameters(item),
         createdAt: item.created_at,
         expiresAt: item.expires_at,
         expired: item.expired,
@@ -152,8 +180,12 @@ export default function HistoryOverlay() {
         } : undefined,
         onTagSearch: (tag: string) => {
           useLightboxStore.getState().close()
-          setKeyword(tag)
-          setQuery(tag)
+          setKeyword('')
+          setQuery('')
+          setMedia('all')
+          setDays(null)
+          setModel('')
+          setSearchParams({ tag })
           resetFilters()
         },
         onDelete: (permanent: boolean) => void deleteRecords([item.id], permanent, true),
@@ -206,8 +238,28 @@ export default function HistoryOverlay() {
               onClick={() => { setDays(filter.value); resetFilters() }}>{filter.label}</button>
           ))}
         </div>
+        <label className="history-picker">模型
+          <select aria-label="筛选模型" value={model} onChange={event => { setModel(event.currentTarget.value); resetFilters() }}>
+            <option value="">全部模型</option>
+            {models?.map(name => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
+        <label className="history-picker">排序
+          <select aria-label="图库排序" value={sort} onChange={event => { setSort(event.currentTarget.value as GallerySort); resetFilters() }}>
+            <option value="newest">最新优先</option>
+            <option value="oldest">最早优先</option>
+            <option value="model">按模型</option>
+          </select>
+        </label>
         {!!items.length && <span className="history-count">已加载 {items.length} 条</span>}
       </div>
+
+      {tag && <div className="history-active-tag">
+        <span>标签</span>
+        <button type="button" aria-label={`清除标签 ${tag}`} onClick={() => { setSearchParams({}); resetFilters() }}>
+          #{tag} <X size={14} />
+        </button>
+      </div>}
 
       {selecting && <div className="history-selection" aria-label="批量操作">
         <strong>{selected.size ? `已选 ${selected.size} 条` : '选择要操作的记录'}</strong>
@@ -228,15 +280,21 @@ export default function HistoryOverlay() {
           加载历史失败 <button type="button" onClick={() => void refetch()}>重试</button>
         </div>}
         {!isPending && !isError && !hasNextPage && !items.length && (
-          <p className="history-status">{media !== 'all' || query || days ? '没有符合条件的记录' : '还没有图片或视频记录'}</p>
+          <p className="history-status">{media !== 'all' || query || days || model || tag ? '没有符合条件的记录' : '还没有图片或视频记录'}</p>
         )}
         <div className="history-grid">
-          {items.map(task => <Card key={task.id} task={task} selecting={selecting} selected={selected.has(task.id)}
-            selectionFull={selected.size >= selectionLimit}
-            onOpen={() => openTask(task)}
-            onSelect={() => toggleSelection(task.id)}
-            onRerun={serviceFor(task) ? () => void rerun(task) : undefined}
-            onDelete={() => void deleteRecords([task.id], false)} />)}
+          {items.map((task, index) => (
+            <Fragment key={task.id}>
+              {sort === 'model' && task.model !== items[index - 1]?.model &&
+                <h2 className="history-model-group">{task.model}</h2>}
+              <Card task={task} selecting={selecting} selected={selected.has(task.id)}
+                selectionFull={selected.size >= selectionLimit}
+                onOpen={() => openTask(task)}
+                onSelect={() => toggleSelection(task.id)}
+                onRerun={serviceFor(task) ? () => void rerun(task) : undefined}
+                onDelete={() => void deleteRecords([task.id], false)} />
+            </Fragment>
+          ))}
         </div>
         {hasNextPage && <div ref={moreRef} className="history-status">
           <button type="button" disabled={isFetchingNextPage}
@@ -265,6 +323,7 @@ function Card({ task, selecting, selected, selectionFull, onOpen, onSelect, onRe
   const isVideo = task.kind === 'video'
   const title = task.workflow_name || '生成记录'
   const count = task.output_thumbnails.length
+  const parameters = keyParameters(task).slice(0, 2)
   return (
     <article className="history-card" style={{ width: `clamp(132px, ${(ratio ?? (isVideo ? 16 / 9 : 4 / 3)) * 210}px, min(500px, 100%))` }}>
       <div className="history-card-visual">
@@ -287,6 +346,10 @@ function Card({ task, selecting, selected, selectionFull, onOpen, onSelect, onRe
         {!selecting && <div className="history-card-actions">
           {onRerun && <button type="button" className="history-icon" aria-label="重跑相同参数" title="重跑相同参数" onClick={onRerun}><RefreshCw size={14} /></button>}
           <button type="button" className="history-icon" aria-label="删除记录" title="删除记录" onClick={onDelete}><Trash2 size={14} /></button>
+        </div>}
+        {task.model && <div className="history-card-model" title={[task.model, ...keyParameters(task)].join(' · ')}>
+          <strong>{task.model}</strong>
+          {!!parameters.length && <span>{parameters.join(' · ')}</span>}
         </div>}
         {!isVideo && count > 1 && <span className="history-card-count">×{count}</span>}
       </div>

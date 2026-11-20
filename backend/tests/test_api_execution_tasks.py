@@ -630,3 +630,36 @@ async def test_gallery_tags_are_persisted_searchable_and_removable(db_client, db
     assert (await db_client.put(endpoint, json={"tags": []})).json() == {"tags": []}
     assert (await db_client.get("/api/v1/tasks/gallery", params={"q": "参考图"})).json()["items"] == []
     assert (await db_client.put(endpoint, json={"tags": ["x" * 33]})).status_code == 400
+
+
+async def test_gallery_model_order_and_exact_tag_filter(db_client, db_session):
+    from src.models.execution_task import ExecutionTask
+
+    db_session.add_all([
+        ExecutionTask(id=141, status="completed", workflow_name="nous-qwen21-all-in-one",
+                      gallery_tags=["穿搭"], input_json={"input_mode": "text", "seed": 42},
+                      result={"node": {"image_url": "/a.png"}}),
+        ExecutionTask(id=142, status="completed", workflow_name="nous-qwen21-all-in-one",
+                      gallery_tags=["穿搭风"], input_json={"input_mode": "moss_text", "moss_steps": 25},
+                      result={"node": {"image_url": "/b.png"}}),
+        ExecutionTask(id=143, status="completed", workflow_name="nous-qwen21-all-in-one",
+                      gallery_tags=["穿搭"], input_json={"input_mode": "reference", "reference_engine": "moss", "seed": 0},
+                      result={"outputs": {"node": {"items": [{"url": "/c.png"}]}}}),
+        ExecutionTask(id=144, status="completed", workflow_name="nonmedia", result={"node": {"text": "answer"}}),
+    ])
+    await db_session.commit()
+    route = "/api/v1/tasks/gallery"
+    models = (await db_client.get(route + "/models")).raise_for_status().json()
+    assert models == ["MOSS Image", "Qwen Image 2.1"]
+    first = (await db_client.get(route, params={"sort": "model", "limit": 1})).raise_for_status().json()
+    assert first["next_model"] == "MOSS Image"
+    assert first["items"][0]["id"] == "143"
+    assert first["items"][0]["parameters"] == {"input_mode": "reference", "seed": "0"}
+    second = (await db_client.get(route, params={
+        "sort": "model", "before": first["next_before"], "before_model": first["next_model"],
+    })).raise_for_status().json()
+    assert [item["id"] for item in second["items"]] == ["142", "141"]
+    exact = (await db_client.get(route, params={"tag": "穿搭", "sort": "oldest"})).raise_for_status().json()
+    assert [item["id"] for item in exact["items"]] == ["141", "143"]
+    moss = (await db_client.get(route, params={"tag": "穿搭", "model": "MOSS Image"})).raise_for_status().json()
+    assert [item["id"] for item in moss["items"]] == ["143"]

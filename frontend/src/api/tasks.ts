@@ -118,6 +118,7 @@ export function useTasksByWorkflow(workflowId: string | null, limit = 50) {
   })
 }
 
+export type GallerySort = 'newest' | 'oldest' | 'model'
 export type GalleryMedia = 'all' | 'image' | 'video'
 
 export type GalleryTask = Pick<ExecutionTask, 'id' | 'workflow_id' | 'workflow_name' | 'created_at' | 'duration_ms'> & {
@@ -126,22 +127,40 @@ export type GalleryTask = Pick<ExecutionTask, 'id' | 'workflow_id' | 'workflow_n
   kind: Exclude<GalleryMedia, 'all'>
   expires_at: string
   expired: boolean
+  model: string
+  parameters: Record<string, string>
 }
 
-type GalleryPage = { items: GalleryTask[]; next_before: string | null }
+type GalleryPage = { items: GalleryTask[]; next_before: string | null; next_model: string | null }
+type GalleryCursor = { id: string; model: string | null }
 
-export function useImageTasks(media: GalleryMedia, query: string, days: number | null) {
+export function useGalleryModels() {
+  return useQuery({
+    queryKey: ['tasks', 'gallery-models'],
+    queryFn: ({ signal }) => apiFetch<string[]>('/api/v1/tasks/gallery/models', { signal }),
+    staleTime: 60_000,
+  })
+}
+
+export function useImageTasks(media: GalleryMedia, query: string, days: number | null,
+  model: string, sort: GallerySort, tag: string,
+) {
   return useInfiniteQuery({
-    queryKey: ['tasks', 'gallery', media, query, days],
+    queryKey: ['tasks', 'gallery', media, query, days, model, sort, tag],
     queryFn: ({ signal, pageParam }) => {
-      const params = new URLSearchParams({ media })
-      if (pageParam) params.set('before', pageParam)
+      const params = new URLSearchParams({ media, sort })
+      if (pageParam) {
+        params.set('before', pageParam.id)
+        if (pageParam.model) params.set('before_model', pageParam.model)
+      }
       if (query) params.set('q', query)
       if (days) params.set('days', String(days))
+      if (model) params.set('model', model)
+      if (tag) params.set('tag', tag)
       return apiFetch<GalleryPage>(`/api/v1/tasks/gallery?${params}`, { signal })
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: page => page.next_before,
+    initialPageParam: null as GalleryCursor | null,
+    getNextPageParam: page => page.next_before ? { id: page.next_before, model: page.next_model } : null,
     staleTime: 10_000,
   })
 }

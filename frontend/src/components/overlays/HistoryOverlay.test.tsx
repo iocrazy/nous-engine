@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useLightboxStore } from '../../stores/lightbox'
 import HistoryOverlay from './HistoryOverlay'
 
@@ -12,6 +12,7 @@ const { useImageTasks, fetchNextPage, mutateAsync, confirm } = vi.hoisted(() => 
 const task = {
   id: '1', kind: 'image',
   output_thumbnails: ['/files/images/2026-06-10/a.png?token=a&expires=1'],
+  model: 'MOSS Image', parameters: { moss_aspect_ratio: '16:9 (HD)', moss_megapixels: '2' },
   video_url: null, workflow_id: '5', workflow_name: 'wf',
   created_at: '2026-06-10T00:00:00Z', expires_at: '2026-09-08T00:00:00Z', duration_ms: 2000,
 }
@@ -24,10 +25,19 @@ const olderVideo = {
   output_thumbnails: ['/files/images/2026-06-10/fallback.mp4'],
   video_url: '/files/images/2026-06-10/fallback.mp4',
 }
-vi.mock('../../api/tasks', () => ({ useImageTasks, useDeleteGalleryTasks: () => ({ mutateAsync, isPending: false }) }))
+vi.mock('../../api/tasks', () => ({ useImageTasks, useGalleryModels: () => ({ data: ['MOSS Image', 'Qwen Image 2.1'] }), useDeleteGalleryTasks: () => ({ mutateAsync, isPending: false }) }))
 vi.mock('../../api/services', () => ({ useServices: () => ({ data: [{ id: '9', workflow_id: '5' }] }) }))
 vi.mock('../../stores/confirm', () => ({ confirmDialog: confirm }))
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
+vi.mock('react-router-dom', async () => {
+  const { useState } = await import('react')
+  return {
+    useNavigate: () => vi.fn(),
+    useSearchParams: () => {
+      const [params, setParams] = useState(() => new URLSearchParams())
+      return [params, (values: Record<string, string>) => setParams(new URLSearchParams(values))]
+    },
+  }
+})
 vi.mock('../../stores/panel', () => ({ usePanelStore: (select: (store: { setOverlay: () => void }) => unknown) => select({ setOverlay: vi.fn() }) }))
 
 beforeEach(() => {
@@ -71,7 +81,7 @@ it('按媒体、时间和关键词筛选，继续加载时保留当前记录', a
   fireEvent.click(screen.getByRole('button', { name: '视频' }))
   fireEvent.click(screen.getByRole('button', { name: '30 天' }))
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: ' forest ' } })
-  await waitFor(() => expect(useImageTasks).toHaveBeenLastCalledWith('video', 'forest', 30))
+  await waitFor(() => expect(useImageTasks).toHaveBeenLastCalledWith('video', 'forest', 30, '', 'newest', ''))
   fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
   expect(fetchNextPage).toHaveBeenCalledWith({ cancelRefetch: false })
   expect(screen.getByRole('button', { name: '预览视频 · older-video' })).toBeVisible()
@@ -96,4 +106,19 @@ it('批量选择可分别提交普通删除和永久删除，并要求确认', a
   fireEvent.click(screen.getByRole('button', { name: '永久删除' }))
   await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ task_ids: ['1', '3'], permanent: true }))
   expect(screen.getByText('选择要操作的记录')).toBeVisible()
+})
+
+
+it('显示缩略图的模型和关键参数，标签从详情跳回精确筛选', () => {
+  render(<HistoryOverlay />)
+  expect(screen.getAllByText('16:9 · 2 MP')).toHaveLength(3)
+  fireEvent.change(screen.getByRole('combobox', { name: '筛选模型' }), { target: { value: 'MOSS Image' } })
+  fireEvent.change(screen.getByRole('combobox', { name: '图库排序' }), { target: { value: 'model' } })
+  expect(useImageTasks).toHaveBeenLastCalledWith('all', '', null, 'MOSS Image', 'model', '')
+  fireEvent.click(screen.getByRole('button', { name: '预览图片 · wf' }))
+  act(() => useLightboxStore.getState().metas[0]?.onTagSearch?.('穿搭'))
+  expect(screen.getByRole('button', { name: '清除标签 穿搭' })).toBeVisible()
+  expect(useImageTasks).toHaveBeenLastCalledWith('all', '', null, '', 'model', '穿搭')
+  fireEvent.click(screen.getByRole('button', { name: '清除标签 穿搭' }))
+  expect(useImageTasks).toHaveBeenLastCalledWith('all', '', null, '', 'model', '')
 })
