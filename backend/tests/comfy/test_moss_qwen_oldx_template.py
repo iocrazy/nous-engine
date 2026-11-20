@@ -161,8 +161,10 @@ def test_lora_list_is_bound_to_the_power_loader_in_its_branch(key, node, mode):
     graph = deepcopy(WORKFLOW)
     graph["700"]["inputs"]["value"] = mode
     assert node in active_nodes(graph)
-    rows = [{"lora": "any.safetensors", "on": True, "strength": 0.4}] * 8
+    directory = "moss" if key == "moss_loras" else "qwen2.1"
+    rows = [{"lora": f"{directory}/any.safetensors", "on": True, "strength": 0.4}] * 8
     payload = {"input_mode": mode, "prompt": "scene", "image": "image.png", "oldx_target": "target.png", key: rows}
     assert validate_service_input(SCHEMA, payload) == []
     assert validate_service_input(SCHEMA, {**payload, "lora_01": "old.safetensors"})
     assert validate_service_input(SCHEMA, {**payload, key: [{"on": "true", "strength": 20}]})
+    assert validate_service_input(SCHEMA, {**payload, key: [{**rows[0], "lora": "other/any.safetensors"}]})

@@ -1,9 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { ArrowLeftRight, Brush, Dices, Expand, Focus, Image, Layers, Play, ScanFace, ScanLine, Sparkles, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 import { Field } from './SchemaDrivenForm'
-import { classifyField, defaultFor, isFieldRequired, isFieldVisible, optionDependency, staticOptions } from './fieldKind'
+import { classifyField, defaultFor, isFieldRequired, isFieldVisible, loraDirectory, optionDependency, staticOptions } from './fieldKind'
 import ImageMaskDialog from './ImageMaskDialog'
 import OutpaintFrame, { type OutpaintValues, type SourceDimensions } from './OutpaintFrame'
 import './QwenImagePlayground.css'
@@ -23,10 +23,19 @@ const MODE_DETAILS = {
   upscale: { icon: Focus, action: '放大图片', help: '设置目标短边，使用 SeedVR2 放大原图。' },
 } as const
 
+const MODE_GROUPS = [
+  { name: '生图与反推', icon: Sparkles, modes: ['moss_text', 'text', 'reference'] },
+  { name: '单图／多图编辑', icon: WandSparkles, modes: ['edit', 'comic_real'] },
+  { name: '人物工具', icon: UserRound, modes: ['oldx', 'character_card'] },
+  { name: '扩图', icon: Expand, modes: ['outpaint'] },
+  { name: '遮罩移除', icon: Brush, modes: ['remove'] },
+  { name: '图片放大', icon: Focus, modes: ['upscale'] },
+]
+
 type Preview = 'source' | 'result' | 'compare'
 type SeedPolicy = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-const advancedField = /^(?:seed|ignore_edit_mask|moss_(steps|cfg)|oldx_cfg)/
+const advancedField = /^(?:seed|enable_optimization|use_deepseek|prompt_skill_|ignore_edit_mask|moss_(steps|cfg)|oldx_cfg)/
 const loraField = /^(?:(?:qwen|moss|oldx)_)?(?:lora|strength)(?:_|$)/
 const controlOrder: Record<string, number> = {
   reference_engine: 0,
@@ -86,6 +95,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const [preview, setPreview] = useState<Preview>('result')
   const [showComicPlaceholder, setShowComicPlaceholder] = useState(false)
   const [comparison, setComparison] = useState<'side-by-side' | 'slider'>('side-by-side')
+  const [parameterTab, setParameterTab] = useState<'basic' | 'advanced'>('basic')
   const [split, setSplit] = useState(50)
   const [asset, setAsset] = useState('image')
   const [maskOpen, setMaskOpen] = useState(false)
@@ -126,7 +136,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const mask = toImageUrl(values.mask)
   const hasMask = candidates.some(item => item.key === 'mask')
   const enabled = !running && !reading
-  const chosenAsset = candidates.some(item => item.key === asset) ? toImageUrl(values[asset]) : source
+  const selectedAsset = candidates.find(item => item.key === asset && toImageUrl(values[asset]))
+  const chosenAsset = selectedAsset ? toImageUrl(values[asset]) : undefined
   const outpaintFields = active.filter(param => /^outpaint_(left|right|top|bottom)$/.test(paramKey(param)!))
   const hasOutpaint = mode === 'outpaint' && outpaintFields.length === 4
   const showPlan = hasOutpaint && source && dims && (preview === 'source' || !resultUrl)
@@ -291,13 +302,20 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
       </label>
     }
     const dependency = optionDependency(param)
-    return <Field key={key} topLayerSelect param={{ ...param, required: isFieldRequired(param, values) }} value={values[key]}
+    const directory = loraDirectory(key)
+    const constraints = param.constraints
+    const choices = constraints?.enum
+    const accepts = (name: unknown) => typeof name === 'string' && (!directory || name === 'None' || name.toLowerCase().startsWith(directory))
+    const filtered = directory && Array.isArray(choices)
+      ? { ...constraints, enum: choices.filter(accepts), option_meta: staticOptions(param).filter(option => accepts(option.value)) }
+      : constraints
+    return <Field key={key} topLayerSelect param={{ ...param, constraints: filtered, required: isFieldRequired(param, values) }} value={values[key]}
       dependsValue={dependency ? String(values[dependency.dependsOn] ?? '') : undefined}
       onChange={value => update(key, value)} />
   }
 
   const previewSource = chosenAsset || source
-  const view = preview === 'compare' && resultUrl && source ? 'compare'
+  const view = preview === 'compare' && resultUrl && previewSource ? 'compare'
     : preview === 'result' && resultUrl ? 'result' : 'source'
   const primary: ExposedParam[] = []
   const advanced: ExposedParam[] = []
@@ -315,29 +333,56 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   }
   primary.sort((a, b) => (controlOrder[paramKey(a)!] ?? 4) - (controlOrder[paramKey(b)!] ?? 4))
 
+  const availableModes = comicAvailable ? modeOptions : [...modeOptions, COMIC_MODE]
+  const currentMode = comicPlaceholder ? COMIC_MODE.value : mode
+  const groups = MODE_GROUPS.map(group => ({ ...group,
+    options: availableModes.filter(option => group.modes.includes(String(option.value))),
+  })).filter(group => group.options.length > 0)
+  for (const option of availableModes) {
+    const value = String(option.value)
+    if (!groups.some(group => group.modes.includes(value))) {
+      groups.push({ name: option.label ?? value, icon: Image, modes: [value], options: [option] })
+    }
+  }
+  const currentGroup = groups.find(group => group.modes.includes(currentMode))
+  const chooseMode = (next: string) => {
+    const placeholder = next === COMIC_MODE.value && !comicAvailable
+    setShowComicPlaceholder(placeholder)
+    if (placeholder || next === mode) return
+    update('input_mode', next)
+    onModeChange?.(next)
+    setPreview('source')
+    setParameterTab('basic')
+  }
+  const assetTitle = (key: string, param?: ExposedParam) => key === 'image'
+    ? (mode === 'oldx' || mode === 'character_card' ? '人物源图' : '原图')
+    : key === 'mask' ? '遮罩' : referenceImage.test(key) ? `参考图 ${key.split('_')[1]}` : param?.label || key
+  const comparisonTitle = selectedAsset ? assetTitle(asset, selectedAsset.param) : assetTitle('image')
+  const hasAdvanced = advanced.length > 0 || loraSlots.size > 0 || loraLists.length > 0
+  const showAdvanced = hasAdvanced && parameterTab === 'advanced'
+
+  const modeTabs = currentGroup && currentGroup.options.length > 1 && (
+    <div className="qwen-submodes" role="radiogroup" aria-label="功能选项">
+      {currentGroup.options.map(option => <label key={String(option.value)}>
+        <input type="radio" name="qwen-mode" checked={currentMode === option.value} disabled={!enabled}
+          onChange={() => chooseMode(String(option.value))} />
+        {option.label ?? String(option.value)}
+      </label>)}
+    </div>
+  )
+
   return (
     <form ref={formRef} className="qwen-playground" onSubmit={submit}>
-      {modeParam && <div className="qwen-modes" role="radiogroup" aria-label="功能模式">
-        {(comicAvailable ? modeOptions : [...modeOptions, COMIC_MODE]).map(option => {
-          const isComic = option.value === COMIC_MODE.value
-          const Glyph = MODE_DETAILS[option.value as keyof typeof MODE_DETAILS]?.icon ?? Image
-          return <label key={String(option.value)}>
-            <input type="radio" name="qwen-mode" checked={comicPlaceholder ? isComic : option.value === mode} disabled={!enabled}
-              onChange={() => {
-                const placeholder = isComic && !comicAvailable
-                setShowComicPlaceholder(placeholder)
-                if (placeholder || option.value === mode) return
-                update('input_mode', option.value)
-                onModeChange?.(String(option.value))
-                setPreview('source')
-              }} />
-            <Glyph size={15} />{isComic ? COMIC_MODE.label : option.label ?? String(option.value)}
-          </label>
-        })}
-      </div>}
+      {modeParam && <nav className="qwen-modes" aria-label="功能分类">
+        {groups.map(({ name, icon: Glyph, modes, options }) =>
+          <button key={name} type="button" aria-pressed={modes.includes(currentMode)} disabled={!enabled}
+            onClick={() => { if (!modes.includes(currentMode)) chooseMode(String(options[0].value)) }}>
+            <Glyph size={15} />{name}
+          </button>)}
+      </nav>}
       {comicPlaceholder ? (
         <section className="qwen-panel" aria-label={COMIC_MODE.label}>
-          <header><strong>{COMIC_MODE.label}</strong></header>
+          <header><strong>{COMIC_MODE.label}</strong>{modeTabs}</header>
           <div className="qwen-stage">
             <div className="qwen-stage-empty">
               <ArrowLeftRight size={24} aria-hidden="true" />
@@ -346,20 +391,18 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
           </div>
         </section>
       ) : <div className="qwen-workspace">
-        <section className="qwen-panel qwen-parameters" aria-label="运行参数">
-          <header><strong>运行参数</strong></header>
-          <div className="qwen-parameter-scroll" role="region" aria-label="运行参数列表" tabIndex={0}>
+        <section className="qwen-panel qwen-materials" aria-label="素材">
+          <header><Layers size={15} /><strong>素材</strong></header>
+          <div className="qwen-parameter-scroll">
             <fieldset disabled={!enabled} className="qwen-settings">
-              {modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
               {!!candidates.length && <div className="qwen-assets">
                 {candidates.map(({ key, param }) => {
                   const image = toImageUrl(values[key])
-                  const title = key === 'image' ? (mode === 'oldx' || mode === 'character_card' ? '人物源图' : '原图')
-                    : key === 'mask' ? '遮罩' : referenceImage.test(key) ? `参考图 ${key.split('_')[1]}` : param.label || key
+                  const title = assetTitle(key, param)
                   return (
                     <div className="qwen-asset" key={key}>
                       <button type="button" data-image-slot={key} aria-pressed={key === asset && !!image}
-                        onClick={() => { if (image) { setAsset(key); setPreview('source') } else chooseAsset([key]) }}>
+                        onClick={() => { if (image) { setAsset(key); setPreview(previous => previous === 'compare' && resultUrl ? 'compare' : 'source') } else chooseAsset([key]) }}>
                         {image ? <img src={image} alt="" /> : <Upload size={16} />}
                         <span className="qwen-asset-label">
                           <span>{title}</span>
@@ -375,34 +418,17 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
               {!!candidates.length && <p className="qwen-mode-help">也可按 Ctrl+V / ⌘V 粘贴图片</p>}
               {hasMask && source && dims && <button type="button" className="qwen-edit-mask"
                 onClick={() => setMaskOpen(true)}><Brush size={15} />{mask ? '编辑遮罩' : '绘制遮罩'}</button>}
-              {primary.map(renderField)}
-              {(advanced.length > 0 || loraSlots.size > 0) && <details>
-                <summary>高级参数</summary>
-                {advanced.map(renderField)}
-                {loraSlots.size > 0 && <div className="qwen-lora-fields" role="group" aria-label="LoRA">
-                  <strong>LoRA</strong>
-                  {Array.from(loraSlots.values()).flat().map(renderField)}
-                </div>}
-              </details>}
+              {candidates.length === 0 && <p className="qwen-mode-help">此模式无需素材</p>}
             </fieldset>
-            {loraLists.length > 0 && <fieldset disabled={!enabled} className="qwen-settings">
-              <details><summary>LoRA</summary>{loraLists.map(renderField)}</details>
-            </fieldset>}
           </div>
-          <footer>
-            <span role="status">{notice}</span>
-            <button type="submit" className="qwen-primary" disabled={!enabled}><Play size={15} />
-              {running ? '运行中…' : modeDetail?.action ?? '运行'}
-            </button>
-          </footer>
         </section>
-        <section className="qwen-panel" aria-label="图片预览">
+        <section className="qwen-panel qwen-preview" aria-label="图片预览">
           <header>
             <strong>预览</strong>
             <div className="qwen-preview-tabs">
               {([['source', '原图'], ['result', '结果'], ['compare', '对照']] as const).map(([id, title]) =>
                 <button type="button" key={id} aria-pressed={view === id}
-                  disabled={id === 'source' ? !previewSource : !resultUrl || (id === 'compare' && !source)}
+                  disabled={id === 'source' ? !previewSource : !resultUrl || (id === 'compare' && !previewSource)}
                   onClick={() => setPreview(id)}>{title}</button>)}
             </div>
           </header>
@@ -424,12 +450,12 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
               disabled={!enabled} onChange={extent => setValues(previous => ({
                 ...previous,
                 ...Object.fromEntries(Object.entries(extent).map(([key, value]) => [`outpaint_${key}`, value])),
-              }))} /> : view === 'compare' && source && resultUrl ? (
+              }))} /> : view === 'compare' && previewSource && resultUrl ? (
               comparison === 'slider' ? (
                 <div className="qwen-compare-slider">
                   <img src={resultUrl} alt="生成结果" draggable={false} />
-                  <img src={source} alt="原图" draggable={false} style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }} />
-                  <span className="qwen-compare-label source">原图</span>
+                  <img src={previewSource} alt="原图" draggable={false} style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }} />
+                  <span className="qwen-compare-label source">{comparisonTitle}</span>
                   <span className="qwen-compare-label result">结果</span>
                   <div className="qwen-compare-divider" style={{ left: `${split}%` }} aria-hidden="true">
                     <span>↔</span>
@@ -439,7 +465,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
                 </div>
               ) : (
                 <div className="qwen-compare">
-                  <figure><img src={source} alt="原图" /><figcaption>原图</figcaption></figure>
+                  <figure><img src={previewSource} alt="原图" /><figcaption>{comparisonTitle}</figcaption></figure>
                   <figure><img src={resultUrl} alt="生成结果" /><figcaption>结果</figcaption></figure>
                 </div>
               )
@@ -456,6 +482,31 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
           {(activity || resultUrl) && <div className="qwen-result-meta">{activity}
             {resultUrl && <a href={resultUrl} download>下载结果</a>}
           </div>}
+        </section>
+        <section className="qwen-panel qwen-parameters" aria-label="运行参数">
+          <header><strong>运行参数</strong>{modeTabs}</header>
+          {hasAdvanced && <div className="qwen-parameter-tabs" aria-label="参数分类">
+            <button type="button" aria-pressed={!showAdvanced} onClick={() => setParameterTab('basic')}>基础参数</button>
+            <button type="button" aria-pressed={showAdvanced} onClick={() => setParameterTab('advanced')}>高级参数</button>
+          </div>}
+          <div className="qwen-parameter-scroll" role="region" aria-label="运行参数列表" tabIndex={0}>
+            <fieldset disabled={!enabled} className="qwen-settings">
+              {!showAdvanced && modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
+              {(showAdvanced ? advanced : primary).map(renderField)}
+              {showAdvanced && (loraSlots.size > 0 || loraLists.length > 0) &&
+                <div className="qwen-lora-fields" role="group" aria-label="LoRA">
+                  {loraSlots.size > 0 && <strong>LoRA</strong>}
+                  {Array.from(loraSlots.values()).flat().map(renderField)}
+                  {loraLists.map(renderField)}
+                </div>}
+            </fieldset>
+          </div>
+          <footer>
+            <span role="status">{notice}</span>
+            <button type="submit" className="qwen-primary" disabled={!enabled}><Play size={15} />
+              {running ? '运行中…' : modeDetail?.action ?? '运行'}
+            </button>
+          </footer>
         </section>
       </div>}
       {source && <img key={source} src={source} alt="" hidden onLoad={event => {

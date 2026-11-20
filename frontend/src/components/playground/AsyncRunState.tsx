@@ -4,6 +4,7 @@ import { cancelPrediction, getPrediction, type Prediction } from '../../api/pred
 
 export interface AsyncRunStateProps {
   predictionId: string
+  compact?: boolean
   /** succeeded 终态触发一次,带上 prediction.output(供调用方直接喂给 SchemaDrivenOutput)。 */
   onDone: (output: Record<string, unknown> | null) => void
   /** failed 终态触发一次,带上 prediction.error —— 调用方靠这个回调解锁(复位 running/
@@ -48,11 +49,12 @@ function tickElapsed(sinceIso: string | null, now: number): string {
  * 渲染分段进度 + 取消按钮;三个终态各走各的回调结算一次(succeeded→onDone,failed→onError,
  * canceled→onCancel),不管终态是轮询探测到的还是本组件「取消」按钮请求直接返回的 —— 调用方
  * 靠这些回调解锁自己的 running 态,任何终态都不能只停在本组件内部没个出口(会永久锁死)。 */
-export default function AsyncRunState({ predictionId, onDone, onError, onCancel }: AsyncRunStateProps) {
+export default function AsyncRunState({ predictionId, compact = false, onDone, onError, onCancel }: AsyncRunStateProps) {
   const [prediction, setPrediction] = useState<Prediction | null>(null)
   const [pollError, setPollError] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const status = prediction?.status
   // 三个终态回调只该二选一地各触发一次——不管是轮询循环发现的,还是 cancel 请求直接
   // 返回的(二者可能对同一个 prediction 竞态命中,只认第一个)。
   const settledRef = useRef(false)
@@ -73,7 +75,7 @@ export default function AsyncRunState({ predictionId, onDone, onError, onCancel 
 
   useEffect(() => {
     let alive = true
-    let timer: ReturnType<typeof setInterval> | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
 
     const poll = async () => {
       try {
@@ -82,31 +84,31 @@ export default function AsyncRunState({ predictionId, onDone, onError, onCancel 
         setPollError(null)
         setPrediction(pred)
         if (TERMINAL.has(pred.status)) {
-          if (timer) clearInterval(timer)
           settle(pred)
+          return
         }
       } catch (e) {
         // 轮询偶发网络抖动:留住上一帧,不中断轮询,下一轮重试。
         if (alive) setPollError((e as Error).message ?? String(e))
       }
+      if (alive && !settledRef.current) timer = setTimeout(poll, compact ? 1000 : POLL_MS)
     }
 
     poll()
-    timer = setInterval(poll, POLL_MS)
     return () => {
       alive = false
-      if (timer) clearInterval(timer)
+      if (timer) clearTimeout(timer)
     }
     // predictionId 变化才重开一轮轮询;回调由调用方每次渲染新建也不该重触发。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [predictionId])
+  }, [predictionId, compact])
 
   // 运行中耗时秒表:仅在未到终态时每秒 tick。
   useEffect(() => {
-    if (!prediction || TERMINAL.has(prediction.status)) return
+    if (!status || TERMINAL.has(status)) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [prediction?.status])
+  }, [status])
 
   const handleCancel = async () => {
     setCancelling(true)
@@ -124,10 +126,28 @@ export default function AsyncRunState({ predictionId, onDone, onError, onCancel 
     }
   }
 
-  const status = prediction?.status
   const idx = stageIndex(status)
   const isTerminal = status !== undefined && TERMINAL.has(status)
   const progress = prediction?.progress
+  const render = progress?.comfy
+  const currentStep = render?.step
+  const totalSteps = render?.total
+  if (compact) {
+    const phase = render?.phase === 'running' ? (render.label ?? '生成中')
+      : render?.phase === 'queued' || status === 'starting' ? '等待 ComfyUI'
+        : status === 'processing' ? '准备任务' : '已提交'
+    return <div className="qwen-run-status">
+      <span role="status">{phase}{prediction?.created_at && ` · ${tickElapsed(prediction.created_at, now)}`}
+        {currentStep !== undefined && totalSteps !== undefined && ` · ${currentStep}/${totalSteps} 步`}
+      </span>
+      {currentStep !== undefined && totalSteps !== undefined &&
+        <progress aria-label="当前节点进度" value={currentStep} max={totalSteps} />}
+      {pollError && <small role="status">进度更新失败，正在重试</small>}
+      {!isTerminal && <button type="button" disabled={cancelling} onClick={handleCancel}>
+        {cancelling ? '正在取消…' : '取消任务'}
+      </button>}
+    </div>
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 18px' }}>

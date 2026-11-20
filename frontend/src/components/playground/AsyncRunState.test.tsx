@@ -41,6 +41,21 @@ afterEach(() => {
 })
 
 describe('AsyncRunState', () => {
+  it('updates studio elapsed time and the reported sampler steps every second', async () => {
+    const created = new Date().toISOString()
+    const progress = (step: number) => pred({
+      created_at: created, status: 'processing', progress: { nodes_done: 0, nodes_total: 2,
+        comfy: { phase: 'running', label: '采样器', step, total: 25 } },
+    })
+    vi.mocked(api.getPrediction).mockResolvedValueOnce(progress(4)).mockResolvedValue(progress(5))
+    render(<AsyncRunState predictionId="p1" compact {...callbacks()} />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole('status')).toHaveTextContent('采样器 · 0:00 · 4/25 步')
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(screen.getByRole('status')).toHaveTextContent('采样器 · 0:01 · 5/25 步')
+    expect(screen.getByRole('progressbar', { name: '当前节点进度' })).toHaveAttribute('value', '5')
+  })
+
   it('轮询推进 已提交/排队中 → 运行中 → 完成,succeeded 时把 output 交给 onDone', async () => {
     const cb = callbacks()
     vi.mocked(api.getPrediction)

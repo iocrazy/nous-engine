@@ -17,7 +17,8 @@ const fields: ExposedParam[] = [
 it('keeps the run action outside the scrollable parameter region', () => {
   render(<QwenImagePlayground inputs={fields} running={false} onRun={vi.fn()} />)
   const scroll = screen.getByRole('region', { name: '运行参数列表' })
-  expect(scroll.contains(screen.getByText('高级参数'))).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: '高级参数' }))
+  expect(scroll.contains(screen.getByRole('spinbutton', { name: '种子' }))).toBe(true)
   expect(scroll.contains(screen.getByRole('button', { name: '生成图片' }))).toBe(false)
   expect(scroll.contains(screen.getByRole('region', { name: '图片预览' }))).toBe(false)
 })
@@ -115,11 +116,13 @@ it('明确显示优化模型并统一将高清放大放在尺寸参数之后', (
     expect(pixels.compareDocumentPosition(upscale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   }
   assertPlacement()
+  fireEvent.click(screen.getByRole('button', { name: '高级参数' }))
   expect(screen.getByRole('combobox', { name: '提示词优化模型' })).toHaveTextContent('本机 Qwen')
   fireEvent.click(screen.getByRole('checkbox', { name: '优化提示词' }))
   expect(screen.queryByRole('combobox', { name: '提示词优化模型' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('radio', { name: 'reference' }))
   assertPlacement()
+  fireEvent.click(screen.getByRole('button', { name: '高级参数' }))
   const provider = screen.getByRole('combobox', { name: '提示词优化模型' })
   fireEvent.click(provider)
   fireEvent.click(screen.getByRole('option', { name: 'DeepSeek' }))
@@ -147,15 +150,15 @@ it('漫｜真互转待接入时不提交任务或改变工作流模式', () => {
   const { container } = render(<QwenImagePlayground inputs={fields}
     initialInputs={{ seed: 42 }} resultUrl="/result.png" running={false} onRun={onRun} onModeChange={onModeChange} />)
 
-  fireEvent.click(screen.getByRole('radio', { name: '漫｜真互转' }))
-  expect(screen.getByRole('radio', { name: '漫｜真互转' })).toBeChecked()
+  fireEvent.click(screen.getByRole('button', { name: '单图／多图编辑' }))
+  expect(screen.getByRole('button', { name: '单图／多图编辑' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.getByText('等待 ComfyUI 工作流接入')).toBeVisible()
   expect(screen.queryByRole('button', { name: '生成图片' })).not.toBeInTheDocument()
   fireEvent.submit(container.querySelector('form')!)
   expect(onRun).not.toHaveBeenCalled()
   expect(onModeChange).not.toHaveBeenCalled()
 
-  fireEvent.click(screen.getByRole('radio', { name: 'text' }))
+  fireEvent.click(screen.getByRole('button', { name: '生图与反推' }))
   expect(screen.getByRole('link', { name: '下载结果' })).toHaveAttribute('href', '/result.png')
   fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
   expect(onRun).toHaveBeenCalledWith({ input_mode: 'text', seed: 42 })
@@ -165,7 +168,7 @@ it('工作流提供漫｜真互转模式后，使用后端模式提交', () => {
   const onRun = vi.fn()
   const configured = [{ ...fields[0], constraints: { enum: ['text', 'comic_real'] } }, ...fields.slice(1)]
   render(<QwenImagePlayground inputs={configured} initialInputs={{ seed: 42 }} running={false} onRun={onRun} />)
-  fireEvent.click(screen.getByRole('radio', { name: '漫｜真互转' }))
+  fireEvent.click(screen.getByRole('button', { name: '单图／多图编辑' }))
   fireEvent.click(screen.getByRole('button', { name: '转换图片' }))
   expect(onRun).toHaveBeenCalledWith({ input_mode: 'comic_real', seed: 42 })
 })
@@ -199,7 +202,7 @@ it('可粘贴原图和选中的遮罩，并沿用任务上传参数', async () =
 it('adds, configures, and removes local LoRA rows and submits the list', async () => {
   const onRun = vi.fn()
   const files = vi.spyOn(comfyTemplates, 'getComfyLoras')
-    .mockResolvedValue(['qwen/first.safetensors', 'qwen/second.safetensors'])
+    .mockResolvedValue(['qwen2.1/first.safetensors', 'qwen2.1/second.safetensors', 'moss/other.safetensors'])
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   try {
     render(<QueryClientProvider client={client}>
@@ -208,22 +211,39 @@ it('adds, configures, and removes local LoRA rows and submits the list', async (
         { node_id: 'bridge', key: 'qwen_loras', label: 'Qwen 生图 LoRA', type: 'lora_list' },
       ]} />
     </QueryClientProvider>)
-    fireEvent.click(screen.getByText('LoRA'))
+    fireEvent.click(screen.getByRole('button', { name: '高级参数' }))
     const add = screen.getByRole('button', { name: '添加 LoRA' })
     await waitFor(() => expect(add).toBeEnabled())
     fireEvent.click(add)
     fireEvent.click(add)
     fireEvent.change(screen.getByRole('combobox', { name: 'LoRA 2 文件' }), {
-      target: { value: 'qwen/second.safetensors' },
+      target: { value: 'qwen2.1/second.safetensors' },
     })
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 LoRA 2' }))
     fireEvent.change(screen.getByRole('spinbutton', { name: 'LoRA 2 强度' }), { target: { value: '0.75' } })
     fireEvent.click(screen.getByRole('button', { name: '移除 LoRA 1' }))
+    expect(screen.queryByRole('option', { name: 'moss/other.safetensors' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({
-      qwen_loras: [{ lora: 'qwen/second.safetensors', on: true, strength: 0.75 }],
+      qwen_loras: [{ lora: 'qwen2.1/second.safetensors', on: true, strength: 0.75 }],
     }))
   } finally {
     files.mockRestore()
   }
+})
+
+it('compares the selected reference rather than always using the first image', () => {
+  render(<QwenImagePlayground inputs={[
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'edit' },
+    { node_id: 'bridge', key: 'image', type: 'image' },
+    { node_id: 'bridge', key: 'image_2', type: 'image' },
+  ]} initialInputs={{ image: '/first.png', image_2: '/second.png' }}
+    resultUrl="/result.png" running={false} onRun={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: '对照' }))
+  fireEvent.click(screen.getByRole('button', { name: '滑动对比' }))
+  fireEvent.click(screen.getByRole('button', { name: '参考图 2' }))
+  expect(screen.getByRole('button', { name: '对照' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByAltText('原图')).toHaveAttribute('src', '/second.png')
+  fireEvent.click(screen.getByRole('button', { name: '并排' }))
+  expect(screen.getByAltText('原图')).toHaveAttribute('src', '/second.png')
 })

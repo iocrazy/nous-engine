@@ -107,12 +107,12 @@ describe('ComfyTemplateEditor', () => {
       },
     })
     vi.mocked(api.getObjectInfo).mockResolvedValue({
-      'Lora Loader Stack (rgthree)': { input: { required: { lora_01: [['None', 'qwen/new.safetensors']] } } },
+      'Lora Loader Stack (rgthree)': { input: { required: { lora_01: [['None', 'qwen2.1/new.safetensors']] } } },
     })
     renderEditor({ templateId: '7' })
     fireEvent.click(await screen.findByText('Lora Loader Stack (rgthree) #3'))
     const select = await screen.findByRole('combobox', { name: 'LoRA 文件 lora_01' })
-    fireEvent.change(select, { target: { value: 'qwen/new.safetensors' } })
+    fireEvent.change(select, { target: { value: 'qwen2.1/new.safetensors' } })
     const visibility = screen.getByRole('group', { name: '显示于' })
     fireEvent.click(within(visibility).getByRole('checkbox', { name: '文生图' }))
     expect(within(visibility).getByRole('checkbox', { name: '文生图' })).not.toBeChecked()
@@ -121,7 +121,7 @@ describe('ComfyTemplateEditor', () => {
     await waitFor(() => expect(api.putMapping).toHaveBeenCalled())
     expect(vi.mocked(api.putMapping).mock.calls[0][1]).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        key: 'lora_01', default: 'qwen/new.safetensors', options: ['None', 'qwen/new.safetensors'],
+        key: 'lora_01', default: 'qwen2.1/new.safetensors', options: ['None', 'qwen2.1/new.safetensors'],
         required: false, required_when: { input_mode: ['edit'] }, visible_when: { input_mode: ['edit'] },
       }),
     ]))

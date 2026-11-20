@@ -20,6 +20,8 @@ class LoraSelection(BaseModel):
 
 LORA_LIST = TypeAdapter(list[LoraSelection])
 _SLOT_KEY = re.compile(r"^(?:(?:qwen|moss|oldx)_lora_|lora_\d|strength_\d|oldx_strength$)")
+_MODEL_DIRECTORIES = {"qwen_loras": "qwen2.1/", "edit_loras": "qwen2.1/", "oldx_loras": "qwen2.1/",
+                      "moss_loras": "moss/"}
 
 
 def validate_lora_inputs(keys: Sequence[str], payload: dict) -> list[str]:
@@ -30,11 +32,16 @@ def validate_lora_inputs(keys: Sequence[str], payload: dict) -> list[str]:
         if key not in payload:
             continue
         try:
-            LORA_LIST.validate_python(payload[key])
+            rows = LORA_LIST.validate_python(payload[key])
         except ValidationError as exc:
             for issue in exc.errors(include_url=False):
                 path = ".".join(map(str, (key, *issue["loc"])))
                 errors.append(f"{path}: {issue['msg']}")
+            continue
+        directory = _MODEL_DIRECTORIES.get(key)
+        if directory:
+            errors.extend(f"{key}.{index}.lora: 文件必须位于 {directory}"
+                          for index, row in enumerate(rows) if row.on and not row.lora.casefold().startswith(directory))
     return errors
 
 

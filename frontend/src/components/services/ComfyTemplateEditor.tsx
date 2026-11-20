@@ -14,7 +14,7 @@ import {
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from '../playground/SchemaDrivenForm'
 import LoRAListField from '../playground/LoRAListField'
-import { defaultFor, isFieldRequired, isFieldVisible } from '../playground/fieldKind'
+import { defaultFor, isFieldRequired, isFieldVisible, loraDirectory } from '../playground/fieldKind'
 import {
   filterComfyBranch, groupComfyNodes, isComfyNodeRef, layoutComfyGraph,
   type ComfyNodePositions, type ComfyWorkflow,
@@ -639,8 +639,10 @@ function NodeConfigPanel({
             const modeRequired = !!cur?.required_when && Object.keys(cur.required_when).length === 1
               && shown.length > 0 && shown.every(mode => requiredModes.includes(mode))
             const loraFile = /^(?:lora_name|lora_\d+)$/i.test(r.inputName) && typeof r.rawValue === 'string'
+            const directory = loraDirectory(cur?.key)
             const fileOptions = [...new Set((meta.options ?? cur?.options ?? []).map(optionValue)
-              .filter((value): value is string => typeof value === 'string'))]
+              .filter((value): value is string => typeof value === 'string'
+                && (!directory || value === 'None' || value.toLowerCase().startsWith(directory))))]
             const canHide = !cur || cur.hidden || (cur.required === false && !cur.required_when)
             return (
               <div
@@ -693,7 +695,8 @@ function NodeConfigPanel({
 
                 {type === 'lora_list' && <div className="comfy-draft-default">
                   <span>默认 LoRA</span>
-                  <LoRAListField value={cur.default} onChange={value => onPatch(r.inputName, { default: value })} />
+                  <LoRAListField value={cur.default} directory={directory}
+                    onChange={value => onPatch(r.inputName, { default: value })} />
                 </div>}
                 {!fileLike && type !== 'lora_list' && (
                   <label className="comfy-draft-default">默认值

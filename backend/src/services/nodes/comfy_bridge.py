@@ -18,6 +18,7 @@ import os
 import secrets
 import tempfile
 import time
+from contextlib import suppress
 from copy import deepcopy
 from pathlib import Path
 
@@ -63,11 +64,18 @@ _running_task_id: str | int | None = None
 # `/api/v1/comfy/health` 把 (task_id, 已持有秒数) 一起吐出来 —— "所有 comfy 服务
 # 都不动了"时一眼看出是谁占着、占了多久(2026-09-03 事故里这两个数得翻日志猜)。
 _running_since: float | None = None
+_running_progress: dict | None = None
 
 
 def get_running_task_id() -> str | int | None:
     """当前占用渲染信号量的 ExecutionTask id,空闲时 None。"""
     return _running_task_id
+
+
+def get_comfy_progress(task_id: str | int) -> dict | None:
+    if _running_task_id is not None and str(_running_task_id) == str(task_id):
+        return _running_progress
+    return None
 
 
 def get_running_render() -> dict | None:
@@ -305,22 +313,42 @@ class ComfyUIWorkflowNode:
             async def should_abort() -> bool:
                 return await _task_is_cancelled(task_id)
 
-        global _running_task_id, _running_since
+        global _running_task_id, _running_since, _running_progress
         async with _SEM:
             _running_task_id = task_id
             _running_since = time.monotonic()
+            _running_progress = {"phase": "submitting"}
+            tracker = None
+
+            def track(event: dict) -> None:
+                global _running_progress
+                node = graph.get(event.get("node"), {})
+                title = (node.get("_meta") or {}).get("title") or node.get("class_type")
+                _running_progress = {**event, **({"label": title} if title else {})}
+
             try:
                 # cancel-race 复查(C1):本任务可能在排队等信号量期间被取消
                 # ——真正 submit 给 ComfyUI 前再查一次 DB,取消了就不渲染。
                 if task_id is not None and await _task_is_cancelled(task_id):
                     raise ComfyError("任务已取消,渲染跳过")
                 prompt_id = await client.submit(graph)
+                _running_progress = {"phase": "queued"}
+                watch = getattr(client, "watch_progress", None)
+                if task_id is not None and watch is not None:
+                    tracker = asyncio.create_task(watch(prompt_id, track))
                 timeout_s = float(os.getenv("NOUS_COMFY_TIMEOUT", "14400"))
                 history = await client.wait(
                     prompt_id, timeout_s=timeout_s, should_abort=should_abort)
             finally:
-                _running_task_id = None
-                _running_since = None
+                try:
+                    if tracker is not None:
+                        tracker.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await tracker
+                finally:
+                    _running_task_id = None
+                    _running_since = None
+                    _running_progress = None
 
         # history 出现 ≠ 渲染成功:节点抛异常时 status_str=="error",outputs 可能空也可能是
         # 半截产物。把 ComfyUI 的错误原文带出去落 failed,别包装成成功(也别只剩一句含糊的

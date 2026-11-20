@@ -26,6 +26,12 @@ export function num(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+export function loraDirectory(key: string | undefined) {
+  if (/^moss_loras?(?:_|$)/.test(key ?? '')) return 'moss/'
+  if (/^(?:(?:edit|qwen|oldx)_loras?(?:_|$)|lora_\d)/.test(key ?? '')) return 'qwen2.1/'
+  return undefined
+}
+
 export function classifyField(p: ExposedParam): FieldKind {
   const constraints = (p.constraints ?? {}) as Record<string, unknown>
   const t = (p.type ?? 'string').toLowerCase()
