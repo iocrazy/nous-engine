@@ -216,9 +216,8 @@ it('adds, configures, and removes local LoRA rows and submits the list', async (
     await waitFor(() => expect(add).toBeEnabled())
     fireEvent.click(add)
     fireEvent.click(add)
-    fireEvent.change(screen.getByRole('combobox', { name: 'LoRA 2 文件' }), {
-      target: { value: 'qwen2.1/second.safetensors' },
-    })
+    fireEvent.click(screen.getByRole('combobox', { name: 'LoRA 2 文件' }))
+    fireEvent.click(screen.getByRole('option', { name: 'qwen2.1/second.safetensors' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 LoRA 2' }))
     fireEvent.change(screen.getByRole('spinbutton', { name: 'LoRA 2 强度' }), { target: { value: '0.75' } })
     fireEvent.click(screen.getByRole('button', { name: '移除 LoRA 1' }))
@@ -226,9 +225,10 @@ it('adds, configures, and removes local LoRA rows and submits the list', async (
     const syncedFile = 'qwen2.1/added.safetensors'
     files.mockResolvedValueOnce(['qwen2.1/first.safetensors', 'qwen2.1/second.safetensors', syncedFile, 'moss/other.safetensors'])
     fireEvent.click(screen.getByRole('button', { name: '同步目录' }))
-    expect(await screen.findByRole('option', { name: syncedFile })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'LoRA 1 文件' })).toHaveValue('qwen2.1/second.safetensors')
-    expect(screen.getByText('已同步 · 3 个文件')).toBeInTheDocument()
+    expect(await screen.findByText('已同步 · 3 个文件')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('combobox', { name: 'LoRA 1 文件' }))
+    expect(screen.getByRole('option', { name: syncedFile })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'qwen2.1/second.safetensors' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByRole('option', { name: 'moss/other.safetensors' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({

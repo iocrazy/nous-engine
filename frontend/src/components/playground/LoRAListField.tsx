@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { getComfyLoras } from '../../api/comfyTemplates'
+import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 
 type LoRARow = { lora: string; on: boolean; strength: number }
 
@@ -14,6 +15,7 @@ export default function LoRAListField({ value, onChange, directory }: {
     queryKey: ['comfy', 'loras'], queryFn: getComfyLoras, staleTime: 30_000,
   })
   const files = directory ? catalog.filter(file => file.toLowerCase().startsWith(directory)) : catalog
+  const options = files.map(file => ({ value: file, label: file }))
   const update = (index: number, patch: Partial<LoRARow>) =>
     onChange(rows.map((row, at) => at === index ? { ...row, ...patch } : row))
 
@@ -28,13 +30,12 @@ export default function LoRAListField({ value, onChange, directory }: {
       {syncRequested && !isFetching && !isError && <small role="status">已同步 · {files.length} 个文件</small>}
     </div>
     {rows.map((row, index) => <div key={index} className="qwen-lora-row">
-      <select aria-label={`LoRA ${index + 1} 文件`} value={row.lora}
-        onChange={event => update(index, { lora: event.currentTarget.value })}>
-        {!files.includes(row.lora) && <option disabled value={row.lora}>
-          {directory && !row.lora.toLowerCase().startsWith(directory) ? '请选择当前模型的 LoRA' : row.lora}
-        </option>}
-        {files.map(file => <option key={file} value={file}>{file}</option>)}
-      </select>
+      <div className="qwen-lora-file">
+        <NodeSelectPopover appearance="console" topLayer ariaLabel={`LoRA ${index + 1} 文件`}
+          value={row.lora} options={options} disabled={!files.length}
+          placeholder={directory && !row.lora.toLowerCase().startsWith(directory) ? '请选择当前模型的 LoRA' : row.lora}
+          onChange={lora => update(index, { lora })} />
+      </div>
       <label><input type="checkbox" aria-label={`启用 LoRA ${index + 1}`} checked={row.on}
         onChange={event => update(index, { on: event.currentTarget.checked })} /> 启用</label>
       <input type="number" aria-label={`LoRA ${index + 1} 强度`} value={row.strength}

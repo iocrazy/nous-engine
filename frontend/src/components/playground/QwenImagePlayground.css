@@ -174,5 +174,5 @@
 .qwen-lora-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .qwen-lora-toolbar small { color: var(--muted); }
 .qwen-lora-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; }
-.qwen-lora-row select { grid-column: 1 / -1; min-width: 0; width: 100%; }
+.qwen-lora-file { grid-column: 1 / -1; min-width: 0; }
 .qwen-lora-row input[type='number'] { min-width: 0; width: 100%; }
