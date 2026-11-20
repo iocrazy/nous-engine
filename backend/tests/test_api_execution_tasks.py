@@ -531,3 +531,83 @@ async def test_gallery_filters_searches_past_nonmatching_tasks_and_reports_expir
     for q in ("Comfy Image", "102"):
         by_name = await db_client.get("/api/v1/tasks/gallery", params={"q": q})
         assert [item["id"] for item in by_name.json()["items"]] == ["102"]
+
+
+async def test_gallery_permanent_delete_keeps_shared_files_and_deletes_local_outputs(db_client, db_session, monkeypatch, tmp_path):
+    from src.models.execution_task import ExecutionTask
+    from src.services.image_output_storage import write_image
+
+    monkeypatch.setenv("NOUS_IMAGE_OUTPUTS", str(tmp_path))
+    own = write_image(b"own", ext="png")
+    shared = write_image(b"shared", ext="mp4")
+    poster = write_image(b"preview", ext="webp")
+    missing = write_image(b"missing", ext="png")
+    missing["path"].unlink()
+    outside = tmp_path / "comfyui.mp4"
+    outside.write_bytes(b"external")
+    urls = {
+        item["uuid"]: f"/files/images/{item['date']}/{item['uuid']}.{item['ext']}"
+        for item in (own, shared, poster, missing)
+    }
+    db_session.add_all([
+        ExecutionTask(id=51, status="completed", result={"n": {"image_url": urls[own["uuid"]]}}),
+        ExecutionTask(id=52, status="completed", result={"n": {
+            "video_url": urls[shared["uuid"]], "thumbnails": [urls[poster["uuid"]], urls[missing["uuid"]]],
+            "items": [{"url": str(outside)}],
+        }}),
+        ExecutionTask(id=53, status="running", input_json={"image": urls[shared["uuid"]] + "?token=another"}),
+    ])
+    await db_session.commit()
+
+    response = await db_client.post("/api/v1/tasks/gallery/delete", json={
+        "task_ids": ["51", "52", "53", "99"], "permanent": True,
+    })
+    assert response.status_code == 200
+    assert response.json() == {
+        "deleted_ids": ["51", "52"], "skipped": 2, "removed_files": 2,
+        "missing_files": 1, "shared_files": 1,
+    }
+    assert not own["path"].exists() and not poster["path"].exists()
+    assert shared["path"].exists() and outside.exists()
+    assert (await db_client.get("/api/v1/tasks/51")).status_code == 404
+    assert (await db_client.get("/api/v1/tasks/53")).status_code == 200
+
+
+async def test_gallery_bulk_delete_without_permanent_keeps_files_for_retention(db_client, db_session, monkeypatch, tmp_path):
+    from src.models.execution_task import ExecutionTask
+    from src.services.image_output_storage import write_image
+
+    monkeypatch.setenv("NOUS_IMAGE_OUTPUTS", str(tmp_path))
+    saved = write_image(b"original", ext="png")
+    db_session.add(ExecutionTask(id=61, status="completed", result={
+        "node": {"image_url": f"/files/images/{saved['date']}/{saved['uuid']}.png"},
+    }))
+    await db_session.commit()
+    response = await db_client.post("/api/v1/tasks/gallery/delete", json={"task_ids": ["61"]})
+    assert response.json()["deleted_ids"] == ["61"]
+    assert response.json()["removed_files"] == 0
+    assert saved["path"].exists()
+
+
+async def test_gallery_permanent_delete_rejects_a_symlinked_storage_day(db_client, db_session, monkeypatch, tmp_path):
+    from src.models.execution_task import ExecutionTask
+
+    root = tmp_path / "outputs"
+    root.mkdir()
+    outside = tmp_path / "comfyui"
+    outside.mkdir()
+    basename = "a" * 32 + ".png"
+    original = outside / basename
+    original.write_bytes(b"comfy original")
+    (root / "2026-01-01").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("NOUS_IMAGE_OUTPUTS", str(root))
+    db_session.add(ExecutionTask(id=62, status="completed", result={
+        "node": {"image_url": f"/files/images/2026-01-01/{basename}"},
+    }))
+    await db_session.commit()
+    response = await db_client.post("/api/v1/tasks/gallery/delete", json={
+        "task_ids": ["62"], "permanent": True,
+    })
+    assert response.status_code == 409
+    assert original.read_bytes() == b"comfy original"
+    assert (await db_client.get("/api/v1/tasks/62")).status_code == 200

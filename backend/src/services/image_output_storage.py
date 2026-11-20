@@ -25,6 +25,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
 import time
 import uuid as _uuid
@@ -145,6 +146,35 @@ def resolve_path(date: str, uuid_str: str, ext: str) -> Path:
     caller-supplied date+uuid until verify_token has succeeded.
     """
     return _outputs_root() / date / f"{uuid_str}.{ext}"
+
+
+MANAGED_MEDIA_PATH = r"/files/images/[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9a-f]{32}\.[a-z0-9]+"
+_media_path = re.compile(MANAGED_MEDIA_PATH)
+
+
+def managed_media_path(url: str) -> str | None:
+    path = url.split("?", 1)[0]
+    if _media_path.fullmatch(path) and path.rsplit(".", 1)[-1] in SERVABLE_EXTS:
+        return path
+    return None
+
+
+def unlink_managed_media(url: str) -> bool:
+    path = managed_media_path(url)
+    if path is None:
+        raise ValueError("invalid managed media path")
+    date, filename = path.split("/")[-2:]
+    try:
+        directory = os.open(_outputs_root() / date, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return False
+    try:
+        os.unlink(filename, dir_fd=directory)
+        return True
+    except FileNotFoundError:
+        return False
+    finally:
+        os.close(directory)
 
 
 def reap_orphans(*, older_than_seconds: int, keep_uuids: set[str] | None = None) -> dict:

@@ -22,6 +22,7 @@ export interface LightboxMeta {
   expiresAt?: string
   expired?: boolean
   poster?: string
+  onDelete?: (permanent: boolean) => void
   /** 「重跑」回调(有则面板显示重跑按钮)。 */
   onRerun?: () => void
   /** 前后对比的基准图 url(对齐 Infinite-Canvas:生成图 vs 输入/源图)。有值则

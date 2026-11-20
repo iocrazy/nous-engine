@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, X, Copy, RefreshCw, Download, DownloadCloud, Columns2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Copy, RefreshCw, Download, DownloadCloud, Columns2, ExternalLink, Trash2 } from 'lucide-react'
+import { useConfirmStore } from '../../stores/confirm'
 import { useLightboxStore, type LightboxMeta } from '../../stores/lightbox'
 import { IDENTITY, clampPan, zoomAt, type ZoomState } from './lightboxZoom'
 import { apiFetch } from '../../api/client'
@@ -139,11 +140,25 @@ function hasMeta(m: LightboxMeta | undefined): m is LightboxMeta {
   return !!m && (!!m.historyTaskId || !!m.prompt || !!m.resolution || !!m.fields?.length || m.durationMs != null || !!m.onRerun)
 }
 
-function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: string }) {
+function MetaPanel({ meta, fallbackRes, media }: {
+  meta: LightboxMeta
+  fallbackRes: string
+  media?: { url: string; video: boolean; download: () => void }
+}) {
   const [copied, setCopied] = useState(false)
   const res = meta.resolution || fallbackRes
   const history = !!meta.historyTaskId
   const dateFormat = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  const fields = meta.fields?.length ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
+      {meta.fields.map(({ label, value }, index) => (
+        <div key={index} style={{ display: 'flex', gap: 8 }}>
+          <span style={{ opacity: 0.55, minWidth: 64 }}>{label}</span>
+          <span style={{ flex: 1, wordBreak: 'break-word', opacity: 0.95 }}>{value}</span>
+        </div>
+      ))}
+    </div>
+  ) : null
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -158,6 +173,7 @@ function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: str
       {history && (
         <header>
           <strong>{meta.title}</strong>
+          <span className="history-detail-kind">{media?.video ? '视频' : '图片'}</span>
           {meta.createdAt && <time dateTime={meta.createdAt}>生成于 {dateFormat.format(new Date(meta.createdAt))}</time>}
           {meta.expiresAt && <time dateTime={meta.expiresAt}>
             {meta.expired ? '已到期' : '预计到期'} · {dateFormat.format(new Date(meta.expiresAt))}
@@ -165,7 +181,7 @@ function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: str
         </header>
       )}
       {meta.prompt && (
-        <div>
+        <div className={history ? 'history-detail-prompt' : undefined}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
             <span style={{ fontSize: 10, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>提示词</span>
             <button
@@ -176,12 +192,13 @@ function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: str
                   setCopied(true); setTimeout(() => setCopied(false), 1200)
                 })
               }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, background: 'transparent', border: 'none', color: '#9ecbff', cursor: 'pointer' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, background: 'transparent', border: 'none', color: history ? 'var(--history-accent)' : '#9ecbff', cursor: 'pointer' }}
             >
               <Copy size={11} />{copied ? '已复制' : '复制'}
             </button>
           </div>
-          <div style={{ fontSize: 11.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflowY: 'auto', opacity: 0.95 }}>
+          <div className={history ? 'history-prompt-text' : undefined}
+            style={history ? undefined : { fontSize: 11.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflowY: 'auto', opacity: 0.95 }}>
             {meta.prompt}
           </div>
         </div>
@@ -192,17 +209,24 @@ function MetaPanel({ meta, fallbackRes }: { meta: LightboxMeta; fallbackRes: str
           {meta.durationMs != null && <span>耗时 {(meta.durationMs / 1000).toFixed(1)}s</span>}
         </div>
       )}
-      {meta.fields && meta.fields.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
-          {meta.fields.map((f, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8 }}>
-              <span style={{ opacity: 0.55, minWidth: 64 }}>{f.label}</span>
-              <span style={{ flex: 1, wordBreak: 'break-word', opacity: 0.95 }}>{f.value}</span>
-            </div>
-          ))}
+      {fields && (history ? (
+        <details className="history-detail-fields"><summary>生成参数</summary>{fields}</details>
+      ) : fields)}
+      {history && media && <footer className="history-detail-actions">
+        <div>
+          <button type="button" className="history-detail-primary" onClick={media.download}>
+            <Download size={15} /> 下载{media.video ? '视频' : '原图'}
+          </button>
+          <a href={media.url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> 打开原文件</a>
         </div>
-      )}
-      {meta.onRerun && (
+        <div>
+          {meta.onRerun && <button type="button" onClick={meta.onRerun}><RefreshCw size={14} /> 重跑</button>}
+          {meta.onDelete && <button type="button" className="history-danger" onClick={() => meta.onDelete?.(true)}>
+            <Trash2 size={14} /> 永久删除
+          </button>}
+        </div>
+      </footer>}
+      {!history && meta.onRerun && (
         <button
           type="button"
           onClick={() => meta.onRerun?.()}
@@ -234,6 +258,7 @@ export default function Lightbox() {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
+      if (useConfirmStore.getState().current) return
       if (e.key === 'Escape') { e.preventDefault(); close() }
       else if (e.key === 'ArrowRight') { e.preventDefault(); next() }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); prev() }
@@ -313,7 +338,7 @@ export default function Lightbox() {
       onClick={close}
       className={historyTaskId ? 'history-lightbox' : undefined}
       style={{
-        position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.85)',
+        position: 'fixed', inset: 0, zIndex: 9999, background: historyTaskId ? 'var(--history-backdrop)' : 'rgba(0,0,0,0.85)',
         display: historyTaskId ? 'grid' : 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
       }}
     >
@@ -333,7 +358,8 @@ export default function Lightbox() {
       </button>
 
       {hasMeta(meta) && (
-        <MetaPanel meta={meta} fallbackRes={!isVideo && natural ? `${natural.w}×${natural.h}` : ''} />
+        <MetaPanel meta={meta} fallbackRes={!isVideo && natural ? `${natural.w}×${natural.h}` : ''}
+          media={historyTaskId ? { url, video: isVideo, download: () => downloadOne(url) } : undefined} />
       )}
 
       {multi && !showCompare && (
@@ -362,7 +388,7 @@ export default function Lightbox() {
             <Columns2 size={15} />
           </ToolBtn>
         )}
-        <ToolBtn onClick={() => downloadOne(url)} title="下载当前"><Download size={15} /></ToolBtn>
+        {!historyTaskId && <ToolBtn onClick={() => downloadOne(url)} title="下载当前"><Download size={15} /></ToolBtn>}
         {multi && <ToolBtn onClick={downloadAll} title={`下载全部(${images.length})`}><DownloadCloud size={15} /></ToolBtn>}
         {multi && (
           <span style={{ fontSize: 12, color: '#fff', fontFamily: 'var(--mono)', padding: '0 4px' }}>
