@@ -104,6 +104,22 @@ async def test_missing_required_raises(fake):
 
 
 @pytest.mark.asyncio
+async def test_required_input_only_applies_in_visible_modes(fake, monkeypatch):
+    async def load(_template_id):
+        return TEMPLATE_GRAPH, [*TEMPLATE_MAPPING, {
+            "key": "strength_02_514", "type": "number", "required": True, "comfy_node_id": "138",
+            "comfy_input": "strength_02", "constraints": {"visible_when": {"input_mode": ["oldx", "character_card"]}},
+        }]
+
+    monkeypatch.setattr(nb, "load_template", load)
+    node = get_node_class("comfyui_workflow")()
+    await node.invoke({"template_id": 1, "prompt": "remove", "input_mode": "remove"}, {})
+    assert "strength_02" not in fake.submitted["138"]["inputs"]
+    with pytest.raises(ValueError, match="strength_02_514"):
+        await node.invoke({"template_id": 1, "prompt": "swap", "input_mode": "oldx"}, {})
+
+
+@pytest.mark.asyncio
 async def test_random_param_generates_seed(monkeypatch, fake):
     async def fake_load_template_random(tid):
         return (

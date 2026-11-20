@@ -103,6 +103,22 @@ def test_validate_passthrough_extra_and_non_object():
     assert validate_service_input(schema, ["not", "obj"]) == ["input must be a JSON object"]
 
 
+def test_required_oldx_inputs_do_not_block_mask_removal():
+    when = {"input_mode": ["oldx", "character_card"]}
+    schema = build_service_io_schema([
+        {"key": "input_mode", "type": "string", "required": False, "default": "remove"},
+        {"key": "lora_02_514", "type": "string", "required": True, "constraints": {"visible_when": when}},
+        {"key": "strength_02_514", "type": "number", "required": True, "constraints": {"visible_when": when}},
+    ], [], {})["input_schema"]
+    assert "required" not in schema
+    assert schema["properties"]["lora_02_514"]["x-required-when"] == when
+    assert validate_service_input(schema, {"input_mode": "remove"}) == []
+    assert validate_service_input(schema, {}) == []
+    assert validate_service_input(schema, {"input_mode": "oldx"}) == [
+        "missing required input: lora_02_514", "missing required input: strength_02_514",
+    ]
+
+
 def test_endpoint_wired():
     # schema 端点在 /v1(predictions 路由),不在 /api/v1(services,被 admin cookie 门拦)。
     src = (_SRC / "api/routes/predictions.py").read_text()
