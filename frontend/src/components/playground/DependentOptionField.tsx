@@ -12,6 +12,7 @@ export interface DependentOptionFieldProps {
   /** 注册时冻结的静态清单 —— 加载中/失败时的兜底。 */
   fallback: FieldOption[]
   multiple: boolean
+  topLayerSelect?: boolean
   value: unknown
   onChange: (v: unknown) => void
 }
@@ -33,6 +34,7 @@ export default function DependentOptionField({
   dependsValue,
   fallback,
   multiple,
+  topLayerSelect,
   value,
   onChange,
 }: DependentOptionFieldProps) {
@@ -85,6 +87,7 @@ export default function DependentOptionField({
           onChange={onChange}
           options={options.map((o) => ({ value: o.value, label: o.label ?? o.value }))}
           placeholder="请选择"
+          topLayer={topLayerSelect}
         />
       )}
     </div>

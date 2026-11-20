@@ -91,6 +91,42 @@ beforeEach(() => {
 })
 
 describe('ComfyTemplateEditor', () => {
+  it('uses discovered LoRA files and saves the selected visibility modes', async () => {
+    vi.mocked(api.getComfyTemplate).mockResolvedValue({
+      ...baseDetail([
+        { key: 'input_mode', type: 'string', widget: 'radio', options: [
+          { value: 'text', label: '文生图' },
+          { value: 'edit', label: '编辑图片' },
+        ], comfy_node_id: '1', comfy_input: 'mode' },
+        { key: 'lora_01', type: 'string', default: 'None', options: ['None'], required: true,
+          comfy_node_id: '3', comfy_input: 'lora_01' },
+      ]),
+      workflow_json: {
+        '1': { class_type: 'ModeNode', inputs: { mode: 'text' } },
+        '3': { class_type: 'Lora Loader Stack (rgthree)', inputs: { lora_01: 'None' } },
+      },
+    })
+    vi.mocked(api.getObjectInfo).mockResolvedValue({
+      'Lora Loader Stack (rgthree)': { input: { required: { lora_01: [['None', 'qwen/new.safetensors']] } } },
+    })
+    renderEditor({ templateId: '7' })
+    fireEvent.click(await screen.findByText('Lora Loader Stack (rgthree) #3'))
+    const select = await screen.findByRole('combobox', { name: 'LoRA 文件 lora_01' })
+    fireEvent.change(select, { target: { value: 'qwen/new.safetensors' } })
+    const visibility = screen.getByRole('group', { name: '显示于' })
+    fireEvent.click(within(visibility).getByRole('checkbox', { name: '文生图' }))
+    expect(within(visibility).getByRole('checkbox', { name: '文生图' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '显示时必填' })).toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+    await waitFor(() => expect(api.putMapping).toHaveBeenCalled())
+    expect(vi.mocked(api.putMapping).mock.calls[0][1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: 'lora_01', default: 'qwen/new.safetensors', options: ['None', 'qwen/new.safetensors'],
+        required: false, required_when: { input_mode: ['edit'] }, visible_when: { input_mode: ['edit'] },
+      }),
+    ]))
+  })
+
   it('渲染每个节点一张卡', async () => {
     renderEditor({ templateId: '7' })
     expect(await screen.findByText('LoadImage #1')).toBeInTheDocument()

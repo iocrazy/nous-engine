@@ -53,7 +53,8 @@
 .comfy-editor-preview { padding: 8px; font-size: 12px; border-top: 1px solid var(--border); }
 .comfy-editor-preview summary { cursor: pointer; }
 .comfy-editor-preview > div { max-height: 340px; overflow: auto; }
-.comfy-node-config { gap: 0; max-height: 58vh; }
+.comfy-node-config { gap: 0; max-height: 58vh; grid-template-columns: minmax(0, 1fr); }
+.comfy-numeric-bounds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .comfy-remove-field { align-self: flex-start; }
 
 .comfy-workflow-upload { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
@@ -83,6 +84,7 @@
 .comfy-draft-source { display: flex; gap: 7px; }
 .comfy-draft-source code { overflow-wrap: anywhere; color: var(--text); }
 .comfy-draft-default { display: grid; gap: 3px; }
+.comfy-draft-default :is(input:not([type='checkbox']), select) { width: 100%; min-width: 0; }
 .comfy-draft-default input[type='checkbox'] { justify-self: start; }
 .comfy-draft-flags, .comfy-mode-visibility { display: flex; flex-wrap: wrap; gap: 5px 9px; font-size: 11px; }
 .comfy-draft-flags label, .comfy-mode-visibility label { display: inline-flex; align-items: center; gap: 3px; }

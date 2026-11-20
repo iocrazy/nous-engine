@@ -12,6 +12,14 @@ const fields: ExposedParam[] = [
     constraints: { visible_when: { input_mode: 'remove' } } },
 ]
 
+it('keeps the run action outside the scrollable parameter region', () => {
+  render(<QwenImagePlayground inputs={fields} running={false} onRun={vi.fn()} />)
+  const scroll = screen.getByRole('region', { name: '运行参数列表' })
+  expect(scroll.contains(screen.getByText('高级参数'))).toBe(true)
+  expect(scroll.contains(screen.getByRole('button', { name: '生成图片' }))).toBe(false)
+  expect(scroll.contains(screen.getByRole('region', { name: '图片预览' }))).toBe(false)
+})
+
 it('运行时用已选种子，按递增或递减策略更新下一次的值', () => {
   const onRun = vi.fn()
   render(<QwenImagePlayground inputs={fields} initialInputs={{ seed: 42 }} running={false} onRun={onRun} />)

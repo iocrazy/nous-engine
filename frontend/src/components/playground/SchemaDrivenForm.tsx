@@ -167,6 +167,7 @@ export function Field({
   value,
   onChange,
   dependsValue,
+  topLayerSelect,
 }: {
   param: ExposedParam
   value: unknown
@@ -175,6 +176,7 @@ export function Field({
    *  的持有者(SchemaDrivenForm)给得出来;ComfyTemplateEditor 的单字段预览不传,
    *  于是自动退回静态清单。 */
   dependsValue?: string
+  topLayerSelect?: boolean
 }) {
   const kind = classifyField(param)
   const slot = paramSlot(param) ?? '?'
@@ -209,6 +211,7 @@ export function Field({
         value={value}
         onChange={onChange}
         dependsValue={dependsValue}
+        topLayerSelect={topLayerSelect}
       />
     </div>
   )
@@ -220,12 +223,14 @@ function FieldInput({
   value,
   onChange,
   dependsValue,
+  topLayerSelect,
 }: {
   kind: FieldKind
   param: ExposedParam
   value: unknown
   onChange: (v: unknown) => void
   dependsValue?: string
+  topLayerSelect?: boolean
 }) {
   const inputStyle = {
     width: '100%',
@@ -299,6 +304,7 @@ function FieldInput({
         source={dep.source}
         dependsValue={dependsValue}
         fallback={staticOptions(param)}
+        topLayerSelect={topLayerSelect}
         multiple={c.multiple === true}
         value={value}
         onChange={onChange}
@@ -347,6 +353,7 @@ function FieldInput({
         onChange={onChange}
         options={opts.map((o, i) => ({ value: String(o), label: labelFor(o, i) }))}
         placeholder="请选择"
+        topLayer={topLayerSelect}
       />
     )
   }
