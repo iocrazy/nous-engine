@@ -16,11 +16,15 @@ import os
 import time
 import urllib.parse
 from datetime import datetime, timezone
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
 import psutil
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field, FiniteFloat, StrictBool, StrictStr, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +33,7 @@ from sqlalchemy.orm import undefer
 
 from src.api.deps_admin import require_admin
 from src.api.response_cache import invalidate
+from src.config import get_settings
 from src.models.comfy_template import ComfyTemplate
 from src.models.database import get_async_session
 from src.models.service_instance import ServiceInstance
@@ -893,6 +898,30 @@ def _style_to_option(item: dict) -> dict:
         if image:
             opt["image"] = image
     return opt
+
+
+@lru_cache(maxsize=12)
+def _card_reference_thumbnail(path: Path, mtime_ns: int) -> bytes:
+    with Image.open(path) as original:
+        image = ImageOps.exif_transpose(original)
+        image.thumbnail((256, 256), Image.Resampling.LANCZOS)
+        output = BytesIO()
+        image.save(output, "WEBP", quality=78)
+        return output.getvalue()
+
+
+@health_router.get("/card-reference/{index}/thumbnail", dependencies=[Depends(require_admin)])
+def card_reference_thumbnail(index: int):
+    if not 0 <= index < 3:
+        raise HTTPException(404, detail="参考图不存在")
+    source = Path(get_settings().MODELS_ROOT) / "nous" / "pics" / f"view{index + 1}.png"
+    try:
+        thumbnail = _card_reference_thumbnail(source, source.stat().st_mtime_ns)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail="参考图不存在") from exc
+    except OSError as exc:
+        raise HTTPException(503, detail="参考图暂不可用") from exc
+    return Response(thumbnail, media_type="image/webp", headers={"Cache-Control": "private, max-age=300"})
 
 
 @health_router.get("/style-image", dependencies=[Depends(require_admin)])

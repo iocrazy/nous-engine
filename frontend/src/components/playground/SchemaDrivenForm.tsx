@@ -317,13 +317,18 @@ function FieldInput({
   }
 
   if (kind === 'thumb_select') {
-    const c = (param.constraints ?? {}) as { option_meta?: unknown[]; multiple?: unknown }
+    const c = (param.constraints ?? {}) as { option_meta?: (Omit<OptionMeta, 'value'> & { value: string | number })[]; multiple?: unknown }
+    const metadata = c.option_meta ?? []
+    const options = metadata.map(option => ({ ...option, value: String(option.value) }))
+    const compact = c.multiple !== true && metadata.length > 0 && metadata.length <= 3
+      && metadata.every(option => typeof option.value === 'number')
     return (
       <OptionThumbGrid
-        options={(c.option_meta ?? []) as OptionMeta[]}
+        options={options}
         value={String(value ?? '')}
         multiple={c.multiple === true}
-        onChange={onChange}
+        compact={compact}
+        onChange={next => onChange(c.multiple === true ? next : metadata.find(option => String(option.value) === next)?.value ?? next)}
       />
     )
   }
