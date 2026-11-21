@@ -14,6 +14,8 @@ const box = vi.hoisted(() => ({
   comfyOnline: true,
   clearCache: vi.fn(),
   restartComfy: vi.fn(),
+  restartPending: false,
+  restartResult: undefined as boolean | undefined,
   confirmDialog: vi.fn(),
   vllm: [] as VLLMInstance[],
   groups: [] as GpuGroup[],
@@ -93,8 +95,9 @@ vi.mock('../../api/status', () => ({
 }))
 vi.mock('../../stores/confirm', () => ({ confirmDialog: box.confirmDialog }))
 vi.mock('../../api/comfyTemplates', () => ({
-  useFreeComfyCache: () => ({ mutate: box.clearCache }),
-  useRestartComfy: () => ({ mutate: box.restartComfy }),
+  useFreeComfyCache: () => ({ mutate: box.clearCache, reset: vi.fn() }),
+  useRestartComfy: () => ({ mutate: box.restartComfy, reset: vi.fn(),
+    isPending: box.restartPending, isSuccess: box.restartResult !== undefined, data: box.restartResult }),
   useComfyHealth: () => ({
     data: { online: box.comfyOnline, queue_depth: box.comfyQueue, process_rss_bytes: 4 * 1024 ** 3,
       base_url: 'http://127.0.0.1:8888', running_render: null },
@@ -120,12 +123,19 @@ function renderSystemPanel() {
   fireEvent.click(screen.getByRole('tab', { name: '系统状态' }))
 }
 
+function renderComfyPanel() {
+  render(<DashboardOverlay />)
+  fireEvent.click(screen.getByRole('tab', { name: 'ComfyUI' }))
+}
+
 beforeEach(() => {
   box.gpus = THREE_GPUS
   box.comfyQueue = 0
   box.comfyOnline = true
   box.clearCache.mockReset()
   box.restartComfy.mockReset()
+  box.restartPending = false
+  box.restartResult = undefined
   box.confirmDialog.mockReset()
   box.vllm = []
   box.groups = []
@@ -133,11 +143,13 @@ beforeEach(() => {
 })
 
 describe('DashboardOverlay tabs', () => {
-  it('places ComfyUI restart in system status and requires confirmation', async () => {
+  it('places ComfyUI restart in its own tab and requires confirmation', async () => {
     box.confirmDialog.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     render(<DashboardOverlay />)
     expect(screen.queryByRole('button', { name: '重启 ComfyUI' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看系统状态' }))
+    expect(screen.queryByRole('button', { name: '重启 ComfyUI' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'ComfyUI' }))
     const restart = screen.getByRole('button', { name: '重启 ComfyUI' })
     fireEvent.click(restart)
     await waitFor(() => expect(restart.hasAttribute('disabled')).toBe(false))
@@ -148,9 +160,9 @@ describe('DashboardOverlay tabs', () => {
 
   it('shows why restart is unavailable while there are queued tasks', () => {
     box.comfyQueue = 1
-    renderSystemPanel()
+    renderComfyPanel()
     expect(screen.getByRole('button', { name: '重启 ComfyUI' })).toBeDisabled()
-    expect(screen.getByText('任务结束后可重启。')).toBeVisible()
+    expect(screen.getByText('任务结束后可执行维护。')).toBeVisible()
   })
 
   it('reports each physical GPU free memory separately', () => {
@@ -164,33 +176,32 @@ describe('DashboardOverlay tabs', () => {
     expect(screen.queryByText('4.0 GiB')).toBeNull()
   })
 
-  it('exposes one release control on the GPU hosting ComfyUI and shares confirmation with RAM', async () => {
-    box.gpus = [
-      mkGpu({ index: 0 }),
-      mkGpu({ index: 1, processes: [{
-        pid: 897, gpu: 1, used_gpu_memory_mb: 1024, name: 'python', command: 'python main.py',
-        managed: true, model_name: 'ComfyUI',
-      }] }),
-    ]
+  it('locks other maintenance actions while cache clearing is being confirmed', async () => {
     let confirm!: (value: boolean) => void
     box.confirmDialog.mockReturnValue(new Promise<boolean>((resolve) => { confirm = resolve }))
-    renderSystemPanel()
-    const release = screen.getByRole<HTMLButtonElement>('button', { name: '释放 ComfyUI 显存' })
-    const ram = screen.getByRole<HTMLButtonElement>('button', { name: '清理 ComfyUI 缓存' })
-    expect(release.disabled).toBe(false)
-    expect(release.closest('.console-gpu-processes')).toBeNull()
-    fireEvent.click(release)
-    expect(ram.disabled).toBe(true)
-    expect(box.confirmDialog.mock.calls[0][0].title).toBe('释放 ComfyUI 显存')
+    renderComfyPanel()
+    fireEvent.click(screen.getByRole('button', { name: '清理缓存并释放显存' }))
+    expect(screen.getByRole('button', { name: '重启 ComfyUI' })).toBeDisabled()
     confirm(true)
     await waitFor(() => expect(box.clearCache).toHaveBeenCalledOnce())
   })
 
+  it.each([
+    { pending: true, result: undefined, message: '正在重启 ComfyUI，等待服务恢复…' },
+    { pending: false, result: false, message: '重启请求已接收，暂未确认服务恢复。' },
+    { pending: false, result: true, message: 'ComfyUI 重启成功，服务已重新上线。' },
+  ])('reports restart verification ($message)', ({ pending, result, message }) => {
+    box.restartPending = pending
+    box.restartResult = result
+    renderComfyPanel()
+    expect(screen.getByRole('status')).toHaveTextContent(message)
+  })
+
   it('requires confirmation before clearing the idle ComfyUI cache', async () => {
     box.confirmDialog.mockResolvedValue(true)
-    renderSystemPanel()
-    expect(screen.getByText('ComfyUI 主进程内存 4.0 GiB')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '清理 ComfyUI 缓存' }))
+    renderComfyPanel()
+    expect(screen.getByText('4.0 GiB')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清理缓存并释放显存' }))
     await waitFor(() => expect(box.clearCache).toHaveBeenCalledOnce())
     expect(box.confirmDialog).toHaveBeenCalledOnce()
   })
@@ -200,8 +211,8 @@ describe('DashboardOverlay tabs', () => {
     ({ queue, online }) => {
       box.comfyQueue = queue
       box.comfyOnline = online
-      renderSystemPanel()
-      const button = screen.getByRole<HTMLButtonElement>('button', { name: '清理 ComfyUI 缓存' })
+      renderComfyPanel()
+      const button = screen.getByRole<HTMLButtonElement>('button', { name: '清理缓存并释放显存' })
       expect(button.disabled).toBe(true)
       fireEvent.click(button)
       expect(box.confirmDialog).not.toHaveBeenCalled()
@@ -246,13 +257,16 @@ describe('DashboardOverlay tabs', () => {
     const resources = screen.getByRole('region', { name: '资源与运行时' })
     const connections = screen.getByRole('region', { name: '服务与连接' })
     expect(resources.nextElementSibling).toBe(connections)
-    expect(screen.getByText('队列任务 0')).toBeTruthy()
-    expect(screen.getByText('http://127.0.0.1:8888')).toBeTruthy()
-    expect(screen.getByText('ComfyUI 监听地址（1）').closest('details')?.open).toBe(false)
     expect(screen.getByText('HTTP 200')).toBeTruthy()
-    expect(screen.getByText('探测失败')).toBeTruthy()
-    expect(screen.getByText('自动重启 3 次')).toBeTruthy()
-    expect(screen.getByText(/最近启动/).textContent).not.toContain('—')
+    expect(screen.queryByText('http://127.0.0.1:8888')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '清理缓存并释放显存' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'ComfyUI' }))
+    expect(screen.getByText('队列任务')).toBeVisible()
+    expect(screen.getByText('http://127.0.0.1:8888')).toBeVisible()
+    expect(screen.getByText('监听地址（1）').closest('details')?.open).toBe(false)
+    expect(screen.getByText(/探测失败/)).toBeVisible()
+    expect(screen.getByText('自动重启次数')).toBeVisible()
+    expect(screen.getByText('最近启动').nextElementSibling?.textContent).not.toBe('—')
   })
 
   it('opens the model tab filtered to failed models from the overview', () => {

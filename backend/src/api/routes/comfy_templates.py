@@ -773,16 +773,31 @@ def _enqueue_comfy_restart() -> None:
     )
 
 
+@health_router.get("/restart", dependencies=[Depends(require_admin)])
+async def comfy_restart_status(response: Response):
+    from src.services.comfy.sidecar_status import sidecar_status
+
+    sidecar = await sidecar_status()
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "ready": sidecar["online"] and sidecar["identity"] == "systemd",
+        "main_pid": sidecar["main_pid"],
+        "checked_at": sidecar["checked_at"],
+    }
+
+
 @health_router.post("/restart", status_code=202, dependencies=[Depends(require_admin)])
 async def comfy_restart(x_nous_action: Literal["restart-comfyui"] = Header()):
     if not is_login_required():
         raise HTTPException(403, detail="请先配置管理员登录")
 
+    from src.services.comfy.sidecar_status import unit_main_pid
     from src.services.nodes import comfy_bridge
 
-    health = await get_client().health()
+    health, previous_pid = await asyncio.gather(get_client().health(), unit_main_pid())
     if health["queue_depth"] or comfy_bridge.get_running_render() is not None:
         raise HTTPException(409, detail="ComfyUI 有任务正在执行或排队")
+    requested_at = time.time()
     try:
         await asyncio.to_thread(_enqueue_comfy_restart)
     except subprocess.CalledProcessError as exc:
@@ -791,7 +806,10 @@ async def comfy_restart(x_nous_action: Literal["restart-comfyui"] = Header()):
         raise HTTPException(503, detail="主机拒绝了 ComfyUI 重启请求，请检查本机 sudoers 授权和 systemd 日志。") from exc
     except (subprocess.SubprocessError, OSError) as exc:
         raise HTTPException(503, detail="无法提交 ComfyUI 重启请求，请检查本机 systemd 服务。") from exc
-    return {"accepted": True}
+    return {
+        "accepted": True, "previous_pid": previous_pid,
+        "requested_at": requested_at, "was_online": health["online"],
+    }
 
 
 def _used_of(devices: list[dict]) -> int:

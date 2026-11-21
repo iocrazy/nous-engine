@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { Activity, AlertTriangle, BarChart3, Cpu, X } from 'lucide-react'
 import {
   useSysGpus, useSysStats, useSysProcesses, useKillProcess,
@@ -23,6 +23,7 @@ const TABS = [
   { id: 'overview', label: '概览' },
   { id: 'models', label: '模型' },
   { id: 'system', label: '系统状态' },
+  { id: 'comfy', label: 'ComfyUI' },
   { id: 'processes', label: '进程' },
   { id: 'usage', label: '调用与告警' },
 ] as const
@@ -38,6 +39,8 @@ const MODEL_STATUS: Record<ModelStatus, { label: string; color: string; order: n
 }
 
 export default function DashboardOverlay() {
+  const restart = useRestartComfy()
+  const clear = useFreeComfyCache()
   const [tab, setTab] = useState<DashboardTab>('overview')
   const [statusFilter, setStatusFilter] = useState<ModelStatus | ''>('')
   const [modelSearch, setModelSearch] = useState('')
@@ -107,6 +110,7 @@ export default function DashboardOverlay() {
             />
           )}
           {tab === 'system' && <SystemStatus />}
+          {tab === 'comfy' && <ComfyManagement restart={restart} clear={clear} />}
           {tab === 'processes' && <SystemProcesses />}
           {tab === 'usage' && <DashboardUsage />}
         </section>
@@ -379,35 +383,13 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
   )
 }
 
-function SystemConnections({ health }: { health: ReturnType<typeof useComfyHealth> }) {
+function SystemConnections() {
   const status = useStatus()
   const connections = useStatusConnections()
-  const sidecar = useHealth().data?.comfy
   const { data: processes } = useSysProcesses()
   const [copyMessage, setCopyMessage] = useState('')
-  const bridge = health.data
   const probe = processes?.net_probe
-  const render = bridge?.running_render
   const checks = connections.isError ? undefined : connections.data
-  const startedAt = checks?.comfy_unit.started_at
-  const restartCount = checks?.comfy_unit.restart_count
-  const bridgeChecked = !health.isError && !!bridge
-  const busy = !!render || (bridge?.queue_depth ?? 0) > 0
-  const restart = useRestartComfy()
-  const [confirmingRestart, setConfirmingRestart] = useState(false)
-  const requestRestart = async () => {
-    if (busy || confirmingRestart || restart.isPending) return
-    setConfirmingRestart(true)
-    const confirmed = await confirmDialog({
-      title: '重启 ComfyUI',
-      message: 'ComfyUI 会短暂断开。检测到正在执行或排队的任务时，系统会拒绝重启。',
-      confirmText: '重启 ComfyUI',
-      danger: true,
-    })
-    setConfirmingRestart(false)
-    if (confirmed) restart.mutate()
-  }
-
   const copyAddress = async (address: string) => {
     try {
       await navigator.clipboard.writeText(address)
@@ -440,16 +422,6 @@ function SystemConnections({ health }: { health: ReturnType<typeof useComfyHealt
           </div>
         </Panel>
         <Panel icon={<Activity size={14} />} title="访问入口">
-          <div className="flex flex-wrap justify-between gap-2 text-xs">
-            <span>后端 → ComfyUI</span>
-            <span>{bridgeChecked ? (bridge.online ? '可达' : '不可达') : '状态未知'}</span>
-          </div>
-          {bridge?.base_url && (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <code className="break-all text-xs">{bridge.base_url}</code>
-              <button type="button" className="text-xs underline" onClick={() => void copyAddress(bridge.base_url)}>复制地址</button>
-            </div>
-          )}
           <div className="mt-3 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
             <p style={{ color: 'var(--muted)' }}>
               Tailscale · 服务器侧探测
@@ -458,54 +430,157 @@ function SystemConnections({ health }: { health: ReturnType<typeof useComfyHealt
             {connections.isError && <p role="alert" className="mt-1">Tailscale 探测结果暂不可用</p>}
             {!checks && !connections.isError && <p role="status" className="mt-1">正在探测…</p>}
             {checks?.tailscale === null && <p className="mt-1">未配置有效的 Tailscale 地址</p>}
-            {checks?.tailscale?.map((probe) => (
+            {checks?.tailscale?.filter((probe) => probe.key === 'backend').map((probe) => (
               <div key={probe.key} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <div className="min-w-0">
-                  <span className="block">{probe.key === 'backend' ? '后端 API' : 'ComfyUI'}</span>
+                  <span className="block">后端 API</span>
                   <code className="break-all" style={{ color: 'var(--muted)' }}>{probe.url}</code>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ color: probe.http_status === 200 ? 'var(--ok, #22c55e)' : 'var(--warn, #f59e0b)' }}>
                     {probe.http_status == null ? '探测失败' : `HTTP ${probe.http_status}`}
                   </span>
-                  <button type="button" className="underline" aria-label={`复制 ${probe.key === 'backend' ? '后端 API' : 'ComfyUI'} 的 Tailscale 地址`}
+                  <button type="button" className="underline" aria-label={`复制 $后端 API 的 Tailscale 地址`}
                     onClick={() => void copyAddress(probe.url)}>复制地址</button>
                 </div>
               </div>
             ))}
           </div>
           {copyMessage && <p role="status" className="mt-1 text-xs">{copyMessage}</p>}
-          {sidecar && (
-            <details className="mt-3 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
-              <summary className="cursor-pointer">ComfyUI 监听地址（{sidecar.listens.length}）</summary>
-              <ul className="mt-2 space-y-1">
-                {sidecar.listens.map((address) => <li key={address}><code>{address}</code></li>)}
-                {sidecar.missing_listens.map((address) => <li key={address} style={{ color: 'var(--warn, #f59e0b)' }}>缺少监听 <code>{address}</code></li>)}
-              </ul>
-            </details>
-          )}
         </Panel>
       </div>
-      <Panel icon={<Activity size={14} />} title="ComfyUI 运行"
-        rightSlot={<button type="button" className="text-xs underline disabled:opacity-50" onClick={requestRestart}
-          title={busy ? '有任务正在执行或排队' : undefined} disabled={busy || confirmingRestart || restart.isPending}>
-          {restart.isPending ? '正在提交…' : '重启 ComfyUI'}
-        </button>}
-      >
-        <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
-          <span>队列任务 {bridgeChecked && bridge.online ? bridge.queue_depth : '—'}</span>
-          {render && <span>桥接任务 {render.task_id} · 已占用 {render.held_seconds.toFixed(1)} 秒</span>}
-          <span>最近启动 {startedAt == null ? '—' : new Date(startedAt * 1000).toLocaleString()}</span>
-          <span title="systemd 为此单元记录的自动重启次数">自动重启 {restartCount == null ? '—' : `${restartCount} 次`}</span>
-        </div>
-        {busy && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>任务结束后可重启。</p>}
-        {restart.isSuccess && <p role="status" className="mt-2 text-xs">已提交 ComfyUI 重启请求。</p>}
-        {restart.isError && <p role="alert" className="mt-2 text-xs" style={{ color: 'var(--err)' }}>{restart.error.message}</p>}
-      </Panel>
     </section>
   )
 }
 
+function ComfyManagement({ restart, clear }: {
+  restart: ReturnType<typeof useRestartComfy>
+  clear: ReturnType<typeof useFreeComfyCache>
+}) {
+  const health = useComfyHealth()
+  const connections = useStatusConnections()
+  const sidecar = useHealth().data?.comfy
+  const [confirming, setConfirming] = useState(false)
+  const [copyMessage, setCopyMessage] = useState('')
+  const bridge = health.isError ? undefined : health.data
+  const checks = connections.isError ? undefined : connections.data
+  const startedAt = checks?.comfy_unit.started_at
+  const restartCount = checks?.comfy_unit.restart_count
+  const render = bridge?.running_render
+  const busy = !!render || (bridge?.queue_depth ?? 0) > 0
+  const locked = confirming || restart.isPending || clear.isPending
+  const tailscale = checks?.tailscale?.find((probe) => probe.key === 'comfy')
+  const rss = bridge?.process_rss_bytes
+  const vram = bridge?.devices?.reduce((total, device) => total + device.comfy_used, 0)
+  const freed = clear.data?.freed_bytes ?? 0
+
+  const requestAction = async (action: 'restart' | 'clear') => {
+    if (locked || busy || (action === 'clear' && !bridge?.online)) return
+    setConfirming(true)
+    const restarting = action === 'restart'
+    const label = restarting ? '重启 ComfyUI' : '清理缓存并释放显存'
+    try {
+      if (!await confirmDialog({
+        title: label,
+        message: restarting
+          ? 'ComfyUI 会短暂断开。有任务执行或排队时，系统会拒绝重启。'
+          : '将卸载 ComfyUI 缓存模型并清理节点执行缓存。下次生成可能需要重新加载模型。',
+        confirmText: label,
+        danger: restarting,
+      })) return
+      if (restarting) {
+        clear.reset()
+        restart.mutate()
+      } else {
+        restart.reset()
+        clear.mutate()
+      }
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  const copyAddress = async (address: string) => {
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopyMessage('已复制地址')
+    } catch {
+      setCopyMessage('复制失败，可手动选中地址')
+    }
+  }
+
+  return (
+    <>
+      <Panel icon={<Activity size={14} />} title="ComfyUI 运行"
+        rightSlot={<span className="text-sm" style={{ color: bridge?.online ? 'var(--ok)' : 'var(--muted)' }}>
+          {bridge ? (bridge.online ? '在线' : '离线') : '状态未知'}
+        </span>}
+      >
+        <dl className="grid grid-cols-2 gap-4 text-sm lg:grid-cols-4">
+          <div><dt className="console-description">队列任务</dt><dd>{bridge?.online ? bridge.queue_depth : '—'}</dd></div>
+          <div><dt className="console-description">最近启动</dt><dd>{startedAt == null ? '—' : new Date(startedAt * 1000).toLocaleString()}</dd></div>
+          <div><dt className="console-description">自动重启次数</dt><dd>{restartCount ?? '—'}</dd></div>
+          <div><dt className="console-description">版本</dt><dd>{bridge?.version || '—'}</dd></div>
+        </dl>
+        {render && <p className="mt-3 text-sm">桥接任务 {render.task_id} · 已执行 {render.held_seconds.toFixed(1)} 秒</p>}
+      </Panel>
+      <Panel icon={<Cpu size={14} />} title="资源与维护">
+        <dl className="grid grid-cols-2 gap-4 text-sm">
+          <div><dt className="console-description">主进程内存</dt><dd>{rss == null ? '—' : `${(rss / 1024 ** 3).toFixed(1)} GiB`}</dd></div>
+          <div><dt className="console-description">ComfyUI 自占显存</dt><dd>{!bridge?.online || vram == null ? '—' : `${(vram / 1024 ** 3).toFixed(1)} GiB`}</dd></div>
+        </dl>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" className="rounded border border-[var(--border-strong)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={locked || busy || !bridge?.online}
+            onClick={() => void requestAction('clear')}>清理缓存并释放显存</button>
+          <button type="button" className="rounded border border-[var(--border-strong)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={locked || busy}
+            onClick={() => void requestAction('restart')}>重启 ComfyUI</button>
+        </div>
+        {busy && <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>任务结束后可执行维护。</p>}
+        {!bridge?.online && !restart.isPending &&
+          <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>ComfyUI 在线时可清理缓存。</p>}
+        {clear.isPending && <p role="status" className="mt-2 text-sm">正在清理缓存…</p>}
+        {clear.isSuccess && <p role="status" className="mt-2 text-sm">{freed > 0
+          ? `已释放 ${(freed / 1024 ** 3).toFixed(1)} GiB 显存。`
+          : '已提交清理请求，暂未观察到显存下降。'}</p>}
+        {restart.isPending && <p role="status" className="mt-2 text-sm">正在重启 ComfyUI，等待服务恢复…</p>}
+        {restart.isSuccess && <p role="status" className="mt-2 text-sm" style={{ color: restart.data ? 'var(--ok)' : 'var(--warn)' }}>
+          {restart.data ? 'ComfyUI 重启成功，服务已重新上线。' : '重启请求已接收，暂未确认服务恢复。'}
+        </p>}
+        {clear.isError && <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--err)' }}>{clear.error.message}</p>}
+        {restart.isError && <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--err)' }}>{restart.error.message}</p>}
+      </Panel>
+      <Panel icon={<Activity size={14} />} title="访问入口">
+        {bridge?.base_url && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 text-sm">
+            <div><span className="block">后端 → ComfyUI · {bridge.online ? '可达' : '不可达'}</span>
+              <code className="break-all">{bridge.base_url}</code></div>
+            <button type="button" className="underline" onClick={() => void copyAddress(bridge.base_url)}>复制桥接地址</button>
+          </div>
+        )}
+        {connections.isError && <p role="alert" className="text-sm">Tailscale 探测结果暂不可用</p>}
+        {!checks && !connections.isError && <p role="status" className="text-sm">正在探测 Tailscale…</p>}
+        {checks?.tailscale === null && <p className="text-sm">未配置 Tailscale 地址</p>}
+        {tailscale && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
+            <div><span className="block">Tailscale · {tailscale.http_status == null ? '探测失败' : `HTTP ${tailscale.http_status}`}</span>
+              <a className="break-all underline" href={tailscale.url} target="_blank" rel="noreferrer">{tailscale.url}</a></div>
+            <button type="button" className="underline" onClick={() => void copyAddress(tailscale.url)}>复制 Tailscale 地址</button>
+          </div>
+        )}
+        {copyMessage && <p role="status" className="mt-1 text-xs">{copyMessage}</p>}
+        {sidecar && (
+          <details className="mt-3 border-t pt-2 text-sm" style={{ borderColor: 'var(--border)' }}>
+            <summary className="cursor-pointer">监听地址（{sidecar.listens.length}）</summary>
+            <ul className="mt-2 space-y-1">
+              {sidecar.listens.map((address) => <li key={address}><code>{address}</code></li>)}
+              {sidecar.missing_listens.map((address) => <li key={address} style={{ color: 'var(--warn)' }}>缺少监听 <code>{address}</code></li>)}
+            </ul>
+          </details>
+        )}
+      </Panel>
+    </>
+  )
+}
 
 function BizStat({
   label,
@@ -828,8 +903,6 @@ function TopSvcStrip({ svc }: { svc: TopServiceRow }) {
 }
 
 function SystemStatus() {
-  const comfyHealth = useComfyHealth()
-  const cache = useComfyCacheClear(comfyHealth)
   const { data: gpuData } = useSysGpus()
   const { data: sysStats } = useSysStats()
   const { data: runners } = useRunners()
@@ -856,15 +929,6 @@ function SystemStatus() {
   const runnerOf = (indices: number[]) =>
     (runners ?? []).find((r) => r.gpus.some((g) => indices.includes(g))) ?? null
 
-  const gpuCacheControls = (gpus: SysGpuInfo[]) => {
-    const target = `gpu-${gpus.map((gpu) => gpu.index).join('+')}`
-    const hostsComfy = gpus.some((gpu) =>
-      gpu.processes?.some((proc) => proc.managed && proc.model_name === 'ComfyUI'),
-    )
-    if (!hostsComfy && cache.target !== target) return undefined
-    return <ComfyCacheControls cache={cache} target={target} canRequest={hostsComfy} />
-  }
-
   return (
     <>
       <section aria-labelledby="dashboard-resources">
@@ -887,13 +951,7 @@ function SystemStatus() {
             label="物理内存"
             value={sysStats ? `${fmt(sysStats.memory_used_gb)}G` : '—'}
             hint={sysStats ? `可用 ${fmt(sysStats.memory_available_gb)} / 总计 ${fmt(sysStats.memory_total_gb)} GiB` : ''}
-          >
-            <ComfyCacheControls cache={cache} target="memory">
-              <p style={{ color: 'var(--muted)' }}>
-                ComfyUI 主进程内存 {cache.rss == null ? '—' : `${(cache.rss / 1024 ** 3).toFixed(1)} GiB`}
-              </p>
-            </ComfyCacheControls>
-          </MiniStat>
+          />
           <MiniStat
             label="交换空间"
             value={sysStats ? `${fmt(sysStats.swap_used_gb)}G` : '—'}
@@ -924,7 +982,6 @@ function SystemStatus() {
                   gpus={card.gpus}
                   runner={runnerOf(card.gpus.map((g) => g.index))}
                   onKill={onKill}
-                  cacheControls={gpuCacheControls(card.gpus)}
                 />
               ) : (
                 <GpuCard
@@ -932,7 +989,6 @@ function SystemStatus() {
                   gpu={card.gpu}
                   runner={runnerOf([card.gpu.index])}
                   onKill={onKill}
-                  cacheControls={gpuCacheControls([card.gpu])}
                 />
               ),
             )}
@@ -946,7 +1002,7 @@ function SystemStatus() {
         <VLLMPanel />
         <RuntimePanel />
       </section>
-      <SystemConnections health={comfyHealth} />
+      <SystemConnections />
     </>
   )
 }
@@ -1059,83 +1115,14 @@ function SystemProcesses() {
   )
 }
 
-function useComfyCacheClear(health: ReturnType<typeof useComfyHealth>) {
-  const clear = useFreeComfyCache()
-  const [confirming, setConfirming] = useState(false)
-  const [target, setTarget] = useState<string>()
-  const comfy = health.data
-  const busy = !!comfy?.running_render || (comfy?.queue_depth ?? 0) > 0
-  const ready = !health.isError && comfy?.online === true && comfy.queue_depth === 0 && !busy
-  let unavailable = '正在读取 ComfyUI 队列'
-  if (health.isError) unavailable = '暂时无法确认队列状态'
-  else if (comfy?.online === false) unavailable = 'ComfyUI 离线'
-  else if (busy) unavailable = '有任务正在执行或排队'
-
-  const requestClear = async (actionTarget: string) => {
-    if (!ready || confirming || clear.isPending) return
-    setConfirming(true)
-    const confirmed = await confirmDialog({
-      title: actionTarget === 'memory' ? '清理 ComfyUI 缓存' : '释放 ComfyUI 显存',
-      message: '卸载 ComfyUI 缓存模型并清理节点执行缓存。下次生成可能需要重新加载模型。',
-      confirmText: '清理缓存',
-    })
-    setConfirming(false)
-    if (confirmed) {
-      setTarget(actionTarget)
-      clear.mutate()
-    }
-  }
-
-  return { clear, confirming, target, ready, unavailable, requestClear, rss: comfy?.process_rss_bytes }
-}
-
-function ComfyCacheControls({ cache, target, canRequest = true, children }: {
-  cache: ReturnType<typeof useComfyCacheClear>
-  target: string
-  canRequest?: boolean
-  children?: ReactNode
-}) {
-  const { clear, ready, confirming, unavailable, requestClear } = cache
-  const active = target === cache.target
-  const isMemory = target === 'memory'
-  const label = isMemory ? '清理 ComfyUI 缓存' : '释放 ComfyUI 显存'
-  const freed = clear.data?.freed_bytes ?? 0
-
-  return (
-    <div className="mt-3 space-y-2 border-t pt-2 text-xs" style={{ borderColor: 'var(--border)' }}>
-      {children}
-      {canRequest && (
-        <button type="button"
-          className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ borderColor: 'var(--border-strong)', color: 'var(--accent)' }}
-          disabled={!ready || confirming || clear.isPending}
-          onClick={() => void requestClear(target)}>
-          {active && clear.isPending ? '正在请求清理…' : label}
-        </button>
-      )}
-      {canRequest && !ready && <p style={{ color: 'var(--muted)' }}>{unavailable}</p>}
-      {active && clear.isSuccess && (
-        <p role="status">{isMemory
-          ? '已提交清理请求，内存读数会继续刷新。'
-          : freed > 0
-            ? `已观察到 ComfyUI 归还 ${(freed / 1024 ** 3).toFixed(1)} GiB 显存。`
-            : '已提交清理请求，暂未观察到显存下降。'}</p>
-      )}
-      {active && clear.isError && <p role="alert" style={{ color: 'var(--error)' }}>{clear.error.message}</p>}
-    </div>
-  )
-}
-
 function MiniStat({
   label,
   value,
   hint,
-  children,
 }: {
   label: string
   value: string
   hint?: string
-  children?: ReactNode
 }) {
   return (
     <div className="console-card px-4 py-3">
@@ -1158,7 +1145,6 @@ function MiniStat({
           </span>
         )}
       </div>
-      {children}
     </div>
   )
 }
@@ -1275,13 +1261,11 @@ function GpuGroupCard({
   gpus,
   runner,
   onKill,
-  cacheControls,
 }: {
   group: GpuGroup
   gpus: SysGpuInfo[]
   runner: RunnerInfo | null
   onKill: (pid: number, mem: number) => void
-  cacheControls?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const indices = gpus.map((g) => g.index)
@@ -1387,7 +1371,6 @@ function GpuGroupCard({
           pct={memPct}
           warn={lowMemory}
         />
-        {cacheControls}
         {procs.length > 0 && (
           <details className="console-gpu-processes">
             <summary>GPU 进程（{procs.length}）</summary>
@@ -1482,12 +1465,10 @@ function GpuCard({
   gpu,
   runner,
   onKill,
-  cacheControls,
 }: {
   gpu: SysGpuInfo
   runner: RunnerInfo | null
   onKill: (pid: number, mem: number) => void
-  cacheControls?: ReactNode
 }) {
   const memPct =
     gpu.memory_total_mb > 0 ? (gpu.memory_used_mb / gpu.memory_total_mb) * 100 : 0
@@ -1544,7 +1525,6 @@ function GpuCard({
         pct={memPct}
         warn={gpu.low_memory}
       />
-      {cacheControls}
       {gpu.processes && gpu.processes.length > 0 && (
         <details className="console-gpu-processes">
           <summary>GPU 进程（{gpu.processes.length}）</summary>

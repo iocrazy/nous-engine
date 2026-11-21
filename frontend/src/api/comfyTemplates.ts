@@ -178,14 +178,40 @@ export function useComfyHealth() {
   })
 }
 
+async function restartComfyAndVerify(): Promise<boolean> {
+  const request = await apiFetch<{
+    previous_pid: number | null
+    requested_at: number
+    was_online: boolean
+  }>('/api/v1/comfy/restart', {
+    method: 'POST',
+    headers: { 'X-Nous-Action': 'restart-comfyui' },
+  })
+  if (!request.requested_at || (request.previous_pid == null && request.was_online)) return false
+
+  const deadline = Date.now() + 90_000
+  for (let remaining = deadline - Date.now(); remaining > 0; remaining = deadline - Date.now()) {
+    const status = await apiFetch<{
+      ready: boolean
+      main_pid: number | null
+      checked_at: number
+    }>('/api/v1/comfy/restart', {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(Math.min(5_000, remaining)),
+    }).catch(() => undefined)
+    if (status?.ready && status.main_pid && status.main_pid !== request.previous_pid
+      && status.checked_at >= request.requested_at) return true
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+  }
+  return false
+}
+
 export function useRestartComfy() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => apiFetch<{ accepted: boolean }>('/api/v1/comfy/restart', {
-      method: 'POST',
-      headers: { 'X-Nous-Action': 'restart-comfyui' },
-    }),
-    onSuccess: () => {
+    mutationFn: restartComfyAndVerify,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['health'] })
       void queryClient.invalidateQueries({ queryKey: ['comfy-health'] })
       void queryClient.invalidateQueries({ queryKey: ['status-snapshot'] })
       void queryClient.invalidateQueries({ queryKey: ['status-connections'] })
