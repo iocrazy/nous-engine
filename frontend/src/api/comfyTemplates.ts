@@ -178,6 +178,21 @@ export function useComfyHealth() {
   })
 }
 
+export function useRestartComfy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<{ accepted: boolean }>('/api/v1/comfy/restart', {
+      method: 'POST',
+      headers: { 'X-Nous-Action': 'restart-comfyui' },
+    }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['comfy-health'] })
+      void queryClient.invalidateQueries({ queryKey: ['status-snapshot'] })
+      void queryClient.invalidateQueries({ queryKey: ['status-connections'] })
+    },
+  })
+}
+
 export function getObjectInfo(): Promise<Record<string, unknown>> {
   return apiFetch<Record<string, unknown>>('/api/v1/comfy/object-info')
 }

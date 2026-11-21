@@ -23,7 +23,7 @@ PRIV_LIBDIR=/usr/local/lib/nous-engine
 SERVICES=(nous-engine-backend.service nous-engine-status.service)
 TIMERS=(nous-engine-healthprobe.timer nous-engine-dbbackup.timer)
 TARGETS=(nous-engine.target)
-SUDOERS=(nous-engine-deploy nous-engine-strata)
+SUDOERS=(nous-engine-deploy nous-engine-strata nous-engine-comfy-restart)
 # 全部拷进 /etc/systemd/system(含 oneshot probe/dbbackup、target、comfyui)。
 UNIT_FILES=(nous-engine-backend.service nous-engine-status.service nous-engine-strata@.service \
             nous-engine-healthprobe.service nous-engine-healthprobe.timer nous-engine-dbbackup.service nous-engine-dbbackup.timer nous-engine-comfyui.service nous-engine-netprobe.service nous-engine.target)
