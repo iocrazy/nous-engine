@@ -199,6 +199,11 @@ def _task_to_dict(t: ExecutionTask, *, include_input: bool = True) -> dict:
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
     }
+    if t.status == "running":
+        from src.services.nodes.comfy_bridge import get_comfy_progress
+
+        if progress := get_comfy_progress(t.id):
+            d["comfy_progress"] = progress
     if include_input:
         d["input_json"] = t.input_json
     # 顺序:image 先(workflow 多含 image_output)→ tts → vision(LLM 带图)→ llm(纯文本)。

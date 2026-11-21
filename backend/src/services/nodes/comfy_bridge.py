@@ -47,6 +47,7 @@ from src.services.comfy.video_audio import ensure_audio_track
 from src.services.image_output_storage import write_image as _write_media_sync
 from src.services.nodes.registry import register
 from src.services.service_schema import matches_input_conditions
+from src.services.ws_hub import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -319,26 +320,39 @@ class ComfyUIWorkflowNode:
         async with _SEM:
             _running_task_id = task_id
             _running_since = time.monotonic()
-            _running_progress = {"phase": "submitting"}
-            tracker = None
+            _running_progress = None
+            tracker = notifier = None
             observed_nodes: set[str] = set()
+
+            async def publish_progress(owner: int) -> None:
+                sent = None
+                while (pending := _running_progress) is not None and pending != sent:
+                    await ws_manager.broadcast_task_progress(owner, {"comfy": pending})
+                    sent = pending
 
             def track(event: dict) -> None:
                 global _running_progress
+                nonlocal notifier
                 node_id = event.get("node")
                 if node_id is not None:
                     observed_nodes.add(str(node_id))
                 node = graph.get(node_id, {})
                 title = (node.get("_meta") or {}).get("title") or node.get("class_type")
-                _running_progress = {**event, **({"label": title} if title else {})}
+                progress = {**event, **({"label": title} if title else {})}
+                if progress == _running_progress:
+                    return
+                _running_progress = progress
+                if task_id is not None and (notifier is None or notifier.done()):
+                    notifier = asyncio.create_task(publish_progress(int(task_id)))
 
             try:
                 # cancel-race 复查(C1):本任务可能在排队等信号量期间被取消
                 # ——真正 submit 给 ComfyUI 前再查一次 DB,取消了就不渲染。
                 if task_id is not None and await _task_is_cancelled(task_id):
                     raise ComfyError("任务已取消,渲染跳过")
+                track({"phase": "submitting"})
                 prompt_id = await client.submit(graph)
-                _running_progress = {"phase": "queued"}
+                track({"phase": "queued"})
                 watch = getattr(client, "watch_progress", None)
                 if task_id is not None and watch is not None:
                     tracker = asyncio.create_task(watch(prompt_id, track))
@@ -351,6 +365,10 @@ class ComfyUIWorkflowNode:
                         tracker.cancel()
                         with suppress(asyncio.CancelledError):
                             await tracker
+                    if notifier is not None:
+                        notifier.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await notifier
                 finally:
                     _running_task_id = None
                     _running_since = None
