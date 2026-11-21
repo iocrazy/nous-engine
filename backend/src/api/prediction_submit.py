@@ -22,7 +22,7 @@ from src.services.prediction_service import (
     snapshot_to_executor_form,
     task_to_prediction,
 )
-from src.services.service_schema import build_service_io_schema, validate_service_input
+from src.services.service_schema import build_published_service_io_schema, validate_service_input
 
 # 同步默认上限(秒):无 Prefer 时阻塞,但封顶避免无限挂(长任务用 respond-async)。
 _SYNC_CAP_SECONDS = 600.0
@@ -75,8 +75,7 @@ async def submit_prediction(
         raise HTTPException(400, detail="service workflow has no nodes")
 
     # 类型校验(PR-1):按 per-service input schema 校验请求 input。
-    schema = build_service_io_schema(
-        instance.exposed_inputs, instance.exposed_outputs, snapshot)
+    schema = build_published_service_io_schema(instance)
     # 选项依赖(x-options-source):某些字段的合法值域取决于**另一个入参的当前值**
     # (krea2:`styles` 的清单随 `style_pack` 变),运行期去 sidecar 取(带 10 分钟
     # 进程内缓存)。在这里**预取**再传给同步的 validate_service_input —— 校验函数本身

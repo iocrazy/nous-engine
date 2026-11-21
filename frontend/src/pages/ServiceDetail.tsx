@@ -45,6 +45,8 @@ import { ModelPlayground } from '../components/playground/ModelPlayground'
 import SchemaDrivenOutput from '../components/playground/SchemaDrivenOutput'
 import { pluck } from '../components/playground/outputValues'
 import QwenImagePlayground from '../components/playground/QwenImagePlayground'
+import { staticOptions } from '../components/playground/fieldKind'
+import { GENERATION_MODES, IMAGE_MODEL_NAMES, MOSS_IMAGE_ID, QWEN_TURBO_ID, TOOL_MODELS } from '../components/playground/imageWorkflowModels'
 import AsyncRunState from '../components/playground/AsyncRunState'
 import { createPredictionAsync } from '../api/predictions'
 import { useServiceUsageTasks, type ServiceUsageTask } from '../api/tasks'
@@ -487,13 +489,20 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
   const qwen = isQwenImageWorkflow(svc)
   const modeParam = svc.exposed_inputs.find(input => input.key === 'input_mode')
   const [imageMode, setImageMode] = useState(() => {
-    if (initialInputs) {
-      const requested = initialInputs.input_mode ?? modeParam?.default
-      return typeof requested === 'string' ? requested : undefined
-    }
-    const modes = modeParam?.constraints?.enum
-    return qwen && Array.isArray(modes) && modes.includes('moss_text') ? 'moss_text' : undefined
+    const requested = initialInputs?.input_mode ?? modeParam?.default
+    return typeof requested === 'string' ? requested : undefined
   })
+  const modelParam = svc.exposed_inputs.find(input => input.key === 'model')
+  const [imageModel, setImageModel] = useState(() => {
+    const requested = initialInputs?.model ?? (initialInputs ? modelParam?.default : MOSS_IMAGE_ID)
+    return typeof requested === 'string' && modelParam && staticOptions(modelParam).some(o => o.value === requested)
+      ? requested : undefined
+  })
+  const playgroundInputs = {
+    ...initialInputs,
+    ...(imageMode ? { input_mode: imageMode } : {}),
+    ...(imageModel ? { model: imageModel } : {}),
+  }
   const m = canEdit ? mode : 'run'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -504,12 +513,12 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
         </div>
       )}
       {qwen && <div hidden={m !== 'run'}>
-        <PlaygroundTab svc={svc} initialInputs={imageMode ? { ...initialInputs, input_mode: imageMode } : initialInputs}
-          onImageModeChange={setImageMode} />
+        <PlaygroundTab svc={svc} initialInputs={playgroundInputs}
+          onImageModeChange={setImageMode} onImageModelChange={setImageModel} />
       </div>}
       {m === 'edit' ? (
         svc.source_type === 'comfy_template' && svc.source_id ? (
-          <ComfyTemplateEditor templateId={svc.source_id} serviceId={svc.id} currentMode={imageMode} />
+          <ComfyTemplateEditor templateId={svc.source_id} serviceId={svc.id} currentMode={imageMode} currentModel={imageModel} />
         ) : (
           <AppEditorTab svc={svc} />
         )
@@ -544,10 +553,11 @@ function SegBtn({ active, onClick, icon, label }: { active: boolean; onClick: ()
 
 // exported for tests: comfy_template respond-async 集成回归(Task 10 review 修复)需要
 // 直接渲染这层——不依赖 react-query/react-router 的 ServiceDetailPage 外壳。
-export function PlaygroundTab({ svc, initialInputs, onImageModeChange }: {
+export function PlaygroundTab({ svc, initialInputs, onImageModeChange, onImageModelChange }: {
   svc: ServiceDetailT
   initialInputs?: Record<string, unknown>
   onImageModeChange?: (mode: string) => void
+  onImageModelChange?: (model: string) => void
 }) {
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
   const [running, setRunning] = useState(false)
@@ -688,7 +698,7 @@ export function PlaygroundTab({ svc, initialInputs, onImageModeChange }: {
       : status === 'completed' ? <StatusFooter status={status} latencyMs={latencyMs} result={result} /> : null)
     return <QwenImagePlayground key={svc.id} inputs={svc.exposed_inputs} initialInputs={initialInputs}
       resultUrl={typeof image === 'string' && image ? image : undefined}
-      activity={activity} running={running} onRun={submit} onModeChange={onImageModeChange} />
+      activity={activity} running={running} onRun={submit} onModeChange={onImageModeChange} onModelChange={onImageModelChange} />
   }
 
   return (
@@ -1241,6 +1251,7 @@ function DocsTab({ svc }: { svc: ServiceDetailT }) {
           {curl}
         </pre>
       </Panel>
+      {isQwenImageWorkflow(svc) && <ImageModelDocs inputs={svc.exposed_inputs} />}
       <Panel title="入参 schema">
         <SchemaTable rows={svc.exposed_inputs} kind="input" />
       </Panel>
@@ -1248,6 +1259,40 @@ function DocsTab({ svc }: { svc: ServiceDetailT }) {
         <SchemaTable rows={svc.exposed_outputs} kind="output" />
       </Panel>
     </div>
+  )
+}
+
+function ImageModelDocs({ inputs }: { inputs: ExposedParam[] }) {
+  const mode = inputs.find(input => input.key === 'input_mode')
+  const model = inputs.find(input => input.key === 'model')
+  if (!mode || !model) return null
+  const options = staticOptions(model)
+  const routes = staticOptions(mode).flatMap(({ value }) => {
+    const id = String(value)
+    if (GENERATION_MODES.includes(id)) {
+      return options.map(option => ({
+        mode: id, model: String(option.value),
+        label: IMAGE_MODEL_NAMES[String(option.value)] ?? option.label ?? String(option.value),
+      }))
+    }
+    const label = TOOL_MODELS[id]
+    return label ? [{ mode: id, model: '', label }] : []
+  })
+  return (
+    <Panel title="模型路由">
+      <div className="console-table-wrap">
+        <table className="console-table">
+          <thead><tr><th scope="col">input_mode</th><th scope="col">model</th><th scope="col">运行模型</th></tr></thead>
+          <tbody>
+            {routes.map(route => <tr key={`${route.mode}/${route.model}`}>
+              <td><code>{route.mode}</code>{mode.default === route.mode && '（默认功能）'}</td>
+              <td>{route.model ? <><code>{route.model}</code>{model.default === route.model && '（默认模型）'}</> : '由功能决定'}</td>
+              <td>{route.label}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   )
 }
 
@@ -1311,7 +1356,9 @@ function buildCurl(svc: ServiceDetailT): string {
   const body =
     svc.category === 'llm'
       ? `{"model": "${svc.name}", "messages": [{"role": "user", "content": "..."}]}`
-      : '{}'
+      : isQwenImageWorkflow(svc) && svc.exposed_inputs.some(input => input.key === 'model')
+        ? JSON.stringify({ input_mode: 'text', model: QWEN_TURBO_ID, prompt: 'A quiet mountain lake at sunset' })
+        : '{}'
   return [
     `curl -X POST '${url}' \\`,
     `  -H 'Authorization: Bearer YOUR_API_KEY' \\`,

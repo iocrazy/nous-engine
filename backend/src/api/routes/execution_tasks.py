@@ -101,7 +101,10 @@ def _gallery_model(t):
         func.nullif(inputs["ckpt_name"].as_string(), ""),
         func.nullif(inputs["unet_name"].as_string(), ""),
     )
+    image_app = workflow == "nous-qwen21-all-in-one"
     return case(
+        (image_app & (declared == "qwen-image-2.1-turbo"), "Qwen Image 2.1 Turbo"),
+        (image_app & (declared == "moss-image"), "MOSS Image"),
         (declared.op("~")(r"^[^:{}\[\]]{1,160}$"), func.regexp_replace(declared, r"^.*/", "")),
         ((is_qwen | is_moss) & (mode == "upscale"), "SeedVR2"),
         (is_moss | (is_qwen & ((mode == "moss_text") |

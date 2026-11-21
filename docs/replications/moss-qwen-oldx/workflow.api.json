@@ -2698,10 +2698,10 @@
   "704": {
     "class_type": "PrimitiveString",
     "_meta": {
-      "title": "反推生图引擎"
+      "title": "生图模型"
     },
     "inputs": {
-      "value": "qwen"
+      "value": "qwen-image-2.1-turbo"
     }
   },
   "705": {
@@ -2714,7 +2714,7 @@
         "704",
         0
       ],
-      "string_b": "moss",
+      "string_b": "moss-image",
       "mode": "Equal",
       "case_sensitive": true
     }
@@ -2810,7 +2810,7 @@
   "716": {
     "class_type": "ComfySwitchNode",
     "_meta": {
-      "title": "反推输出"
+      "title": "生图输出"
     },
     "inputs": {
       "switch": [
@@ -2931,25 +2931,10 @@
       ]
     }
   },
-  "730": {
-    "class_type": "StringCompare",
-    "_meta": {
-      "title": "MOSS 文生图"
-    },
-    "inputs": {
-      "string_a": [
-        "700",
-        0
-      ],
-      "string_b": "moss_text",
-      "mode": "Equal",
-      "case_sensitive": true
-    }
-  },
   "731": {
     "class_type": "StringCompare",
     "_meta": {
-      "title": "Qwen 文生图"
+      "title": "文字生图"
     },
     "inputs": {
       "string_a": [
@@ -3051,30 +3036,10 @@
       "case_sensitive": true
     }
   },
-  "750": {
-    "class_type": "ComfySwitchNode",
-    "_meta": {
-      "title": "MOSS 文生图"
-    },
-    "inputs": {
-      "switch": [
-        "730",
-        0
-      ],
-      "on_true": [
-        "406",
-        0
-      ],
-      "on_false": [
-        "54",
-        0
-      ]
-    }
-  },
   "751": {
     "class_type": "ComfySwitchNode",
     "_meta": {
-      "title": "Qwen 文生图"
+      "title": "文字生图"
     },
     "inputs": {
       "switch": [
@@ -3082,11 +3047,11 @@
         0
       ],
       "on_true": [
-        "14",
+        "716",
         0
       ],
       "on_false": [
-        "750",
+        "54",
         0
       ]
     }

@@ -61,7 +61,7 @@ async def get_service_schema(
     """
     from sqlalchemy.orm import undefer  # noqa: PLC0415
 
-    from src.services.service_schema import build_service_io_schema  # noqa: PLC0415
+    from src.services.service_schema import build_published_service_io_schema  # noqa: PLC0415
     stmt = (
         select(ServiceInstance)
         .options(
@@ -74,8 +74,7 @@ async def get_service_schema(
     svc = (await session.execute(stmt)).scalar_one_or_none()
     if svc is None:
         raise HTTPException(404, detail="service not found")
-    schema = build_service_io_schema(
-        svc.exposed_inputs, svc.exposed_outputs, svc.workflow_snapshot)
+    schema = build_published_service_io_schema(svc)
     return {
         "service": name,
         "category": svc.category,
