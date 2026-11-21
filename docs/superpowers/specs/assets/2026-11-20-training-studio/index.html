@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>训练工坊 · Nous Engine</title>
+  <link rel="stylesheet" href="studio.css">
+  <script defer src="studio.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>nous</div>
+    <div class="top-right">
+      <span class="demo">原型 · 示例数据</span>
+      <button class="resource quiet" type="button" data-action="gpu-queue"><span class="dot" aria-hidden="true"></span>GPU 与队列</button>
+      <button class="resource quiet" type="button" data-action="environment">引擎与环境</button>
+    </div>
+  </header>
+  <div class="shell">
+    <aside class="rail" aria-label="Nous Engine 导航示意">
+      <div class="rail-title"><span aria-hidden="true">N</span>nous-engine</div>
+      <div class="rail-group">
+        <span class="rail-link"><span aria-hidden="true">⌘</span>概览</span>
+        <span class="rail-link"><span aria-hidden="true">∿</span>服务</span>
+        <span class="rail-link"><span aria-hidden="true">⑂</span>工作流</span>
+      </div>
+      <div class="rail-group">
+        <span class="rail-link"><span aria-hidden="true">◇</span>引擎库</span>
+        <span class="rail-link"><span aria-hidden="true">▧</span>图库</span>
+        <span class="rail-link rail-active" aria-current="page"><span aria-hidden="true">⚗</span>训练工坊</span>
+      </div>
+    </aside>
+    <div class="studio-content">
+      <header class="studio-header">
+        <div class="studio-title">
+          <h1>训练工坊</h1>
+          <p id="studio-context"></p>
+        </div>
+        <nav aria-label="训练工坊" id="nav"></nav>
+      </header>
+      <main id="main"></main>
+    </div>
+  </div>
+  <dialog id="dialog"></dialog>
+  <input type="file" id="upload" accept="image/*" multiple hidden>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
