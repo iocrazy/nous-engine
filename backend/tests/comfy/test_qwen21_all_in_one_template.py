@@ -145,11 +145,14 @@ async def test_single_reference_edit_prunes_other_loaders_and_submits_one_output
     result = await comfy_bridge.ComfyUIWorkflowNode().invoke({
         "template_id": "test", "input_mode": "edit", "prompt": "改成夜景",
         "image": "data:image/png;base64,aW1hZ2U=", "enable_optimization": False, "seed": 0,
+        "edit_aspect_ratio": "9:16",
     }, {})
     submitted = sidecar.submit.call_args.args[0]
     assert result["image_url"] == "/result.png"
     assert submitted["54"]["inputs"]["image"] == "uploaded.png"
     assert submitted["406"]["inputs"]["value"] == 0
+    assert submitted["122"]["inputs"]["比例"] == "9:16"
+    assert submitted["39"]["inputs"]["比例"] == "原始比例"
     assert not set(submitted["125"]["inputs"]) & {f"image_{i:02d}" for i in range(2, 7)}
     assert not set(submitted["375"]["inputs"]) & {f"images.image{i}" for i in range(2, 7)}
     assert sidecar.upload_image.await_count == 1
