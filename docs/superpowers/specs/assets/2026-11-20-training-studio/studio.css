@@ -123,3 +123,9 @@ dialog form{margin:0}
 @media(max-width:1020px){.shell{grid-template-columns:165px minmax(0,1fr)}.rail{padding-inline:9px}.rail-resource div{display:grid}.workspace{grid-template-columns:minmax(0,1fr) minmax(224px,260px)}}
 @media(max-width:790px){.shell{display:block}.rail{padding:8px 12px;border-bottom:1px solid var(--faint);border-right:0}.rail-title,.rail-resource{display:none}nav{display:flex;overflow:auto}nav button{width:auto}.topbar{padding:0 12px;height:54px}main{padding-top:24px}}
 @media(max-width:640px){.workspace{grid-template-columns:minmax(0,1fr)}.demo{font-size:10px}.resource{font-size:11px}.media-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar-note{flex-wrap:wrap}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.edit-group{border:1px solid var(--faint);border-radius:9px;padding:11px}
+.edit-tiles{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
+.edit-tiles img,.training-previews>img{display:block;width:100%;aspect-ratio:1.55;object-fit:cover;border-radius:6px}
+.edit-tiles figcaption{padding-top:4px;color:var(--muted);font-size:12px}
+.training-previews{max-height:300px;overflow:auto}
+.training-previews>img{max-height:110px}

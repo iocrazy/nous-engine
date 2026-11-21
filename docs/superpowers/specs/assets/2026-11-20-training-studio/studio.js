@@ -21,16 +21,26 @@ const samples = [
   ['08_远山', ''],
 ].map(([name, caption], i) => ({ id: i + 1, name: name + '.jpg', caption, src: 'photo-' + (i + 1) + '.webp' }))
 const models = [
-  { id: 'qwen', name: 'Qwen-Image-2.1', source: 'Qwen/Qwen-Image-2.1', size: '30.86 GiB', family: 'qwen2.1', status: 'missing', components: ['兼容 DiffSynth 的分片权重'] },
-  { id: 'moss-base', name: 'MOSS-Image-Base', source: 'openmoss/MOSS-Image-Base', size: '25.36 GiB', family: 'moss', status: 'ready', components: [] },
-  { id: 'moss-sft', name: 'MOSS-Image-SFT', source: 'openmoss/MOSS-Image-SFT', size: '25.36 GiB', family: 'moss', status: 'absent', components: ['模型权重', '文本编码器', 'VAE'] },
+  { id: 'qwen', modes: ['image', 'edit'], name: 'Qwen-Image-2.1', source: 'Qwen/Qwen-Image-2.1', size: '30.86 GiB', family: 'qwen2.1', status: 'missing', components: ['兼容 DiffSynth 的分片权重'] },
+  { id: 'moss-base', modes: ['image'], name: 'MOSS-Image-Base', source: 'openmoss/MOSS-Image-Base', size: '25.36 GiB', family: 'moss', status: 'ready', components: [] },
+  { id: 'moss-sft', modes: ['image'], name: 'MOSS-Image-SFT', source: 'openmoss/MOSS-Image-SFT', size: '25.36 GiB', family: 'moss', status: 'absent', components: ['模型权重', '文本编码器', 'VAE'] },
 ]
+const editSamples = [
+  { id: 1, refs: [1, 2], target: 3, caption: '保留第一张的群山，把湖面调成清透的青绿色。' },
+  { id: 2, refs: [4, 5], target: 8, caption: '保留前景线条，将环境改为暖色远山与开阔天空。' },
+  { id: 3, refs: [6], target: 7, caption: '' },
+]
+const managedTrainer = '/models/training/DiffSynth-Studio'
+const modeNames = { image: '文生图', edit: '图像编辑' }
 const cards = { ready: ['可训练', 'ok'], missing: ['训练组件待补齐', 'warn'], absent: ['未下载', ''], downloading: ['下载中', ''], checking: ['校验中', ''] }
 const state = {
   tab: 'dataset', filter: 'all', layout: 'grid', query: '', modelFilter: 'all', focus: 1,
   added: samples.slice(0, 6), selected: new Set([1, 2, 3, 4, 5, 6]),
+  mode: 'image', editFocus: 1, selectedEdits: new Set([1, 2, 3]),
+  trainerPath: managedTrainer, trainerRecognized: false, trainerDiagnostic: '',
   model: 'qwen', taskName: '风景摄影 · 光线与色彩', gpu: '1', rank: 32, steps: 1200,
   rate: '0.0001', interval: 400, resolution: 1024, preset: 'standard', task: null, checkpoint: '1200', split: 50,
+  gradientCheckpoint: true, cpuOffload: false,
   tested: false, published: '', allowEmpty: false, ranCheck: false, advanced: false, verifiedEnvironment: false,
 }
 let messageTimer
@@ -92,12 +102,54 @@ function showDialog(title, content) {
   if (!dialog.open) dialog.showModal()
 }
 
+function modeButtons(action) {
+  return `<div class="filters" aria-label="训练类型">${Object.entries(modeNames).map(([mode, label]) =>
+    button(action, label, { value: mode, pressed: state.mode === mode })).join('')}</div>`
+}
+
+function editTiles(sample) {
+  const tiles = sample.refs.map((id, index) => [id, '输入 ' + (index + 1)])
+  tiles.push([sample.target, '目标'])
+  return `<div class="edit-tiles">${tiles.map(([id, label]) =>
+    `<figure><img src="${samples.find((item) => item.id === id).src}" alt="${label}"><figcaption>${label}</figcaption></figure>`).join('')}</div>`
+}
+
+function editDatasetPage() {
+  const sample = editSamples.find((item) => item.id === state.editFocus)
+  return heading('风景摄影 · 编辑样本', '每组使用有顺序的参考图、目标图和一条编辑指令。', modeButtons('set-mode')) + `
+    <div class="workspace">
+      <section class="panel">
+        <header class="panel-head"><h2>样本组</h2></header>
+        <div class="section-block stack">
+          ${editSamples.map((item) => `<article class="edit-group stack">
+            <div class="row between wrap">
+              <label class="checkline"><input type="checkbox" data-edit-sample="${item.id}" ${state.selectedEdits.has(item.id) ? 'checked' : ''}> 样本 ${item.id}</label>
+              ${item.caption ? chip('配对完整', 'ok') : chip('待补编辑指令', 'warn')}
+              ${button('edit-sample', '查看样本 ' + item.id, { kind: 'quiet', value: item.id })}
+            </div>
+            ${editTiles(item)}
+          </article>`).join('')}
+        </div>
+        <footer class="toolbar-note"><small>已选 ${state.selectedEdits.size} 组</small>${button('train-selection', '训练所选样本', { kind: 'primary', disabled: !state.selectedEdits.size })}</footer>
+      </section>
+      <aside class="panel">
+        <header class="panel-head"><h2>样本 ${sample.id} · 配对检查</h2></header>
+        <div class="section-block stack">${editTiles(sample)}
+          ${sample.refs.length > 1 ? button('swap-references', '交换输入 1、2', { kind: 'quiet' }) : ''}
+          <label class="field">编辑指令<textarea id="edit-caption" placeholder="描述如何从参考图生成目标图">${escape(sample.caption)}</textarea></label>
+          ${button('save-edit-caption', '保存编辑指令')}
+        </div>
+      </aside>
+    </div>`
+}
+
 function datasetPage() {
+  if (state.mode === 'edit') return editDatasetPage()
   const sample = focusSample()
   const visible = visibleSamples()
   const pending = state.added.filter((item) => !item.caption).length
   const brief = `${state.added.length} 张素材 · ${state.added.length - pending} 张已标注 · 文生图 LoRA`
-  const importer = button('gallery', '从图库选择', { kind: 'quiet' }) + button('upload', '上传图片')
+  const importer = modeButtons('set-mode') + button('gallery', '从图库选择', { kind: 'quiet' }) + button('upload', '上传图片')
   const filters = [['all', '全部 · ' + state.added.length], ['pending', '待标注 · ' + pending], ['done', '已标注 · ' + (state.added.length - pending)]]
   return heading('风景摄影 · 光线与色彩', brief, importer) + `
     <div class="workspace">
@@ -160,9 +212,10 @@ function modelsPage() {
           return `<article class="panel model-card">
             <div class="row between"><span class="model-symbol ${entry.family === 'moss' ? 'moss' : ''}" aria-hidden="true">${entry.family === 'moss' ? 'M' : 'Q'}</span>${chip(...status)}</div>
             <div><h3>${entry.name}</h3><small class="mono">${entry.source}</small></div>
-            <small>${entry.size} · DiffSynth · 文生图 ${entry.id === 'qwen' ? '· 推理可用' : ''}</small>
+            <small>${entry.size} · DiffSynth · ${entry.modes.map((mode) => modeNames[mode]).join(' / ')} ${entry.id === 'qwen' ? '· 推理可用' : ''}</small>
             ${entry.downloadSource ? `<small>下载来源 · ${escape(entry.downloadSource)}</small>` : ''}
-            <div class="actions wrap">${primary}${button('components', '查看组件', { kind: 'quiet', value: entry.id })}</div>
+            ${entry.localPath ? `<small class="mono">${escape(entry.localPath)}</small>` : ''}
+            <div class="actions wrap">${primary}${button('components', '查看组件', { kind: 'quiet', value: entry.id })}${button('match-directory', '关联本地目录', { kind: 'quiet', value: entry.id, disabled: downloading })}</div>
           </article>`
         }).join('') || '<p class="empty">这个状态暂无模型。</p>'}
       </div>
@@ -188,27 +241,54 @@ function taskProgress() {
     ${done ? button('navigate', '查看训练结果 →', { kind: 'primary', value: 'results' }) : task.cancelled ? '' : button('cancel-training', '取消训练', { kind: 'quiet' })}</div></section>`
 }
 
+function selectedEditSamples() {
+  return editSamples.filter((item) => state.selectedEdits.has(item.id))
+}
+
+function selectionReady() {
+  return state.mode === 'edit'
+    ? state.selectedEdits.size > 0 && selectedEditSamples().every((item) => item.caption)
+    : state.selected.size > 0 && (state.allowEmpty || labeledCount() === state.selected.size)
+}
+
+function environmentDialog() {
+  const status = state.verifiedEnvironment ? '已验证' : state.trainerRecognized ? '已识别 · 待验证' : '待识别'
+  showDialog('引擎与环境', `
+    <div class="row between wrap"><h3>DiffSynth-Studio</h3>${chip(status, state.verifiedEnvironment ? 'ok' : '')}</div>
+    <label class="field">训练器目录<input id="trainer-path" value="${escape(state.trainerPath)}" placeholder="/models/training/DiffSynth-Studio"></label>
+    <div class="row wrap">${button('use-managed-trainer', '使用托管目录', { kind: 'quiet' })}${button('recognize-environment', '识别并保存环境', { kind: 'primary' })}</div>
+    ${state.trainerRecognized ? `<div class="kv"><span>Python</span><b class="mono">${escape(state.trainerPath)}/.venv/bin/python</b></div>` : ''}
+    ${state.trainerDiagnostic ? `<details open><summary>诊断日志</summary><pre class="logs">${escape(state.trainerDiagnostic)}</pre></details>` : ''}
+    ${button('verify-environment', '验证环境', { disabled: !state.trainerRecognized })}
+  `)
+}
+
 function trainingPage() {
   const selected = model()
   const busy = state.task && !state.task.cancelled && state.task.percent < 100
   const missing = state.selected.size - labeledCount()
-  const eligible = selected.status === 'ready' && state.selected.size && (!missing || state.allowEmpty)
+  const eligible = selected.status === 'ready' && selectionReady() && state.verifiedEnvironment
+  const editing = state.mode === 'edit'
+  const preview = editing ? selectedEditSamples() : state.added.filter((item) => state.selected.has(item.id))
   return heading('发起训练', '选择数据集、基础模型与 GPU。提交时保存这些配置的快照。', button('navigate', '查看模型目录', { kind: 'quiet', value: 'models' })) + `
     <div class="workspace">
       <section class="panel">
-        <header class="panel-head"><h2>训练配置</h2></header>
+        <header class="panel-head row between wrap"><h2>训练配置</h2>${modeButtons('set-mode')}</header>
         <div class="section-block stack">
           <label class="field">任务名称<input data-field="taskName" value="${escape(state.taskName)}" aria-label="任务名称"></label>
-          <div class="row between wrap"><div class="stack"><h3>风景摄影 · 光线与色彩</h3><small>已选 ${state.selected.size} 张 · 已标注 ${labeledCount()} 张</small></div>${button('navigate', '修改所选素材', { kind: 'quiet', value: 'dataset' })}</div>
-          ${missing ? `<label class="checkline"><input type="checkbox" data-field="allowEmpty" ${state.allowEmpty ? 'checked' : ''}> 允许 ${missing} 张已选素材使用空描述</label>` : ''}
+          <div class="row between wrap"><div class="stack"><h3>${editing ? '风景摄影 · 编辑样本' : '风景摄影 · 光线与色彩'}</h3><small>${editing ? '已选 ' + preview.length + ' 组 · 配对完整 ' + preview.filter((item) => item.caption).length + ' 组' : '已选 ' + state.selected.size + ' 张 · 已标注 ' + labeledCount() + ' 张'}</small></div>${button('navigate', '修改所选素材', { kind: 'quiet', value: 'dataset' })}</div>
+          ${!editing && missing ? `<label class="checkline"><input type="checkbox" data-field="allowEmpty" ${state.allowEmpty ? 'checked' : ''}> 允许 ${missing} 张已选素材使用空描述</label>` : ''}
           <div class="form-grid">
-            <label class="field">基础模型<select data-field="model">${models.map((entry) => `<option value="${entry.id}" ${entry.id === state.model ? 'selected' : ''}>${entry.name} · ${cards[entry.status][0]}</option>`).join('')}</select></label>
+            <label class="field">基础模型<select data-field="model">${models.filter((entry) => entry.modes.includes(state.mode)).map((entry) => `<option value="${entry.id}" ${entry.id === state.model ? 'selected' : ''}>${entry.name} · ${cards[entry.status][0]}</option>`).join('')}</select></label>
             <label class="field">GPU<select data-field="gpu"><option value="1" ${state.gpu === '1' ? 'selected' : ''}>GPU 1 · RTX PRO 6000</option><option value="0" ${state.gpu === '0' ? 'selected' : ''}>GPU 0 · RTX PRO 5000</option></select></label>
           </div>
           ${selected.status === 'ready' ? '' : `<div class="notice warn row between wrap"><span>${selected.name} 训练权重待准备</span>${button('navigate', '打开模型与目录', { kind: 'link', value: 'models' })}</div>`}
           <label class="field">训练预设<select data-field="preset"><option value="standard" ${state.preset === 'standard' ? 'selected' : ''}>标准 · 风格 LoRA</option><option value="short" ${state.preset === 'short' ? 'selected' : ''}>快速验证 · 少步数</option></select></label>
           <details id="advanced" ${state.advanced ? 'open' : ''}><summary>高级参数</summary><div class="form-grid">
             ${[['steps','训练步数'],['rank','LoRA Rank'],['rate','学习率'],['resolution','训练分辨率'],['interval','Checkpoint 保存间隔']].map(([key, label]) => `<label class="field">${label}<input type="number" step="${key === 'rate' ? 'any' : '1'}" min="0" data-field="${key}" value="${escape(state[key])}"></label>`).join('')}
+          </div><div class="row wrap">
+            <label class="checkline"><input type="checkbox" data-field="gradientCheckpoint" ${state.gradientCheckpoint ? 'checked' : ''}> 梯度检查点</label>
+            <label class="checkline"><input type="checkbox" data-field="cpuOffload" ${state.cpuOffload ? 'checked' : ''}> 模型 CPU 卸载</label>
           </div></details>
         </div>
         <footer class="toolbar-note">
@@ -219,11 +299,17 @@ function trainingPage() {
       <aside class="panel">
         <header class="panel-head"><h2>训练预检</h2></header>
         <div class="section-block stack">
-          <div class="kv"><span>数据集快照</span><b>${state.selected.size} 张选中</b></div>
+          <div class="kv"><span>数据集快照</span><b>${preview.length} ${editing ? '组选中' : '张选中'}</b></div>
           <div class="kv"><span>模型组件</span>${chip(...cards[selected.status])}</div>
-          <div class="kv"><span>预计可用显存</span><b>${state.gpu === '1' ? 54 : 48} GiB</b></div>
+          <div class="kv"><span>当前可用显存（示例）</span><b>${state.gpu === '1' ? 54 : 48} GiB</b></div>
+          <div class="kv"><span>配方显存参考（示例）</span><b>${state.cpuOffload ? 'CPU 卸载' : selected.id === 'qwen' ? '约 38 GiB' : '约 31 GiB'}</b></div>
           <div class="kv"><span>DiffSynth 环境</span>${chip(state.verifiedEnvironment ? '验证通过' : '待检查', state.verifiedEnvironment ? 'ok' : '')}</div>
-          ${state.ranCheck ? `<div class="notice ${eligible ? '' : 'warn'}">${eligible ? '预检通过，可以提交训练。' : '请补齐模型组件、素材或标注后再提交。'}</div>` : ''}
+          ${state.verifiedEnvironment ? '' : button('environment', '配置训练环境', { kind: 'quiet' })}
+          ${state.ranCheck ? `<div class="notice ${eligible ? '' : 'warn'}">${eligible ? '预检通过，可以提交训练。' : '请检查训练环境、模型组件和素材标注。'}</div>` : ''}
+        </div>
+        <div class="panel-head"><h2>所选素材预览</h2></div>
+        <div class="section-block stack training-previews">
+          ${preview.slice(0, 8).map((item) => editing ? editTiles(item) : `<img src="${escape(item.src)}" alt="${escape(item.name)}">`).join('') || '<p class="muted">暂无所选素材。</p>'}
         </div>
       </aside>
     </div>
@@ -281,14 +367,14 @@ function runTraining() {
   const task = {
     name: state.taskName.trim(), gpu: state.gpu, steps: Number(state.steps),
     modelName: activeModel.name, family: activeModel.family, percent: 0,
-    dataset: state.added.filter((item) => state.selected.has(item.id)).map(({ id, caption }) => ({ id, caption })),
+    mode: state.mode, gradientCheckpoint: state.gradientCheckpoint, cpuOffload: state.cpuOffload,
+    dataset: state.mode === 'edit' ? selectedEditSamples().map((item) => ({ ...item, refs: [...item.refs] })) : state.added.filter((item) => state.selected.has(item.id)).map(({ id, caption }) => ({ id, caption })),
   }
   state.task = task
   state.checkpoint = '1200'
   state.split = 50
   state.tested = false
   state.published = ''
-  state.verifiedEnvironment = true
   state.ranCheck = true
   render()
   document.querySelector('[aria-label="训练记录"]').scrollIntoView({ block: 'nearest' })
@@ -342,17 +428,45 @@ document.addEventListener('click', (event) => {
   switch (action) {
     case 'navigate': navigate(value); return
     case 'close-dialog': dialog.close(); return
-    case 'environment':
-      showDialog('引擎与环境', `<p class="muted">DiffSynth-Studio · 独立 Python 环境</p>
-        <div class="kv"><span>训练运行器</span><b>DiffSynth-Studio</b></div>
-        <div class="kv"><span>训练模型根目录</span><b class="mono">/models/training</b></div>
-        <div class="kv"><span>可选设备</span><b>RTX PRO 5000 / 6000</b></div>
-        ${state.verifiedEnvironment ? '<p class="notice">示例环境检查通过。</p>' : button('verify-environment', '验证环境', { kind: 'primary' })}`)
+    case 'environment': environmentDialog(); return
+    case 'use-managed-trainer':
+      document.querySelector('#trainer-path').value = managedTrainer
       return
+    case 'recognize-environment': {
+      state.trainerPath = document.querySelector('#trainer-path').value.trim().replace(/\/+$/, '')
+      state.trainerRecognized = state.trainerPath === managedTrainer
+      state.verifiedEnvironment = false
+      state.ranCheck = false
+      state.trainerDiagnostic = state.trainerRecognized
+        ? '✓ 识别到示例 DiffSynth 训练入口和独立 .venv'
+        : '未找到示例环境。可选择「使用托管目录」后重新识别。'
+      render()
+      environmentDialog()
+      return
+    }
     case 'verify-environment':
+      if (!state.trainerRecognized) return
       state.verifiedEnvironment = true
-      dialog.close()
-      tell('示例环境检查通过。')
+      state.trainerDiagnostic = '✓ DiffSynth 入口\n✓ 独立 Python\n✓ CUDA 和目录访问（示例）'
+      render()
+      environmentDialog()
+      return
+    case 'set-mode':
+      state.mode = value
+      if (!model().modes.includes(value)) state.model = models.find((item) => item.modes.includes(value)).id
+      state.ranCheck = false
+      break
+    case 'edit-sample': state.editFocus = Number(value); break
+    case 'swap-references': {
+      const item = editSamples.find((entry) => entry.id === state.editFocus)
+      item.caption = document.querySelector('#edit-caption').value.trim()
+      item.refs.reverse()
+      break
+    }
+    case 'save-edit-caption':
+      editSamples.find((item) => item.id === state.editFocus).caption = document.querySelector('#edit-caption').value.trim()
+      state.ranCheck = false
+      tell('编辑指令已保存。')
       break
     case 'filter': state.filter = value; break
     case 'layout': state.layout = value; break
@@ -402,6 +516,28 @@ document.addEventListener('click', (event) => {
     case 'scan':
       tell('示例扫描完成。' + models.filter((item) => item.status === 'ready').length + ' 个模型可训练，' + models.filter((item) => item.status === 'missing').length + ' 个模型需补齐。')
       break
+    case 'match-directory': {
+      const examplePath = '/models/training/' + entry.name
+      showDialog(entry.name + ' · 关联本地目录', `<label class="field">本地模型目录<input id="model-directory" value="${escape(entry.localPath ?? examplePath)}"></label>
+        <p class="muted">示例目录 ${examplePath}。匹配后检查基础权重、文本编码器和 VAE。</p>
+        <div id="directory-status" role="status"></div>
+        ${button('confirm-match', '识别并关联', { kind: 'primary', value: entry.id })}`)
+      return
+    }
+    case 'confirm-match': {
+      const path = document.querySelector('#model-directory').value.trim().replace(/\/+$/, '')
+      if (path !== '/models/training/' + entry.name) {
+        document.querySelector('#directory-status').textContent = '未找到匹配的示例组件。请检查目录后重试。'
+        return
+      }
+      entry.localPath = path
+      entry.components = []
+      entry.status = 'ready'
+      state.ranCheck = false
+      dialog.close()
+      tell('已关联本地组件和 DiffSynth 训练配方。')
+      break
+    }
     case 'components': {
       const components = entry.components.length ? entry.components.map((name) => `<div class="kv"><span>${name}</span>${chip('缺失', 'warn')}</div>`).join('')
         : '<p class="notice">基础模型、文本编码器和 VAE 均已通过示例校验。</p>'
@@ -416,8 +552,13 @@ document.addEventListener('click', (event) => {
         ${button('start-download', '确认下载', { kind: 'primary', value: entry.id })}`)
       return
     case 'start-download': runDownload(entry); return
-    case 'choose-model': state.model = value; navigate('training'); return
-    case 'preflight': state.ranCheck = true; state.verifiedEnvironment = true; break
+    case 'choose-model':
+      state.model = value
+      if (!entry.modes.includes(state.mode)) state.mode = entry.modes[0]
+      state.ranCheck = false
+      navigate('training')
+      return
+    case 'preflight': state.ranCheck = true; break
     case 'start-training': runTraining(); return
     case 'cancel-training': state.task.cancelled = true; tell('任务已取消。'); break
     case 'checkpoint': state.checkpoint = value; state.tested = false; break
@@ -496,6 +637,15 @@ main.addEventListener('input', (event) => {
 
 main.addEventListener('change', (event) => {
   const input = event.target
+  if (input.dataset.editSample) {
+    const id = Number(input.dataset.editSample)
+    if (input.checked) state.selectedEdits.add(id)
+    else state.selectedEdits.delete(id)
+    state.ranCheck = false
+    render()
+    document.querySelector('[data-edit-sample="' + id + '"]')?.focus()
+    return
+  }
   if (input.dataset.media) {
     const id = Number(input.dataset.media)
     if (input.checked) state.selected.add(id)
@@ -505,7 +655,7 @@ main.addEventListener('change', (event) => {
     return
   }
   const { field } = input.dataset
-  if (!['model', 'gpu', 'preset', 'allowEmpty'].includes(field)) return
+  if (!['model', 'gpu', 'preset', 'allowEmpty', 'gradientCheckpoint', 'cpuOffload'].includes(field)) return
   state[field] = input.type === 'checkbox' ? input.checked : input.value
   state.ranCheck = false
   if (field === 'preset') {
