@@ -52,7 +52,7 @@ def active_nodes(graph):
 
 
 @pytest.mark.parametrize(("mode", "sampler"), [
-    ("moss_text", "404"), ("text", "24"), ("reference", "24"), ("edit", "70"),
+    ("text", "24"), ("reference", "24"), ("edit", "70"),
     ("oldx", "522"), ("character_card", "522"), ("outpaint", "197"),
     ("remove", "259"), ("upscale", None),
 ])
@@ -69,13 +69,19 @@ def test_mode_runs_just_its_sampler(mode, sampler):
     assert {node_id for node_id, node in graph.items() if node["class_type"] == "SaveImage"} == {"389"}
 
 
-def test_reference_can_use_moss_and_oldx_can_upscale():
+@pytest.mark.parametrize("mode", ["text", "reference"])
+def test_generation_can_use_moss(mode):
     graph = deepcopy(WORKFLOW)
-    graph["700"]["inputs"]["value"] = "reference"
-    graph["704"]["inputs"]["value"] = "moss"
-    assert {"435", "404", "344"} <= active_nodes(graph)
-    assert "24" not in active_nodes(graph)
+    graph["700"]["inputs"]["value"] = mode
+    graph["704"]["inputs"]["value"] = "moss-image"
+    active = active_nodes(graph)
+    assert {"435", "404"} <= active
+    assert ("344" in active) == (mode == "reference")
+    assert "24" not in active
 
+
+def test_oldx_can_upscale():
+    graph = deepcopy(WORKFLOW)
     graph["700"]["inputs"]["value"] = "oldx"
     graph["706"]["inputs"]["value"] = True
     assert {"522", "387", "719"} <= active_nodes(graph)
@@ -126,10 +132,24 @@ async def test_replace_existing_service_without_changing_its_route(client):
     schema = (await client.get(f"/v1/services/{name}/schema")).json()
     assert schema["input_schema"]["properties"]["input_mode"]["default"] == "text"
     assert set(schema["input_schema"]["properties"]["input_mode"]["enum"]) == set(SCHEMA["properties"]["input_mode"]["enum"])
+    assert schema["input_schema"]["additionalProperties"] is False
+    assert schema["input_schema"]["properties"]["model"]["enum"] == ["qwen-image-2.1-turbo", "moss-image"]
+    assert "reference_engine" not in schema["input_schema"]["properties"]
+    assert "moss_text" not in schema["input_schema"]["properties"]["input_mode"]["enum"]
     assert set(schema["output_schema"]["properties"]) == {"image_url"}
     old_input = await client.post(f"/v1/apps/{name}/run", json={"lora_01": "slot.safetensors"})
     assert old_input.status_code == 422
     assert "lora_01" in old_input.text
+    for key, payload in [
+        ("input_mode", {"input_mode": "moss_text", "prompt": "example"}),
+        ("reference_engine", {"input_mode": "reference", "reference_engine": "moss", "image": "example.png"}),
+        ("model", {"model": "qwen", "prompt": "example"}),
+        ("model", {"input_mode": "upscale", "model": "moss-image", "image": "example.png"}),
+    ]:
+        direct = await client.post(f"/v1/apps/{name}/run", json=payload)
+        prediction = await client.post(f"/v1/services/{name}/predictions", json={"input": payload})
+        assert direct.status_code == prediction.status_code == 422
+        assert key in direct.text and key in prediction.text
 
 
 def test_moss_loras_follow_the_canvas_order_and_enabled_state():
@@ -150,7 +170,7 @@ def test_moss_loras_follow_the_canvas_order_and_enabled_state():
 
 @pytest.mark.parametrize(("key", "node", "mode"), [
     ("qwen_loras", "773", "text"),
-    ("moss_loras", "397", "moss_text"),
+    ("moss_loras", "397", "text"),
     ("edit_loras", "166", "edit"),
     ("oldx_loras", "514", "oldx"),
 ])
@@ -160,6 +180,8 @@ def test_lora_list_is_bound_to_the_power_loader_in_its_branch(key, node, mode):
     assert WORKFLOW[node]["class_type"] == "Power Lora Loader (rgthree)"
     graph = deepcopy(WORKFLOW)
     graph["700"]["inputs"]["value"] = mode
+    if key == "moss_loras":
+        graph["704"]["inputs"]["value"] = "moss-image"
     assert node in active_nodes(graph)
     directory = "moss" if key == "moss_loras" else "qwen2.1"
     rows = [{"lora": f"{directory}/any.safetensors", "on": True, "strength": 0.4}] * 8

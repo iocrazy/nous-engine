@@ -61,7 +61,7 @@ async def get_service_schema(
     """
     from sqlalchemy.orm import undefer  # noqa: PLC0415
 
-    from src.services.service_schema import build_service_io_schema  # noqa: PLC0415
+    from src.services.service_schema import build_published_service_io_schema  # noqa: PLC0415
     stmt = (
         select(ServiceInstance)
         .options(
@@ -74,8 +74,7 @@ async def get_service_schema(
     svc = (await session.execute(stmt)).scalar_one_or_none()
     if svc is None:
         raise HTTPException(404, detail="service not found")
-    schema = build_service_io_schema(
-        svc.exposed_inputs, svc.exposed_outputs, svc.workflow_snapshot)
+    schema = build_published_service_io_schema(svc)
     return {
         "service": name,
         "category": svc.category,
@@ -94,10 +93,10 @@ async def get_service_options(
     """List selectable LoRAs for the inputs declared by an authorized service."""
     from src.services.comfy.client import ComfyError
     from src.services.comfy.lora_options import LORA_LIST_TYPE, lora_files, lora_matches_input
-    from src.services.service_schema import build_service_io_schema
+    from src.services.service_schema import build_published_service_io_schema
 
     svc, _ = await _resolve_service(session, auth, name, reserve_rate_limit=False)
-    schema = build_service_io_schema(svc.exposed_inputs, svc.exposed_outputs, svc.workflow_snapshot)
+    schema = build_published_service_io_schema(svc)
     keys = [key for key, spec in schema["input_schema"]["properties"].items()
             if spec.get("x-widget") == LORA_LIST_TYPE]
     if not keys:

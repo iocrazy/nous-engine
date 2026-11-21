@@ -156,7 +156,8 @@ export function groupComfyNodes(
 
 const OUTPUT_NODES = /^(SaveImage|Image Save|SaveVideo|SaveWEBM|SaveAnimated|VHS_VideoCombine)/
 
-export function filterComfyBranch(workflow: ComfyWorkflow, modeNodeId: string, mode: string): ComfyWorkflow {
+export function filterComfyBranch(workflow: ComfyWorkflow, modeNodeId: string, mode: string, inputs: Record<string, string> = {}): ComfyWorkflow {
+  const values = { ...inputs, [modeNodeId]: mode }
   const ids = new Set(Object.keys(workflow))
   const outputs = Object.keys(workflow).filter(id => OUTPUT_NODES.test(workflow[id].class_type))
   if (!outputs.length) return workflow
@@ -165,9 +166,9 @@ export function filterComfyBranch(workflow: ComfyWorkflow, modeNodeId: string, m
     if (!isComfyNodeRef(input, ids)) return undefined
     const node = workflow[input[0]]
     const source = node.inputs?.string_a
-    if (node.class_type === 'StringCompare' && isComfyNodeRef(source, ids) && source[0] === modeNodeId
+    if (node.class_type === 'StringCompare' && isComfyNodeRef(source, ids) && Object.hasOwn(values, source[0])
       && node.inputs.mode === 'Equal' && typeof node.inputs.string_b === 'string') {
-      return node.inputs.string_b === mode
+      return node.inputs.string_b === values[source[0]]
     }
     return undefined
   }
