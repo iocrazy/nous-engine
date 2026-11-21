@@ -13,6 +13,7 @@ const box = vi.hoisted(() => ({
   comfyQueue: 0,
   comfyOnline: true,
   clearCache: vi.fn(),
+  restartComfy: vi.fn(),
   confirmDialog: vi.fn(),
   vllm: [] as VLLMInstance[],
   groups: [] as GpuGroup[],
@@ -93,6 +94,7 @@ vi.mock('../../api/status', () => ({
 vi.mock('../../stores/confirm', () => ({ confirmDialog: box.confirmDialog }))
 vi.mock('../../api/comfyTemplates', () => ({
   useFreeComfyCache: () => ({ mutate: box.clearCache }),
+  useRestartComfy: () => ({ mutate: box.restartComfy }),
   useComfyHealth: () => ({
     data: { online: box.comfyOnline, queue_depth: box.comfyQueue, process_rss_bytes: 4 * 1024 ** 3,
       base_url: 'http://127.0.0.1:8888', running_render: null },
@@ -123,6 +125,7 @@ beforeEach(() => {
   box.comfyQueue = 0
   box.comfyOnline = true
   box.clearCache.mockReset()
+  box.restartComfy.mockReset()
   box.confirmDialog.mockReset()
   box.vllm = []
   box.groups = []
@@ -130,6 +133,17 @@ beforeEach(() => {
 })
 
 describe('DashboardOverlay tabs', () => {
+  it('requires confirmation before submitting a ComfyUI restart from the overview', async () => {
+    box.confirmDialog.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    render(<DashboardOverlay />)
+    const restart = screen.getByRole('button', { name: '重启 ComfyUI' })
+    fireEvent.click(restart)
+    await waitFor(() => expect(restart.hasAttribute('disabled')).toBe(false))
+    expect(box.restartComfy).not.toHaveBeenCalled()
+    fireEvent.click(restart)
+    await waitFor(() => expect(box.restartComfy).toHaveBeenCalledTimes(1))
+  })
+
   it('reports each physical GPU free memory separately', () => {
     box.gpus = [
       mkGpu({ index: 0, memory_free_mb: 1024 }),

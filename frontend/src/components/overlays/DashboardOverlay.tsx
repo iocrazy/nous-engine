@@ -14,7 +14,7 @@ import { useVLLMMetrics, type VLLMInstance } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { useHealth } from '../../api/health'
 import { useStatus, useStatusConnections, type ComponentStatus } from '../../api/status'
-import { useComfyHealth, useFreeComfyCache } from '../../api/comfyTemplates'
+import { useComfyHealth, useFreeComfyCache, useRestartComfy } from '../../api/comfyTemplates'
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { sortProcesses, formatRate, type ProcSortKey, type ProcSortDir } from './processSort'
@@ -344,11 +344,33 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
   const status = useStatus()
   const gpus = useSysGpus()
   const { data: system } = useSysStats()
+  const restart = useRestartComfy()
+  const [confirmingRestart, setConfirmingRestart] = useState(false)
+  const requestRestart = async () => {
+    if (confirmingRestart || restart.isPending) return
+    setConfirmingRestart(true)
+    const confirmed = await confirmDialog({
+      title: '重启 ComfyUI',
+      message: 'ComfyUI 会短暂断开。检测到正在执行或排队的任务时，系统会拒绝重启。',
+      confirmText: '重启 ComfyUI',
+      danger: true,
+    })
+    setConfirmingRestart(false)
+    if (confirmed) restart.mutate()
+  }
   const attention = status.data?.components.filter((component) => component.status === 'degraded' || component.status === 'down')
   return (
     <>
       <Panel icon={<Cpu size={14} />} title="系统健康"
-        rightSlot={<button type="button" className="text-xs underline" onClick={openSystem}>查看系统状态</button>}
+        rightSlot={
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" className="text-xs underline disabled:opacity-50"
+              onClick={requestRestart} disabled={confirmingRestart || restart.isPending}>
+              {restart.isPending ? '正在提交…' : '重启 ComfyUI'}
+            </button>
+            <button type="button" className="text-xs underline" onClick={openSystem}>查看系统状态</button>
+          </div>
+        }
       >
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
           {status.isError ? '状态检查暂不可用' : attention?.length
@@ -356,6 +378,8 @@ function OverviewSummary({ rows, modelCountsReady, openModels, openSystem }: {
             : status.data ? `组件状态${HEALTH_LABEL[status.data.overall]}` : '正在检查组件状态…'}
           {system && <span className="ml-3">物理内存可用 {system.memory_available_gb.toFixed(1)} GiB</span>}
         </p>
+        {restart.isSuccess && <p role="status" className="mt-2 text-xs">已提交 ComfyUI 重启请求。</p>}
+        {restart.isError && <p role="alert" className="mt-2 text-xs" style={{ color: 'var(--err)' }}>{restart.error.message}</p>}
       </Panel>
       <div className="mb-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))' }}>
         {(['loaded', 'loading', 'failed'] as const).map((modelStatus) => (

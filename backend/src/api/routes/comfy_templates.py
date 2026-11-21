@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import time
 import urllib.parse
 from datetime import datetime, timezone
@@ -20,13 +21,14 @@ from typing import Any, Literal
 
 import httpx
 import psutil
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field, FiniteFloat, StrictBool, StrictStr, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
+from src.api.admin_session import is_login_required
 from src.api.deps_admin import require_admin
 from src.api.response_cache import invalidate
 from src.models.comfy_template import ComfyTemplate
@@ -758,6 +760,31 @@ async def comfy_health():
         await asyncio.to_thread(_process_rss_bytes, main_pid) if main_pid else None
     )
     return health_result
+
+
+def _enqueue_comfy_restart() -> None:
+    subprocess.run(
+        ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "--no-block", "restart",
+         "nous-engine-comfyui.service"],
+        stdin=subprocess.DEVNULL, capture_output=True, timeout=5, check=True,
+    )
+
+
+@health_router.post("/restart", status_code=202, dependencies=[Depends(require_admin)])
+async def comfy_restart(x_nous_action: Literal["restart-comfyui"] = Header()):
+    if not is_login_required():
+        raise HTTPException(403, detail="请先配置管理员登录")
+
+    from src.services.nodes import comfy_bridge
+
+    health = await get_client().health()
+    if health["queue_depth"] or comfy_bridge.get_running_render() is not None:
+        raise HTTPException(409, detail="ComfyUI 有任务正在执行或排队")
+    try:
+        await asyncio.to_thread(_enqueue_comfy_restart)
+    except (subprocess.SubprocessError, OSError):
+        raise HTTPException(503, detail="无法提交 ComfyUI 重启请求，请检查本机服务和 sudoers 授权")
+    return {"accepted": True}
 
 
 def _used_of(devices: list[dict]) -> int:
