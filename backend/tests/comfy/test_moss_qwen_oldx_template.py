@@ -69,6 +69,21 @@ def test_mode_runs_just_its_sampler(mode, sampler):
     assert {node_id for node_id, node in graph.items() if node["class_type"] == "SaveImage"} == {"389"}
 
 
+def test_edit_aspect_ratio_targets_the_edit_resolution_node():
+    ratio = next(param for param in PARAMS if param.key == "edit_aspect_ratio")
+    prop = SCHEMA["properties"][ratio.key]
+    assert prop["x-visible-when"] == {"input_mode": "edit"}
+    assert prop["default"] == WORKFLOW[ratio.comfy_node_id]["inputs"][ratio.comfy_input] == "原始比例"
+    assert prop["enum"] == SCHEMA["properties"]["aspect_ratio"]["enum"]
+    for mode, expected in (("edit", True), ("text", False), ("reference", False)):
+        graph = deepcopy(WORKFLOW)
+        graph["700"]["inputs"]["value"] = mode
+        assert (ratio.comfy_node_id in active_nodes(graph)) == expected
+    payload = {"input_mode": "edit", "prompt": "Make this a portrait", "image": "source.png"}
+    assert validate_service_input(SCHEMA, {**payload, ratio.key: "9:16"}) == []
+    assert validate_service_input(SCHEMA, {**payload, ratio.key: "99:1"})
+
+
 @pytest.mark.parametrize("mode", ["text", "reference"])
 def test_generation_can_use_moss(mode):
     graph = deepcopy(WORKFLOW)
