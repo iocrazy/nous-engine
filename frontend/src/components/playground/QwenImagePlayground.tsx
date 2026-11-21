@@ -12,7 +12,7 @@ import './QwenImagePlayground.css'
 const COMIC_MODE = { value: 'comic_real', label: '漫｜真互转' } as const
 
 const QWEN_TURBO = 'Qwen Image 2.1 Turbo'
-const QWEN_BASE = 'Qwen Image 2.1（基础版）'
+const QWEN_BASE = 'Qwen Image 2.1'
 const MOSS = 'MOSS Image'
 const TEXT_MODELS: Record<string, string> = { moss_text: MOSS, text: QWEN_TURBO }
 const REFERENCE_MODELS: Record<string, string> = { moss: MOSS, qwen: QWEN_TURBO }

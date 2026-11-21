@@ -359,5 +359,5 @@ it('用一个模型下拉切换文生图，反推保持独立选项并同步预�
   fireEvent.click(screen.getByRole('radio', { name: '文字生图' }))
   expect(screen.getByRole('combobox', { name: '模型' })).toHaveTextContent('Qwen Image 2.1 Turbo')
   fireEvent.click(screen.getByRole('button', { name: '人物工具' }))
-  expect(preview.getByLabelText('当前模型 Qwen Image 2.1（基础版）')).toBeVisible()
+  expect(preview.getByLabelText('当前模型 Qwen Image 2.1')).toBeVisible()
 })
