@@ -762,6 +762,9 @@ async def comfy_health():
     return health_result
 
 
+_COMFY_RESTART_RULE = "/etc/sudoers.d/nous-engine-comfy-restart"
+
+
 def _enqueue_comfy_restart() -> None:
     subprocess.run(
         ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "--no-block", "restart",
@@ -782,8 +785,12 @@ async def comfy_restart(x_nous_action: Literal["restart-comfyui"] = Header()):
         raise HTTPException(409, detail="ComfyUI 有任务正在执行或排队")
     try:
         await asyncio.to_thread(_enqueue_comfy_restart)
-    except (subprocess.SubprocessError, OSError):
-        raise HTTPException(503, detail="无法提交 ComfyUI 重启请求，请检查本机服务和 sudoers 授权")
+    except subprocess.CalledProcessError as exc:
+        if not os.path.isfile(_COMFY_RESTART_RULE):
+            raise HTTPException(503, detail="主机尚未安装 ComfyUI 重启授权。请让管理员安装 nous-engine-comfy-restart sudoers 规则。") from exc
+        raise HTTPException(503, detail="主机拒绝了 ComfyUI 重启请求，请检查本机 sudoers 授权和 systemd 日志。") from exc
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise HTTPException(503, detail="无法提交 ComfyUI 重启请求，请检查本机 systemd 服务。") from exc
     return {"accepted": True}
 
 

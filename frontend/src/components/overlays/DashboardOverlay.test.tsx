@@ -133,15 +133,24 @@ beforeEach(() => {
 })
 
 describe('DashboardOverlay tabs', () => {
-  it('requires confirmation before submitting a ComfyUI restart from the overview', async () => {
+  it('places ComfyUI restart in system status and requires confirmation', async () => {
     box.confirmDialog.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     render(<DashboardOverlay />)
+    expect(screen.queryByRole('button', { name: '重启 ComfyUI' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看系统状态' }))
     const restart = screen.getByRole('button', { name: '重启 ComfyUI' })
     fireEvent.click(restart)
     await waitFor(() => expect(restart.hasAttribute('disabled')).toBe(false))
     expect(box.restartComfy).not.toHaveBeenCalled()
     fireEvent.click(restart)
     await waitFor(() => expect(box.restartComfy).toHaveBeenCalledTimes(1))
+  })
+
+  it('shows why restart is unavailable while there are queued tasks', () => {
+    box.comfyQueue = 1
+    renderSystemPanel()
+    expect(screen.getByRole('button', { name: '重启 ComfyUI' })).toBeDisabled()
+    expect(screen.getByText('任务结束后可重启。')).toBeVisible()
   })
 
   it('reports each physical GPU free memory separately', () => {

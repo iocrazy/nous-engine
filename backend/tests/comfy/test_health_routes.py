@@ -46,7 +46,7 @@ async def test_health(client, monkeypatch):
     (True, True, 0, False, 1, 503),
     (True, True, 0, False, 0, 202),
 ])
-async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, running, exit_code, expected):
+async def test_comfy_restart(client, monkeypatch, tmp_path, authenticated, action, depth, running, exit_code, expected):
     monkeypatch.setattr(admin_session, "get_settings", lambda: SimpleNamespace(
         ADMIN_PASSWORD="", ADMIN_TOKEN="test-admin", ADMIN_SESSION_SECRET="",
     ))
@@ -61,7 +61,9 @@ async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, 
     run = Mock(side_effect=subprocess.CalledProcessError(exit_code, command) if exit_code else None)
     monkeypatch.setattr(ct_mod, "subprocess", SimpleNamespace(
         run=run, DEVNULL=subprocess.DEVNULL, SubprocessError=subprocess.SubprocessError,
+        CalledProcessError=subprocess.CalledProcessError,
     ))
+    monkeypatch.setattr(ct_mod, "_COMFY_RESTART_RULE", tmp_path / "nous-engine-comfy-restart")
     headers = {"Authorization": "Bearer test-admin"} if authenticated else {}
     if action:
         headers["X-Nous-Action"] = "restart-comfyui"
@@ -73,6 +75,8 @@ async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, 
         run.assert_not_called()
     if expected == 202:
         assert response.json() == {"accepted": True}
+    if expected == 503:
+        assert "尚未安装 ComfyUI 重启授权" in response.text
 
 
 @pytest.mark.asyncio
