@@ -191,3 +191,10 @@
 .qwen-lora-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; }
 .qwen-lora-file { grid-column: 1 / -1; min-width: 0; }
 .qwen-lora-row input[type='number'] { min-width: 0; width: 100%; }
+
+.qwen-model-picker { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.qwen-preview-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
+.qwen-preview-model {
+  padding: 3px 7px; border-radius: 6px; background: var(--accent-subtle); color: var(--accent);
+  font-size: 11px; line-height: 1.25;
+}

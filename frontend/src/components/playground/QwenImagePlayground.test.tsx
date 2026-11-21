@@ -125,7 +125,7 @@ it('明确显示优化模型并统一将高清放大放在尺寸参数之后', (
   expect(screen.getByRole('combobox', { name: '提示词优化模型' })).toHaveTextContent('本机 Qwen')
   fireEvent.click(screen.getByRole('checkbox', { name: '优化提示词' }))
   expect(screen.queryByRole('combobox', { name: '提示词优化模型' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('radio', { name: 'reference' }))
+  fireEvent.click(screen.getByRole('radio', { name: '图片反推' }))
   assertPlacement()
   fireEvent.click(screen.getByRole('button', { name: '高级参数' }))
   const provider = screen.getByRole('combobox', { name: '提示词优化模型' })
@@ -325,4 +325,39 @@ it('本地拖放到指定槽位，再从图库将原图添加到另一个槽位'
       else Reflect.deleteProperty(dialogPrototype, key)
     }
   }
+})
+
+it('用一个模型下拉切换文生图，反推保持独立选项并同步预览标注', () => {
+  const onRun = vi.fn()
+  render(<QwenImagePlayground inputs={[
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'moss_text',
+      constraints: { enum: ['moss_text', 'text', 'reference', 'oldx', 'character_card'] } },
+    { node_id: 'bridge', key: 'reference_engine', type: 'string', default: 'qwen',
+      constraints: { visible_when: { input_mode: 'reference' }, option_meta: [
+        { value: 'qwen', label: 'Qwen Image 2.1' }, { value: 'moss', label: 'MOSS Image' },
+      ] } },
+  ]} running={false} onRun={onRun} />)
+  const preview = within(screen.getByRole('region', { name: '图片预览' }))
+  expect(preview.getByLabelText('当前模型 MOSS Image')).toBeVisible()
+  const model = screen.getByRole('combobox', { name: '模型' })
+  expect(model).toHaveTextContent('MOSS Image')
+  fireEvent.click(model)
+  fireEvent.click(screen.getByRole('option', { name: 'Qwen Image 2.1 Turbo' }))
+  expect(preview.getByLabelText('当前模型 Qwen Image 2.1 Turbo')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
+  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'text' })
+
+  fireEvent.click(screen.getByRole('radio', { name: '图片反推' }))
+  const reference = screen.getByRole('combobox', { name: '反推后使用的生图模型' })
+  expect(reference).toHaveTextContent('Qwen Image 2.1 Turbo')
+  fireEvent.click(reference)
+  fireEvent.click(screen.getByRole('option', { name: 'MOSS Image' }))
+  expect(preview.getByLabelText('当前模型 MOSS Image')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '反推并生图' }))
+  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'reference', reference_engine: 'moss' })
+
+  fireEvent.click(screen.getByRole('radio', { name: '文字生图' }))
+  expect(screen.getByRole('combobox', { name: '模型' })).toHaveTextContent('Qwen Image 2.1 Turbo')
+  fireEvent.click(screen.getByRole('button', { name: '人物工具' }))
+  expect(preview.getByLabelText('当前模型 Qwen Image 2.1（基础版）')).toBeVisible()
 })
