@@ -28,8 +28,6 @@ import {
   type ServiceModelRef,
   type ServiceStatus,
 } from '../api/services'
-import WorkflowAppEditor, { type AppEditorValue } from '../components/workflow/WorkflowAppEditor'
-import type { EditorNodeLike } from '../components/workflow/appEditorSchema'
 import ComfyTemplateEditor from '../components/services/ComfyTemplateEditor'
 import { useServiceModelStatus, MODEL_STATE_VIS, MODEL_ROLE_LABEL } from '../api/serviceModels'
 import {
@@ -481,10 +479,7 @@ function isQwenImageWorkflow(svc: ServiceDetailT) {
 }
 
 function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: Record<string, unknown> }) {
-  const canEdit = useMemo(
-    () => snapshotToNodes(svc.workflow_snapshot ?? {}).length > 0,
-    [svc.workflow_snapshot],
-  )
+  const templateId = svc.source_type === 'comfy_template' ? svc.source_id : null
   const [mode, setMode] = useState<'run' | 'edit'>('run')
   const qwen = isQwenImageWorkflow(svc)
   const modeParam = svc.exposed_inputs.find(input => input.key === 'input_mode')
@@ -503,10 +498,10 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
     ...(imageMode ? { input_mode: imageMode } : {}),
     ...(imageModel ? { model: imageModel } : {}),
   }
-  const m = canEdit ? mode : 'run'
+  const m = templateId ? mode : 'run'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {canEdit && (
+      {templateId && (
         <div style={{ display: 'inline-flex', alignSelf: 'flex-start', gap: 2, padding: 3, background: 'var(--bg-accent)', border: '1px solid var(--border)', borderRadius: 8 }}>
           <SegBtn active={m === 'run'} onClick={() => setMode('run')} icon={<Play size={13} />} label="运行" />
           <SegBtn active={m === 'edit'} onClick={() => setMode('edit')} icon={<SlidersHorizontal size={13} />} label="编辑暴露字段" />
@@ -516,12 +511,8 @@ function AppTab({ svc, initialInputs }: { svc: ServiceDetailT; initialInputs?: R
         <PlaygroundTab svc={svc} initialInputs={playgroundInputs}
           onImageModeChange={setImageMode} onImageModelChange={setImageModel} />
       </div>}
-      {m === 'edit' ? (
-        svc.source_type === 'comfy_template' && svc.source_id ? (
-          <ComfyTemplateEditor templateId={svc.source_id} serviceId={svc.id} currentMode={imageMode} currentModel={imageModel} />
-        ) : (
-          <AppEditorTab svc={svc} />
-        )
+      {m === 'edit' && templateId ? (
+        <ComfyTemplateEditor templateId={templateId} serviceId={svc.id} currentMode={imageMode} currentModel={imageModel} />
       ) : qwen ? null : svc.source_type === 'model' && (svc.category === 'llm' || svc.category === 'embedding' || svc.category === 'rerank') ? (
         // 模型类服务没有 exposed_inputs,通用表单只能发出 messages:[](见 ModelPlayground 头注释)
         <ModelPlayground name={svc.name} category={svc.category} />
@@ -860,150 +851,6 @@ export function PlaygroundTab({ svc, initialInputs, onImageModeChange, onImageMo
           )}
         </section>
       )}
-    </div>
-  )
-}
-
-// 服务页「应用编辑」tab(spec 2026-06-09 PR-4)。对应用户图3「加个 tab 来修改」+
-// 图4 Infinite-Canvas 测试画布。在已发布服务上改逐 widget 暴露 schema,保存走
-// PATCH(PR-1);左侧表单可真跑(runnable,复用 /v1/apps/{name}/run)。
-function snapshotToNodes(snapshot: Record<string, unknown>): EditorNodeLike[] {
-  const raw = snapshot?.nodes
-  if (Array.isArray(raw)) {
-    return raw.map((n) => {
-      const node = n as Record<string, unknown>
-      return {
-        id: String(node.id),
-        type: String(node.type || node.class_type || ''),
-        data: (node.data || node.inputs || {}) as Record<string, unknown>,
-        position: node.position as { x: number; y: number } | undefined,
-      }
-    })
-  }
-  if (raw && typeof raw === 'object') {
-    return Object.entries(raw as Record<string, Record<string, unknown>>).map(([id, n]) => ({
-      id,
-      type: String(n.class_type || n.type || ''),
-      data: (n.inputs || n.data || {}) as Record<string, unknown>,
-    }))
-  }
-  return []
-}
-
-function snapshotEdges(snapshot: Record<string, unknown>): Array<{ source: string; target: string }> {
-  const raw = snapshot?.edges
-  if (!Array.isArray(raw)) return []
-  return raw
-    .map((e) => e as Record<string, unknown>)
-    .filter((e) => e.source && e.target)
-    .map((e) => ({ source: String(e.source), target: String(e.target) }))
-}
-
-function AppEditorTab({ svc }: { svc: ServiceDetailT }) {
-  const patch = usePatchService()
-  const nodes = useMemo(() => snapshotToNodes(svc.workflow_snapshot ?? {}), [svc.workflow_snapshot])
-  const edges = useMemo(() => snapshotEdges(svc.workflow_snapshot ?? {}), [svc.workflow_snapshot])
-  // 草稿:从服务当前 exposed 播种;改完点保存才落库。
-  const [draft, setDraft] = useState<AppEditorValue>({
-    inputs: svc.exposed_inputs ?? [],
-    outputs: svc.exposed_outputs ?? [],
-  })
-  const [saved, setSaved] = useState(false)
-
-  // 运行(可真跑):复用外部 app 端点。
-  const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<Record<string, unknown> | null>(null)
-  const [runErr, setRunErr] = useState<string | null>(null)
-
-  const run = async (values: Record<string, unknown>) => {
-    setRunning(true)
-    setResult(null)
-    setRunErr(null)
-    try {
-      const data = await apiFetch<Record<string, unknown>>(
-        `/v1/apps/${encodeURIComponent(svc.name)}/run`,
-        { method: 'POST', body: JSON.stringify(values) },
-      )
-      setResult(data)
-    } catch (e) {
-      setRunErr((e as Error).message ?? String(e))
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const save = () => {
-    setSaved(false)
-    patch.mutate(
-      { serviceId: svc.id, exposed_inputs: draft.inputs, exposed_outputs: draft.outputs },
-      { onSuccess: () => setSaved(true) },
-    )
-  }
-
-  if (nodes.length === 0) {
-    return (
-      <Panel title="应用编辑">
-        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '12px 14px' }}>
-          该服务的工作流快照为空,无法编辑暴露字段。
-        </div>
-      </Panel>
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* 工具条:保存 + 契约提示(R3) */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '10px 14px', background: 'var(--bg-accent)',
-        border: '1px solid var(--border)', borderRadius: 8,
-      }}>
-        <div style={{ flex: 1, fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <AlertTriangle size={12} style={{ color: 'var(--warn, #f59e0b)', flexShrink: 0 }} />
-          在节点上勾选要暴露的参数 · 改动会更新对外 API schema,可能影响已对接的调用方
-        </div>
-        {saved && !patch.isPending && (
-          <span style={{ fontSize: 11, color: 'var(--ok, #34c759)' }}>已保存</span>
-        )}
-        {patch.error && (
-          <span style={{ fontSize: 11, color: 'var(--error, #ef4444)' }}>
-            {(patch.error as Error).message}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={save}
-          disabled={patch.isPending}
-          style={{
-            fontSize: 12, padding: '6px 14px', background: 'var(--accent)', color: 'var(--on-accent)',
-            border: 'none', borderRadius: 4, cursor: patch.isPending ? 'not-allowed' : 'pointer',
-            opacity: patch.isPending ? 0.6 : 1,
-          }}
-        >
-          {patch.isPending ? '保存中…' : '保存配置'}
-        </button>
-      </div>
-
-      <div style={{
-        height: '68vh', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
-      }}>
-        <WorkflowAppEditor
-          nodes={nodes}
-          edges={edges}
-          value={draft}
-          onChange={(v) => { setDraft(v); setSaved(false) }}
-          runnable
-          running={running}
-          onRun={run}
-          formFooter={
-            (result || runErr) ? (
-              <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
-                <SchemaDrivenOutput outputs={draft.outputs} result={result} error={runErr} />
-              </div>
-            ) : null
-          }
-        />
-      </div>
     </div>
   )
 }
@@ -1585,13 +1432,11 @@ function SourceBadge({ svc }: { svc: ServiceDetailT }) {
       </span>
     )
   }
-  // 来自 workflow — 显示名字 + 短 ID + 跳转到 workflow 编辑器入口。
   const shortId = svc.workflow_id && svc.workflow_id.length > 6
     ? svc.workflow_id.slice(-6)
     : svc.workflow_id
   return (
-    <a
-      href={`/workflows/${svc.workflow_id}`}
+    <span
       title={`workflow_id=${svc.workflow_id}`}
       style={{
         fontSize: 11,
@@ -1599,11 +1444,10 @@ function SourceBadge({ svc }: { svc: ServiceDetailT }) {
         borderRadius: 10,
         background: 'var(--accent-subtle, rgba(99,102,241,0.1))',
         color: 'var(--accent)',
-        textDecoration: 'none',
       }}
     >
       来自 {svc.workflow_name ?? 'Workflow'} #{shortId} · v{svc.version}
-    </a>
+    </span>
   )
 }
 

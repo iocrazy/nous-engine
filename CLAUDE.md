@@ -14,7 +14,7 @@ nous-engine 加任何对外暴露的入口(隧道/反代/端口映射),上层平
 | Need to hit | Use |
 |---|---|
 | Backend API | `/api/v1/keys`, `/api/v1/engines`, `/api/v1/services`, `/api/v1/workflows`... |
-| UI route (browser address bar) | `/api-keys`, `/services`, `/workflows`, `/models`... |
+| UI route (browser address bar) | `/api-keys`, `/services`, `/gallery`, `/models`... |
 
 The UI route `/api-keys` is the React Router path users see; the backend endpoint is
 `/api/v1/keys` with no `api-` prefix. Calling `/api/v1/api-keys` returns 404.

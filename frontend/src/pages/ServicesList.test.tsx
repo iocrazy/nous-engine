@@ -229,10 +229,8 @@ describe('ServicesList card click → navigate', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /新建服务/ }))
     expect(screen.getByRole('menuitem', { name: /快速开通/ })).toBeInTheDocument()
-    const fromWf = screen.getByRole('menuitem', { name: /从 Workflow 发布/ })
-    expect(fromWf).toBeInTheDocument()
-    fireEvent.click(fromWf)
-    expect(navigateSpy).toHaveBeenCalledWith('/workflows')
+    expect(screen.getByRole('menuitem', { name: /导入 ComfyUI 工作流/ })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /从 Workflow 发布/ })).not.toBeInTheDocument()
   })
 
   it('renders the empty state CTA when there are no services', () => {

@@ -1,11 +1,9 @@
 import { create } from 'zustand'
 
-export type PanelId = 'nodes' | 'workflows' | 'presets'
 export type OverlayId =
   | 'dashboard'
   | 'models'           // 引擎库
   | 'settings'
-  | 'preset-detail'
   | 'api-keys-list'    // m10 v3 API Key 列表
   | 'api-key-detail'   // m10 详情（id 从 URL 取）
   | 'agents'           // legacy — kept addressable for now, hidden in v3 rail
@@ -14,13 +12,10 @@ export type OverlayId =
   | 'services'         // v3 服务列表
   | 'apps'             // legacy alias of services; kept so old links/state don't 404
   | 'service-detail'   // v3 服务详情（id 从 URL 取）
-  | 'workflows-list'   // v3 m08 列表（vs canvas at /workflows/:id）
   | 'usage'            // v3 新
   | 'history'          // 历史出图画廊(借鉴 Infinite-Canvas history;拉 image 类 task)
   | 'status'           // 系统状态页(组件健康 + 7 天 uptime,对齐 status.claude.ai)
 
-/** URL path → overlay。App 的 RouteSync 和本 store 的初值共用这一份映射:
- *  少一处漏改就少一次「刷新后 overlay 慢一拍」。 */
 const ROUTE_TO_OVERLAY: Record<string, OverlayId> = {
   '/models': 'models',
   '/services': 'services',
@@ -37,14 +32,8 @@ const ROUTE_TO_OVERLAY: Record<string, OverlayId> = {
   '/status': 'status',
 }
 
-/** 纯函数:给定 pathname 得到应显示的 overlay(null = 工作流画布)。 */
 export function overlayForPath(pathname: string): OverlayId | null {
   const path = pathname.replace(/\/+$/, '').toLowerCase()
-  // `/workflows/:id` 是画布编辑器(无 overlay);`/workflows`(无 id)是 v3 m08 列表页。
-  if (path === '/workflows') return 'workflows-list'
-  if (path.startsWith('/workflows/')) return null
-  // `/services/:id`、`/api-keys/:id` 详情页各走独立 overlay slot,
-  // NodeEditor 据此决定挂哪个视图。
   if (path.startsWith('/services/')) return 'service-detail'
   if (path.startsWith('/api-keys/')) return 'api-key-detail'
   return ROUTE_TO_OVERLAY[path] ?? null
@@ -63,21 +52,11 @@ export type TaskSortKey = 'created' | 'duration'
 export type TaskSortDir = 'asc' | 'desc'
 
 interface PanelState {
-  activePanel: PanelId | null
-  activeOverlay: OverlayId | null
-  selectedPresetId: string | null
-  panelWidth: number
   taskPanelMode: TaskPanelMode
   /** 保留哪些状态;默认全 5 个。空集 = 啥都不显示(故意的,UI 给「全选」按钮恢复)。 */
   taskFilterStatuses: ReadonlySet<TaskStatus>
   taskSortKey: TaskSortKey
   taskSortDir: TaskSortDir
-  setPanel: (id: PanelId | null) => void
-  togglePanel: (id: PanelId) => void
-  setOverlay: (id: OverlayId | null) => void
-  toggleOverlay: (id: OverlayId) => void
-  openPresetDetail: (presetId: string) => void
-  setPanelWidth: (width: number) => void
   setTaskPanelMode: (mode: TaskPanelMode) => void
   setTaskFilterStatuses: (statuses: ReadonlySet<TaskStatus>) => void
   setTaskSort: (key: TaskSortKey, dir: TaskSortDir) => void
@@ -123,46 +102,12 @@ function _loadSort(): { key: TaskSortKey; dir: TaskSortDir } {
 
 const _initialSort = _loadSort()
 
-// overlay 初值直接从当前 URL 推,而不是等 RouteSync 的 effect 回填:硬刷新
-// `/services` 这类页面时,NodeEditor 的第一次 render 就已经知道要挂 overlay,
-// 画布/画布浮动条根本不会先挂一轮再被换掉。
-const _initialOverlay: OverlayId | null =
-  typeof window !== 'undefined' ? overlayForPath(window.location.pathname) : null
-
-export const usePanelStore = create<PanelState>((set, get) => ({
-  activePanel: 'nodes',
-  activeOverlay: _initialOverlay,
-  selectedPresetId: null,
-  panelWidth: 260,
+export const usePanelStore = create<PanelState>((set) => ({
   taskPanelMode: _initialTaskPanelMode,
   taskFilterStatuses: _loadFilterStatuses(),
   taskSortKey: _initialSort.key,
   taskSortDir: _initialSort.dir,
 
-  setPanel: (id) => set({ activePanel: id, activeOverlay: null }),
-
-  togglePanel: (id) => {
-    const { activePanel } = get()
-    set({
-      activePanel: activePanel === id ? null : id,
-      activeOverlay: null,
-    })
-  },
-
-  setOverlay: (id) => set({ activeOverlay: id, activePanel: null }),
-
-  toggleOverlay: (id) => {
-    const { activeOverlay } = get()
-    set({
-      activeOverlay: activeOverlay === id ? null : id,
-      activePanel: null,
-    })
-  },
-
-  openPresetDetail: (presetId) =>
-    set({ activeOverlay: 'preset-detail', activePanel: null, selectedPresetId: presetId }),
-
-  setPanelWidth: (width) => set({ panelWidth: Math.max(200, Math.min(400, width)) }),
 
   setTaskPanelMode: (mode) => {
     if (typeof localStorage !== 'undefined') localStorage.setItem(TASK_PANEL_MODE_KEY, mode)

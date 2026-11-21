@@ -152,7 +152,7 @@ export default function GalleryPage() {
     const gallery: LightboxItem[] = []
     for (const item of tasks) {
       const service = serviceFor(item)
-      const source = service ? `/services/${service.id}` : item.workflow_id ? `/workflows/${item.workflow_id}` : undefined
+      const source = service ? `/services/${service.id}` : undefined
       const meta = {
         historyTaskId: item.id,
         title: item.workflow_name || '生成记录',
@@ -163,7 +163,7 @@ export default function GalleryPage() {
         expired: item.expired,
         durationMs: item.duration_ms,
         onRerun: service ? () => rerun(item) : undefined,
-        sourceLabel: service ? '打开服务' : '打开工作流',
+        sourceLabel: service ? '打开服务' : undefined,
         onOpenSource: source ? () => {
           useLightboxStore.getState().close()
           navigate(source)

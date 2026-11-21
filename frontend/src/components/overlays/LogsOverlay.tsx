@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Download, RefreshCw, Radio, Search, X } from 'lucide-react'
-import { usePanelStore } from '../../stores/panel'
 import {
   useRequestLogs,
   useAppLogs,
@@ -345,8 +344,6 @@ const TABS: { id: TabId; label: string }[] = [
 ]
 
 export default function LogsOverlay() {
-  const setOverlay = usePanelStore((s) => s.setOverlay)
-
   const [activeTab, setActiveTab] = useState<TabId>('requests')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -500,24 +497,6 @@ export default function LogsOverlay() {
               导出
             </button>
 
-            {/* Close */}
-            <button
-              onClick={() => setOverlay(null)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 28,
-                height: 28,
-                borderRadius: 5,
-                border: '1px solid var(--border)',
-                background: 'transparent',
-                color: 'var(--muted)',
-                cursor: 'pointer',
-              }}
-            >
-              <X size={15} />
-            </button>
           </div>
         </div>
 

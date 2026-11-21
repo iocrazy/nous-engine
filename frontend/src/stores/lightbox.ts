@@ -1,13 +1,5 @@
 import { create } from 'zustand'
-import { useWorkspaceStore } from './workspace'
 
-// 全局图片预览 lightbox(对齐 Infinite-Canvas:Z/方向键切图 + 缩放平移 + 元信息面板)。
-// 画布上图像节点点图 → 收集当前工作流全部图;/history 画廊点图 → 显式给图集 + 每图元信息。
-
-// 节点 data 里可能承载图片 url 的字段(ImageOutput / ImageCompare / 输入图等)。
-const IMAGE_KEYS = ['image_url', 'image_a_url', 'image_b_url', 'image', 'dataUrl', 'url']
-
-/** 每张图的元信息(灯箱右侧面板用)。来源:画布节点 data 或 /history 的 ExecutionTask。 */
 export interface LightboxMeta {
   /** 长文本(提示词),面板里带复制。 */
   prompt?: string
@@ -37,25 +29,6 @@ export interface LightboxMeta {
   compareBase?: string
 }
 
-/** 按节点顺序收集当前工作流全部图片 url(去重)。 */
-export function collectWorkflowImages(): string[] {
-  const wf = useWorkspaceStore.getState().getActiveWorkflow()
-  const urls: string[] = []
-  // images 可能是 url 字符串数组,也可能是 image_output 累积网格的 {url,...meta} 对象数组。
-  const push = (v: unknown) => {
-    const u = typeof v === 'string' ? v
-      : (v && typeof v === 'object' ? (v as { url?: unknown }).url : null)
-    if (typeof u === 'string' && u && !urls.includes(u)) urls.push(u)
-  }
-  for (const n of wf.nodes) {
-    const d = n.data as Record<string, unknown> | undefined
-    if (!d) continue
-    for (const k of IMAGE_KEYS) push(d[k])
-    if (Array.isArray(d.images)) d.images.forEach(push)
-  }
-  return urls
-}
-
 export interface LightboxItem {
   url: string
   meta?: LightboxMeta
@@ -72,8 +45,6 @@ interface LightboxState {
   metas: (LightboxMeta | undefined)[]
   kinds: ('image' | 'video' | undefined)[]
   index: number
-  /** 从某张图 url 打开:自动收集同工作流全部图并定位;meta 给被点的那张。 */
-  openFromUrl: (url: string, meta?: LightboxMeta) => void
   /** 显式给定图集(带每图元信息)打开 —— /history 画廊用。 */
   openItems: (items: LightboxItem[], index: number, loadPage?: LoadGalleryPage) => void
   loadMore?: () => Promise<void>
@@ -89,14 +60,6 @@ export const useLightboxStore = create<LightboxState>((set, get) => ({
   metas: [],
   kinds: [],
   index: 0,
-  openFromUrl: (url, meta) => {
-    const all = collectWorkflowImages()
-    let images = all
-    let index = all.indexOf(url)
-    if (index < 0) { images = [url]; index = 0 }
-    const metas = images.map((u) => (u === url ? meta : undefined))
-    set({ open: true, images, metas, kinds: images.map(() => undefined), index, loadMore: undefined })
-  },
   openItems: (items, index, loadPage) => {
     const loadMore = loadPage && (async () => {
       const page = await loadPage()
