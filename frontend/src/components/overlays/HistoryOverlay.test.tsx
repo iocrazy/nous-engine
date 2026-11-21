@@ -38,7 +38,6 @@ vi.mock('react-router-dom', async () => {
     },
   }
 })
-vi.mock('../../stores/panel', () => ({ usePanelStore: (select: (store: { setOverlay: () => void }) => unknown) => select({ setOverlay: vi.fn() }) }))
 
 beforeEach(() => {
   useLightboxStore.setState({ open: false, images: [], metas: [], kinds: [], index: 0 })

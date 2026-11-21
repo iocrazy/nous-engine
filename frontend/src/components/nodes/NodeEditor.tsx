@@ -22,7 +22,6 @@ import '@xyflow/react/dist/style.css'
 import { nodeTypes } from './nodeTypes'
 import GroupLayer from './GroupLayer'
 import ShortcutsHelp from './ShortcutsHelp'
-import Lightbox from './Lightbox'
 import NodeCreateMenu from './NodeCreateMenu'
 import { choicesAcceptingInput, choicesProvidingOutput, firstInputHandle, firstOutputHandle, getAllChoices, type NodeChoice } from './nodeChoices'
 import { computeGroupBounds } from './groupGeometry'
@@ -48,7 +47,6 @@ const SettingsOverlay = lazy(() => import('../overlays/SettingsOverlay'))
 const PresetDetailOverlay = lazy(() => import('../overlays/PresetDetailOverlay'))
 const AgentManagementOverlay = lazy(() => import('../overlays/AgentManagementOverlay'))
 const LogsOverlay = lazy(() => import('../overlays/LogsOverlay'))
-const HistoryOverlay = lazy(() => import('../overlays/HistoryOverlay'))
 const StatusOverlay = lazy(() => import('../overlays/StatusOverlay'))
 const NodePackagesOverlay = lazy(() => import('../overlays/NodePackagesOverlay'))
 const ServicesList = lazy(() => import('../../pages/ServicesList'))
@@ -866,9 +864,6 @@ export default function NodeEditor() {
 
         {/* 快捷键帮助面板(? 浮层) */}
         <ShortcutsHelp />
-
-        {/* 全屏图片预览(跨图 ←/→ 切换) */}
-        <Lightbox />
       </div>
 
       {/* 节点右键菜单(旁路/复制/删除)*/}
@@ -979,7 +974,6 @@ export default function NodeEditor() {
         {activeOverlay === 'workflows-list' && <WorkflowsList />}
         {activeOverlay === 'usage' && <UsagePage />}
         {activeOverlay === 'status' && <StatusOverlay />}
-        {activeOverlay === 'history' && <HistoryOverlay />}
       </Suspense>
 
       {/* PR-3g(2026-05-28 任务面板重置收尾):删 QueueProgressOverlay 老画布右上浮窗
