@@ -331,3 +331,40 @@ async def test_video_params_go_through_audio_helper_others_dont(monkeypatch, fak
     assert contents["video/mp4"] == b"REMUXED"  # 上传的是 helper 返回的字节
     assert contents["image/png"] == PNG1PX
     assert contents["audio/wav"] == b"RIFFWAVE"
+
+
+@pytest.mark.asyncio
+async def test_bridge_publishes_node_progress_for_the_active_task(fake, monkeypatch):
+    import asyncio
+
+    from src.models.execution_task import ExecutionTask
+    from src.services.execution_task_serialize import _task_to_dict
+
+    snapshots = []
+    sample_seen = asyncio.Event()
+
+    async def watch(_prompt, update):
+        update({"phase": "running", "node": "138"})
+        update({"phase": "running", "node": "138", "step": 3, "total": 6})
+
+    async def broadcast(task_id, payload):
+        assert task_id == 42
+        progress = payload["comfy"]
+        snapshots.append(progress)
+        if progress.get("step") == 3:
+            task = ExecutionTask(id=task_id, workflow_name="example", status="running")
+            assert _task_to_dict(task)["comfy_progress"] == progress
+            sample_seen.set()
+
+    async def wait(*args, **kwargs):
+        await asyncio.wait_for(sample_seen.wait(), timeout=2)
+        return await FakeClient.wait(fake, *args, **kwargs)
+
+    monkeypatch.setattr(fake, "watch_progress", watch, raising=False)
+    monkeypatch.setattr(fake, "wait", wait)
+    monkeypatch.setattr(nb.ws_manager, "broadcast_task_progress", broadcast)
+    node = get_node_class("comfyui_workflow")()
+    await node.invoke({"template_id": 1, "prompt": "example", "_task_id": 42}, {})
+
+    assert snapshots[-1] == {"phase": "running", "node": "138", "label": "T", "step": 3, "total": 6}
+    assert nb.get_comfy_progress(42) is None

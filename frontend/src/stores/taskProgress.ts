@@ -9,8 +9,10 @@
  * task 挂钩)。任务终态时 store 清掉对应 entry,避免 ghost progress。
  */
 import { create } from 'zustand'
+import type { ComfyProgress } from '../api/predictions'
 
 export interface TaskProgressState {
+  comfy?: ComfyProgress
   stage: string | null
   step: number | null
   totalSteps: number | null

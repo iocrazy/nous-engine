@@ -7,18 +7,13 @@
  *   └───────────────────┘   │ ⚡ dit denoise · step 27/50 · 240ms · ETA 5.5s│
  *                           └──────────────────────────────────────────────┘
  *
- * L3 data 来源:useExecutionStore.currentNodeStage/Step/LatencyMs/EtaMs
- * (前端 WS /ws/workflow/{instanceId} 接 PR-1a/b/c/d 后端发的 node_progress 事件)。
- *
- * 多任务并发场景:仅当 task.id == executionStore.taskId(用户刚 Run 的任务)才显示 L3
- * callout;其他 active task 仅显示 status + meta(后端目前不发 global L3 broadcast)。
- *
  * type icon 映射:image → Image、tts → Mic、llm → MessageSquare、vision → Eye。
  */
 import { Image as ImageIcon, Mic, MessageSquare, Eye, Captions, Film, Zap, Activity } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ExecutionTask } from '../../api/tasks'
 import { useTaskProgressStore } from '../../stores/taskProgress'
+import { comfyNodeProgress } from '../../utils/comfyProgress'
 
 type TaskType = 'image' | 'tts' | 'vision' | 'llm' | 'asr' | 'video'
 
@@ -139,7 +134,9 @@ export default function ActiveTaskRow({ task }: { task: ExecutionTask }) {
 
   // 整体进度条(ComfyUI「总进度」):running 全程显示。determinate(有 % → 绿条按比例填充)
   // 或 indeterminate(model_load / 还没出 stage → 滑动动画,不造假 %)。
-  const overallPct = overallPercent(stage, step)
+  const comfy = progress?.comfy ?? task.comfy_progress
+  const comfyNode = comfy ? comfyNodeProgress(comfy) : undefined
+  const displayedPct = comfyNode ? comfyNode.steps?.percent : overallPercent(stage, step)
 
   return (
     <div className="relative flex gap-2.5">
@@ -244,7 +241,14 @@ export default function ActiveTaskRow({ task }: { task: ExecutionTask }) {
         </div>
 
         {/* task-callout(L3 progress)*/}
-        {showL3 && (
+        {isRunning && comfyNode && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-1.5 text-[11px]" style={{ color: 'var(--status-running)' }}>
+            <Zap size={12} aria-hidden="true" />
+            <span className="min-w-0 break-words">{comfyNode.label}</span>
+            {comfyNode.steps && <span className="font-mono tabular-nums">{comfyNode.steps.step}/{comfyNode.steps.total} 步</span>}
+          </div>
+        )}
+        {!comfyNode && showL3 && (
           <div
             className="mt-2 flex items-center gap-1.5 text-[11px] font-mono rounded"
             style={{
@@ -278,13 +282,16 @@ export default function ActiveTaskRow({ task }: { task: ExecutionTask }) {
         {isRunning && (
           <div className="mt-2 flex items-center gap-2">
             <div
+              role="progressbar"
+              aria-label={comfyNode ? '当前节点进度' : '任务进度'}
+              aria-valuenow={displayedPct ?? undefined}
               className="flex-1 overflow-hidden rounded-full"
               style={{ height: 4, background: 'var(--tp-border)' }}
             >
-              {overallPct != null ? (
+              {displayedPct != null ? (
                 <div
                   style={{
-                    width: `${overallPct}%`,
+                    width: `${displayedPct}%`,
                     height: '100%',
                     background: 'var(--status-running)',
                     borderRadius: 999,
@@ -307,7 +314,7 @@ export default function ActiveTaskRow({ task }: { task: ExecutionTask }) {
               className="text-[10px] font-mono tabular-nums shrink-0"
               style={{ color: 'var(--tp-text-muted)', minWidth: 30, textAlign: 'right' }}
             >
-              {overallPct != null ? `${overallPct}%` : '···'}
+              {displayedPct != null ? `${displayedPct}%` : '···'}
             </span>
           </div>
         )}

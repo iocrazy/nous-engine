@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { ComfyProgress } from './predictions'
 import { useLiveChannel } from './useLiveChannel'
 import { useTaskProgressStore } from '../stores/taskProgress'
 
@@ -11,6 +12,7 @@ export interface ExecutionTask {
   nodes_total: number
   nodes_done: number
   current_node: string | null
+  comfy_progress?: ComfyProgress
   result: any
   error: string | null
   duration_ms: number | null
@@ -70,6 +72,10 @@ export function useTasks() {
         const ev = data as Record<string, unknown>
         const taskId = String(ev.task_id ?? '')
         if (!taskId) return
+        if (ev.comfy && typeof ev.comfy === 'object') {
+          useTaskProgressStore.getState().setProgress(taskId, { comfy: ev.comfy as ComfyProgress })
+          return
+        }
         useTaskProgressStore.getState().setProgress(taskId, {
           stage: typeof ev.stage === 'string' ? ev.stage : null,
           step: typeof ev.step === 'number' ? ev.step : null,

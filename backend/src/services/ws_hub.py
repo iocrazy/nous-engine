@@ -65,7 +65,7 @@ class ConnectionManager:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self._global_subscribers.remove(ws)
+            self.unsubscribe_global(ws)
 
     async def broadcast_task_progress(self, task_id: int, payload: dict) -> None:
         """PR-6(2026-05-28 任务面板重置全局 L3 progress):widget 在 ActiveTaskRow 显示
@@ -88,7 +88,7 @@ class ConnectionManager:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self._global_subscribers.remove(ws)
+            self.unsubscribe_global(ws)
 
     # --- Model status ---
 

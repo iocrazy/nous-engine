@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Ban, Check, LoaderCircle, XCircle } from 'lucide-react'
 import { cancelPrediction, getPrediction, type Prediction } from '../../api/predictions'
+import { comfyNodeProgress } from '../../utils/comfyProgress'
 
 export interface AsyncRunStateProps {
   predictionId: string
@@ -129,20 +130,16 @@ export default function AsyncRunState({ predictionId, compact = false, onDone, o
   const idx = stageIndex(status)
   const isTerminal = status !== undefined && TERMINAL.has(status)
   const progress = prediction?.progress
-  const render = progress?.comfy
-  const currentStep = render?.step
-  const totalSteps = render?.total
   if (compact) {
-    const hasSteps = currentStep !== undefined && totalSteps !== undefined && totalSteps > 0
-    const phase = render?.phase === 'running' ? (render.label ?? '生成中')
-      : render?.phase === 'queued' || status === 'starting' ? '等待 ComfyUI'
-        : status === 'processing' ? '准备任务' : '已提交'
+    const node = progress?.comfy ? comfyNodeProgress(progress.comfy) : undefined
+    const steps = node?.steps
+    const phase = node?.label ?? (status === 'starting' ? '等待 ComfyUI' : status === 'processing' ? '准备任务' : '已提交')
     return <div className="qwen-run-status">
       <span role="status">{phase}{prediction?.created_at && ` · ${tickElapsed(prediction.created_at, now)}`}
-        {hasSteps && ` · ${currentStep}/${totalSteps} 步 · ${Math.round(currentStep / totalSteps * 100)}%`}
+        {steps && ` · ${steps.step}/${steps.total} 步 · ${steps.percent}%`}
       </span>
       {!isTerminal && <progress aria-label="当前节点进度"
-        value={hasSteps ? currentStep : undefined} max={hasSteps ? totalSteps : undefined} />}
+        value={steps?.step} max={steps?.total} />}
       {pollError && <small role="status">进度更新失败，正在重试</small>}
       {!isTerminal && <button type="button" disabled={cancelling} onClick={handleCancel}>
         {cancelling ? '正在取消…' : '取消任务'}

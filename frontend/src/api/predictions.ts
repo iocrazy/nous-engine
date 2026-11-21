@@ -4,6 +4,13 @@ import { apiFetch } from './client'
 // queued→starting, running→processing, completed→succeeded, failed→failed, cancelled→canceled。
 export type PredictionStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled'
 
+export interface ComfyProgress {
+  phase: 'submitting' | 'queued' | 'running'
+  label?: string
+  step?: number
+  total?: number
+}
+
 export interface Prediction {
   id: string
   service: string | null
@@ -15,7 +22,7 @@ export interface Prediction {
   progress: {
     nodes_done: number
     nodes_total: number
-    comfy?: { phase: 'submitting' | 'queued' | 'running'; label?: string; step?: number; total?: number }
+    comfy?: ComfyProgress
   }
   metrics: { predict_time?: number }
   created_at: string | null
