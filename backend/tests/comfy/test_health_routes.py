@@ -1,6 +1,12 @@
+import subprocess
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
 import httpx
+from src.api import admin_session
 import src.api.routes.comfy_templates as ct_mod
+from src.services.nodes import comfy_bridge
 
 
 DEVICE = {
@@ -29,6 +35,44 @@ async def test_health(client, monkeypatch):
     monkeypatch.setattr(ct_mod, "get_client", lambda: FakeClient())
     r = await client.get("/api/v1/comfy/health")
     assert r.status_code == 200 and r.json()["queue_depth"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("authenticated", "action", "depth", "running", "exit_code", "expected"), [
+    (False, True, 0, False, 0, 401),
+    (True, False, 0, False, 0, 400),
+    (True, True, 2, False, 0, 409),
+    (True, True, 0, True, 0, 409),
+    (True, True, 0, False, 1, 503),
+    (True, True, 0, False, 0, 202),
+])
+async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, running, exit_code, expected):
+    monkeypatch.setattr(admin_session, "get_settings", lambda: SimpleNamespace(
+        ADMIN_PASSWORD="", ADMIN_TOKEN="test-admin", ADMIN_SESSION_SECRET="",
+    ))
+
+    class Sidecar(FakeClient):
+        async def health(self):
+            return {"online": bool(depth), "queue_depth": depth}
+
+    monkeypatch.setattr(ct_mod, "get_client", Sidecar)
+    monkeypatch.setattr(comfy_bridge, "get_running_render", lambda: {"task_id": 1} if running else None)
+    command = ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "--no-block", "restart", "nous-engine-comfyui.service"]
+    run = Mock(side_effect=subprocess.CalledProcessError(exit_code, command) if exit_code else None)
+    monkeypatch.setattr(ct_mod, "subprocess", SimpleNamespace(
+        run=run, DEVNULL=subprocess.DEVNULL, SubprocessError=subprocess.SubprocessError,
+    ))
+    headers = {"Authorization": "Bearer test-admin"} if authenticated else {}
+    if action:
+        headers["X-Nous-Action"] = "restart-comfyui"
+    response = await client.post("/api/v1/comfy/restart", headers=headers)
+    assert response.status_code == expected, response.text
+    if expected in (202, 503):
+        run.assert_called_once_with(command, stdin=subprocess.DEVNULL, capture_output=True, timeout=5, check=True)
+    else:
+        run.assert_not_called()
+    if expected == 202:
+        assert response.json() == {"accepted": True}
 
 
 @pytest.mark.asyncio
