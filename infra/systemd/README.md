@@ -74,6 +74,17 @@ systemctl is-active nous-engine-backend                   # 确认起来了
 > 信号、傻等不返回(挂了 48min,但后端 ~3s 就重启完、active)。`--no-block` 入队即返回,
 > 重启照常发生。`enginectl restart` 已封装好。
 
+### 启用网页中的 ComfyUI 重启
+
+已有安装可从仓库根目录单独安装授权。以下命令只写入 sudoers 规则，安装后无需重启即可生效。
+
+```bash
+sudo visudo -cf infra/security/nous-engine-comfy-restart.sudoers
+sudo install -o root -g root -m 0440 infra/security/nous-engine-comfy-restart.sudoers /etc/sudoers.d/nous-engine-comfy-restart
+```
+
+规则仅授权 `heygo` 执行固定的 systemd 重启命令。后端服务以其他用户运行时，请将规则的用户名改为对应账号并重新校验。入口位于「系统状态 → ComfyUI 运行」，有任务执行或排队时会拒绝提交。
+
 ## 卸载
 
 ```bash

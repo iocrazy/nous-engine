@@ -1,11 +1,12 @@
 import subprocess
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import httpx
 from src.api import admin_session
 import src.api.routes.comfy_templates as ct_mod
+from src.services.comfy import sidecar_status
 from src.services.nodes import comfy_bridge
 
 
@@ -46,7 +47,7 @@ async def test_health(client, monkeypatch):
     (True, True, 0, False, 1, 503),
     (True, True, 0, False, 0, 202),
 ])
-async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, running, exit_code, expected):
+async def test_comfy_restart(client, monkeypatch, tmp_path, authenticated, action, depth, running, exit_code, expected):
     monkeypatch.setattr(admin_session, "get_settings", lambda: SimpleNamespace(
         ADMIN_PASSWORD="", ADMIN_TOKEN="test-admin", ADMIN_SESSION_SECRET="",
     ))
@@ -55,13 +56,16 @@ async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, 
         async def health(self):
             return {"online": bool(depth), "queue_depth": depth}
 
+    monkeypatch.setattr(sidecar_status, "unit_main_pid", AsyncMock(return_value=123))
     monkeypatch.setattr(ct_mod, "get_client", Sidecar)
     monkeypatch.setattr(comfy_bridge, "get_running_render", lambda: {"task_id": 1} if running else None)
     command = ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "--no-block", "restart", "nous-engine-comfyui.service"]
     run = Mock(side_effect=subprocess.CalledProcessError(exit_code, command) if exit_code else None)
     monkeypatch.setattr(ct_mod, "subprocess", SimpleNamespace(
         run=run, DEVNULL=subprocess.DEVNULL, SubprocessError=subprocess.SubprocessError,
+        CalledProcessError=subprocess.CalledProcessError,
     ))
+    monkeypatch.setattr(ct_mod, "_COMFY_RESTART_RULE", tmp_path / "nous-engine-comfy-restart")
     headers = {"Authorization": "Bearer test-admin"} if authenticated else {}
     if action:
         headers["X-Nous-Action"] = "restart-comfyui"
@@ -72,7 +76,27 @@ async def test_comfy_restart(client, monkeypatch, authenticated, action, depth, 
     else:
         run.assert_not_called()
     if expected == 202:
-        assert response.json() == {"accepted": True}
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["previous_pid"] == 123
+        assert payload["was_online"] is False
+        assert payload["requested_at"] > 0
+    if expected == 503:
+        assert "尚未安装 ComfyUI 重启授权" in response.text
+
+
+@pytest.mark.asyncio
+async def test_comfy_restart_status_checks_sidecar_identity(client, monkeypatch):
+    monkeypatch.setattr(admin_session, "get_settings", lambda: SimpleNamespace(
+        ADMIN_PASSWORD="", ADMIN_TOKEN="test-admin", ADMIN_SESSION_SECRET="",
+    ))
+    probe = AsyncMock(return_value={"online": True, "identity": "foreign", "main_pid": 123, "checked_at": 10.5})
+    monkeypatch.setattr(sidecar_status, "sidecar_status", probe)
+
+    assert (await client.get("/api/v1/comfy/restart")).status_code == 401
+    response = await client.get("/api/v1/comfy/restart", headers={"Authorization": "Bearer test-admin"})
+    assert response.json() == {"ready": False, "main_pid": 123, "checked_at": 10.5}
+    assert response.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio
@@ -163,8 +187,6 @@ async def test_free_propagates_comfy_error(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_health_reports_comfy_main_process_memory(client, monkeypatch):
-    from src.services.comfy import sidecar_status
-
     async def local_sidecar():
         return {"main_pid": 1234}
 
@@ -187,7 +209,6 @@ async def test_health_reports_comfy_main_process_memory(client, monkeypatch):
     (False, 0, None, 503),
 ])
 async def test_idle_only_free_checks_queue_and_active_render(client, monkeypatch, online, depth, render, status):
-    from src.services.nodes import comfy_bridge
 
     released = []
 
