@@ -197,7 +197,7 @@ def build(export, canvas):
     })
     maps = [
         ("reference_engine", "反推后使用的生图模型", "string", 704, "value", "qwen", "reference",
-         {"options": [{"value": "qwen", "label": "Qwen Image 2.1"}, {"value": "moss", "label": "MOSS Image"}]}),
+         {"options": [{"value": "qwen", "label": "Qwen Image 2.1 Turbo"}, {"value": "moss", "label": "MOSS Image"}]}),
         ("moss_aspect_ratio", "MOSS 画幅", "string", 405, "aspect_ratio", inputs(405)["aspect_ratio"],
          ["moss_text", "reference"], {"options": ["1:1 (Square)", "2:3 (Portrait Photo)", "3:2 (Photo)",
              "3:4 (Portrait Standard)", "4:3 (Standard)", "9:16 (Portrait Widescreen)",

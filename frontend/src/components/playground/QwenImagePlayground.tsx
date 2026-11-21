@@ -11,10 +11,20 @@ import './QwenImagePlayground.css'
 
 const COMIC_MODE = { value: 'comic_real', label: '漫｜真互转' } as const
 
+const QWEN_TURBO = 'Qwen Image 2.1 Turbo'
+const QWEN_BASE = 'Qwen Image 2.1（基础版）'
+const MOSS = 'MOSS Image'
+const TEXT_MODELS: Record<string, string> = { moss_text: MOSS, text: QWEN_TURBO }
+const REFERENCE_MODELS: Record<string, string> = { moss: MOSS, qwen: QWEN_TURBO }
+const TOOL_MODELS: Record<string, string> = {
+  edit: QWEN_TURBO, outpaint: QWEN_TURBO, remove: QWEN_TURBO,
+  oldx: QWEN_BASE, character_card: QWEN_BASE, upscale: 'SeedVR2',
+}
+
 const MODE_DETAILS = {
   [COMIC_MODE.value]: { icon: ArrowLeftRight, action: '转换图片', help: '在漫画风格和真人风格间转换。' },
   moss_text: { icon: Sparkles, action: '用 MOSS 生图', help: '输入场景描述，设置 MOSS 画幅与生成像素。' },
-  text: { icon: Sparkles, action: '生成图片', help: '用 Qwen Image 2.1 从提示词生图。' },
+  text: { icon: Sparkles, action: '生成图片', help: '用 Qwen Image 2.1 Turbo 从提示词生图。' },
   reference: { icon: ScanLine, action: '反推并生图', help: '上传一张原图，再选择反推后用 MOSS 或 Qwen 重新生图。' },
   edit: { icon: WandSparkles, action: '编辑图片', help: '上传一至六张参考图，说明哪些元素要保留、替换或合并。' },
   oldx: { icon: ScanFace, action: '替换人物', help: '人物源图提供身份，姿势与场景参考提供构图、姿势和光线。' },
@@ -25,7 +35,7 @@ const MODE_DETAILS = {
 } as const
 
 const MODE_GROUPS = [
-  { name: '生图与反推', icon: Sparkles, modes: ['moss_text', 'text', 'reference'] },
+  { name: '生图与反推', icon: Sparkles, modes: [...Object.keys(TEXT_MODELS), 'reference'] },
   { name: '单图／多图编辑', icon: WandSparkles, modes: ['edit', 'comic_real'] },
   { name: '人物工具', icon: UserRound, modes: ['oldx', 'character_card'] },
   { name: '扩图', icon: Expand, modes: ['outpaint'] },
@@ -39,7 +49,6 @@ type SeedPolicy = 'fixed' | 'increment' | 'decrement' | 'randomize'
 const advancedField = /^(?:seed|enable_optimization|use_deepseek|prompt_skill_|ignore_edit_mask|moss_(steps|cfg)|oldx_cfg)/
 const loraField = /^(?:(?:qwen|moss|oldx)_)?(?:lora|strength)(?:_|$)/
 const controlOrder: Record<string, number> = {
-  reference_engine: 0,
   prompt: 1,
   enable_optimization: 2,
   use_deepseek: 3,
@@ -98,6 +107,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const [preview, setPreview] = useState<Preview>('result')
   const [showComicPlaceholder, setShowComicPlaceholder] = useState(false)
   const [comparison, setComparison] = useState<'side-by-side' | 'slider'>('side-by-side')
+  const [lastTextMode, setLastTextMode] = useState<string>()
   const [parameterTab, setParameterTab] = useState<'basic' | 'advanced'>('basic')
   const [split, setSplit] = useState(50)
   const [asset, setAsset] = useState('image')
@@ -129,6 +139,19 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   })
   const modeParam = active.find(param => paramKey(param) === 'input_mode')
   const modeOptions = modeParam ? staticOptions(modeParam) : []
+  const textOptions = modeOptions.flatMap(({ value }) => {
+    const key = String(value)
+    return Object.hasOwn(TEXT_MODELS, key) ? [{ value: key, label: TEXT_MODELS[key] }] : []
+  })
+  const referenceParam = active.find(param => paramKey(param) === 'reference_engine')
+  const referenceOptions = referenceParam ? staticOptions(referenceParam).map(({ value, label }) => {
+    const key = String(value)
+    return { value: key, label: REFERENCE_MODELS[key] ?? label ?? key }
+  }) : []
+  const referenceModel = String(values.reference_engine ?? 'qwen')
+  const currentModel = mode === 'reference'
+    ? referenceOptions.find(option => option.value === referenceModel)?.label ?? REFERENCE_MODELS[referenceModel]
+    : TEXT_MODELS[mode] ?? TOOL_MODELS[mode]
   const comicAvailable = modeOptions.some(option => option.value === COMIC_MODE.value)
   const comicPlaceholder = showComicPlaceholder && !comicAvailable
   const modeDetail = MODE_DETAILS[mode as keyof typeof MODE_DETAILS]
@@ -148,7 +171,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const hasOutpaint = mode === 'outpaint' && outpaintFields.length === 4
   const showPlan = hasOutpaint && source && dims && (preview === 'source' || !resultUrl)
   const loraLists = active.filter(param => param.type === 'lora_list')
-  const controls = active.filter(param => param.type !== 'lora_list' && param !== modeParam && !candidates.some(item => item.param === param) &&
+  const controls = active.filter(param => param.type !== 'lora_list' && param !== modeParam && param !== referenceParam && !candidates.some(item => item.param === param) &&
     !(source && dims && hasOutpaint && outpaintFields.includes(param)))
 
   const update = (key: string, value: unknown) => {
@@ -418,6 +441,8 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
     const placeholder = next === COMIC_MODE.value && !comicAvailable
     setShowComicPlaceholder(placeholder)
     if (placeholder || next === mode) return
+    if (textOptions.some(option => option.value === next)) setLastTextMode(next)
+    else if (textOptions.some(option => option.value === mode)) setLastTextMode(mode)
     update('input_mode', next)
     onModeChange?.(next)
     setPreview('source')
@@ -430,13 +455,35 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
   const hasAdvanced = advanced.length > 0 || loraSlots.size > 0 || loraLists.length > 0
   const showAdvanced = hasAdvanced && parameterTab === 'advanced'
 
-  const modeTabs = currentGroup && currentGroup.options.length > 1 && (
+  const textMode = textOptions.find(option => option.value === lastTextMode)?.value ?? textOptions[0]?.value
+  const isReference = currentMode === 'reference'
+  const generationGroup = isReference || textOptions.some(option => option.value === currentMode)
+  const referenceAvailable = modeOptions.some(option => option.value === 'reference')
+  const submodes = generationGroup
+    ? [
+        ...(textMode ? [{ value: textMode, label: '文字生图', checked: !isReference }] : []),
+        ...(referenceAvailable ? [{ value: 'reference', label: '图片反推', checked: isReference }] : []),
+      ]
+    : (currentGroup?.options ?? []).map(option => ({
+        value: String(option.value), label: option.label ?? String(option.value), checked: currentMode === option.value,
+      }))
+  const modeTabs = submodes.length > 1 && (
     <div className="qwen-submodes" role="radiogroup" aria-label="功能选项">
-      {currentGroup.options.map(option => <label key={String(option.value)}>
-        <input type="radio" name="qwen-mode" checked={currentMode === option.value} disabled={!enabled}
-          onChange={() => chooseMode(String(option.value))} />
-        {option.label ?? String(option.value)}
+      {submodes.map(({ value, label, checked }) => <label key={label}>
+        <input type="radio" name="qwen-mode" checked={checked} disabled={!enabled}
+          onChange={() => chooseMode(value)} />
+        {label}
       </label>)}
+    </div>
+  )
+  const modelPicker = generationGroup && (isReference ? referenceOptions.length > 0 : textOptions.length > 0) && (
+    <div className="qwen-model-picker">
+      <span>{isReference ? '反推后使用的生图模型' : '模型'}</span>
+      <NodeSelectPopover appearance="console" topLayer disabled={!enabled}
+        ariaLabel={isReference ? '反推后使用的生图模型' : '模型'}
+        value={isReference ? referenceModel : mode}
+        options={isReference ? referenceOptions : textOptions}
+        onChange={isReference ? value => update('reference_engine', value) : chooseMode} />
     </div>
   )
 
@@ -504,7 +551,10 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
         </section>
         <section ref={previewRef} className={`qwen-panel qwen-preview${fullscreen === 'expanded' ? ' qwen-preview-expanded' : ''}`} aria-label="图片预览">
           <header>
-            <strong>预览</strong>
+            <div className="qwen-preview-heading">
+              <strong>预览</strong>
+              {currentModel && <span className="qwen-preview-model" aria-label={`当前模型 ${currentModel}`}>{currentModel}</span>}
+            </div>
             <div className="qwen-preview-tabs">
               {([['source', '原图'], ['result', '结果'], ['compare', '对照']] as const).map(([id, title]) =>
                 <button type="button" key={id} aria-pressed={view === id}
@@ -576,6 +626,7 @@ export default function QwenImagePlayground({ inputs, initialInputs, resultUrl, 
           </div>}
           <div className="qwen-parameter-scroll" role="region" aria-label="运行参数列表" tabIndex={0}>
             <fieldset disabled={!enabled} className="qwen-settings">
+              {!showAdvanced && modelPicker}
               {!showAdvanced && modeDetail && <p className="qwen-mode-help">{modeDetail.help}</p>}
               {(showAdvanced ? advanced : primary).map(renderField)}
               {showAdvanced && (loraSlots.size > 0 || loraLists.length > 0) &&

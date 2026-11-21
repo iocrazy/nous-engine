@@ -435,7 +435,7 @@
       "options": [
         {
           "value": "qwen",
-          "label": "Qwen Image 2.1"
+          "label": "Qwen Image 2.1 Turbo"
         },
         {
           "value": "moss",
