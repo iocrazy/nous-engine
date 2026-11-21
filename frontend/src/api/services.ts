@@ -85,15 +85,6 @@ export interface QuickProvisionBody {
   params?: Record<string, unknown>
 }
 
-export interface PublishBody {
-  name: string
-  label?: string
-  category?: ServiceCategory
-  meter_dim?: string
-  exposed_inputs: ExposedParam[]
-  exposed_outputs: ExposedParam[]
-}
-
 // ---------- queries ----------
 
 export function useServices(params?: { category?: ServiceCategory; status?: ServiceStatus }) {
@@ -129,25 +120,6 @@ export function useQuickProvision() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['services'] })
-    },
-  })
-}
-
-export function usePublishWorkflow() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ workflowId, body }: { workflowId: string | number; body: PublishBody }) =>
-      apiFetch<ServiceDetail>(`/api/v1/workflows/${workflowId}/publish`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['services'] })
-      // Workflow row + list also flip to status=published; without these
-      // the editor topbar still reads the cached status='draft' and
-      // shows "发布服务" instead of "取消发布".
-      qc.invalidateQueries({ queryKey: ['workflows'] })
-      qc.invalidateQueries({ queryKey: ['workflow', String(vars.workflowId)] })
     },
   })
 }

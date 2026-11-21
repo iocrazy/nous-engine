@@ -188,7 +188,6 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
             </div>
             <NewServiceMenu
               onQuickProvision={() => setCreateOpen(true)}
-              onPublishFromWorkflow={() => navigate('/workflows')}
               onImportComfy={() => setImportOpen(true)}
             />
           </div>
@@ -239,7 +238,6 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
                 svc={svc}
                 onOpen={() => goDetail(svc.id)}
                 onPlayground={() => goDetail(svc.id)}
-                onOpenWorkflow={(wfId) => navigate(`/workflows/${wfId}`)}
                 onDelete={() => handleDelete(svc)}
                 onToggleAutostart={() => handleToggleAutostart(svc)}
               />
@@ -286,11 +284,9 @@ export default function ServicesList({ onOpen }: ServicesListProps) {
 
 function NewServiceMenu({
   onQuickProvision,
-  onPublishFromWorkflow,
   onImportComfy,
 }: {
   onQuickProvision: () => void
-  onPublishFromWorkflow: () => void
   onImportComfy: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -353,15 +349,6 @@ function NewServiceMenu({
           />
           <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
           <MenuItem
-            title="从 Workflow 发布"
-            desc="挑一个 Workflow · 指定输入/输出 · 发布（适合多步流程）"
-            onClick={() => {
-              setOpen(false)
-              onPublishFromWorkflow()
-            }}
-          />
-          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-          <MenuItem
             title="导入 ComfyUI 工作流"
             desc="上传 Export (API) 导出的 workflow.json · 生成一条「桥」服务"
             onClick={() => {
@@ -416,14 +403,12 @@ function ServiceCard({
   svc,
   onOpen,
   onPlayground,
-  onOpenWorkflow,
   onDelete,
   onToggleAutostart,
 }: {
   svc: ServiceRow
   onOpen: () => void
   onPlayground: () => void
-  onOpenWorkflow: (workflowId: string) => void
   onDelete: () => void
   onToggleAutostart: () => void
 }) {
@@ -620,7 +605,6 @@ function ServiceCard({
             sourceType={svc.source_type}
             workflowId={svc.workflow_id}
             workflowName={svc.workflow_name}
-            onOpenWorkflow={onOpenWorkflow}
           />
           <Tag>v{svc.version}</Tag>
           <ModelStatusBadge models={svc.models} />
@@ -778,12 +762,10 @@ function SourceTag({
   sourceType,
   workflowId,
   workflowName,
-  onOpenWorkflow,
 }: {
   sourceType: 'workflow' | 'preset' | 'model' | 'comfy_template'
   workflowId?: string | null
   workflowName?: string | null
-  onOpenWorkflow?: (workflowId: string) => void
 }) {
   const isWorkflow = sourceType === 'workflow'
   // 显示 workflow 来源的具体名字 + 短 ID（trivial:xxx 的快速开通命名能让人
@@ -796,39 +778,8 @@ function SourceTag({
     : sourceType === 'comfy_template'
       ? 'ComfyUI 导入'
       : '快速开通'
-  // workflow 来源 + 有 id → 可点击跳到对应 workflow 编辑器。卡片主体是个 <button>,
-  // 嵌套 <a> 是非法 DOM,所以用 span + stopPropagation(拦掉卡片自身的 onOpen)。
-  const clickable = isWorkflow && !!workflowId && !!onOpenWorkflow
   return (
-    <span
-      role={clickable ? 'link' : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onClick={
-        clickable
-          ? (e) => {
-              e.stopPropagation()
-              onOpenWorkflow!(workflowId!)
-            }
-          : undefined
-      }
-      onKeyDown={
-        clickable
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                e.stopPropagation()
-                onOpenWorkflow!(workflowId!)
-              }
-            }
-          : undefined
-      }
-      title={
-        clickable
-          ? `打开 workflow #${workflowId}`
-          : isWorkflow && workflowId
-            ? `workflow_id=${workflowId}`
-            : undefined
-      }
+    <span title={isWorkflow && workflowId ? `workflow_id=${workflowId}` : undefined}
       style={{
         fontSize: 10,
         padding: '1px 7px',
@@ -843,9 +794,6 @@ function SourceTag({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         display: 'inline-block',
-        cursor: clickable ? 'pointer' : undefined,
-        textDecoration: clickable ? 'underline dotted' : undefined,
-        textUnderlineOffset: clickable ? 2 : undefined,
       }}
     >
       {label}
@@ -924,10 +872,8 @@ function FooterHint() {
         lineHeight: 1.7,
       }}
     >
-      <strong style={{ color: 'var(--text)' }}>提示：</strong>
-      <br />· <strong>快速开通</strong> 适合简单的单步调用（LLM 直接 chat、TTS 直接合成），系统在后台生成 trivial workflow。
-      <br />· <strong>从 Workflow 发布</strong> 适合多步流程（LTX 短剧、图像 pipeline），在编辑器里搭好 DAG、指定输入/输出后发布。
-      <br />· 两条路径产出同一种服务对象 — 都有 endpoint + schema + 配额 + API Key 授权。
+      <strong>快速开通</strong>可直接将模型配置为服务。
+      <br /><strong>导入 ComfyUI 工作流</strong>可将从 ComfyUI 导出的 API JSON 注册为服务。
     </p>
   )
 }

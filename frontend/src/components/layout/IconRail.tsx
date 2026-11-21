@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   Layers,
-  GitBranch,
   Activity,
   KeyRound,
   BarChart3,
@@ -16,7 +15,7 @@ import {
   HeartPulse,
 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { usePanelStore, type OverlayId } from '../../stores/panel'
+import { overlayForPath, type OverlayId } from '../../stores/panel'
 import { useThemeStore } from '../../stores/theme'
 import { useExecutionStore } from '../../stores/execution'
 import { useAdminLogout, useAdminMe } from '../../api/admin'
@@ -32,9 +31,7 @@ const OVERLAY_ROUTES: Record<OverlayId, string> = {
   settings: '/settings',
   logs: '/logs',
   'node-packages': '/node-packages',
-  'preset-detail': '/',
   'service-detail': '/services',
-  'workflows-list': '/workflows',
   usage: '/usage',
   history: '/gallery',
   status: '/status',
@@ -43,7 +40,6 @@ const OVERLAY_ROUTES: Record<OverlayId, string> = {
 const TOP_NAVS: { id: OverlayId; icon: typeof LayoutDashboard; label: string }[] = [
   { id: 'dashboard', icon: LayoutDashboard, label: '概览' },
   { id: 'services', icon: Activity, label: '服务' },
-  { id: 'workflows-list', icon: GitBranch, label: '工作流' },
 ]
 
 const MID_NAVS: { id: OverlayId; icon: typeof Layers; label: string }[] = [
@@ -56,10 +52,10 @@ const MID_NAVS: { id: OverlayId; icon: typeof Layers; label: string }[] = [
 ]
 
 export default function IconRail() {
-  const activeOverlay = usePanelStore((state) => state.activeOverlay)
   const { mode, setMode } = useThemeStore()
   const navigate = useNavigate()
   const location = useLocation()
+  const activeOverlay = overlayForPath(location.pathname)
   const logout = useAdminLogout()
   const me = useAdminMe()
   // Only render the logout button when admin gate is actually active —
