@@ -6,9 +6,10 @@ const toast = document.querySelector('#toast')
 
 const tabs = [
   ['dataset', '数据集'],
+  ['training', '发起训练'],
+  ['runs', '训练记录'],
+  ['results', '效果预览'],
   ['models', '模型与目录'],
-  ['training', '训练任务'],
-  ['results', '结果与发布'],
 ]
 const samples = [
   ['01_山间薄雾', '山脉倒映在平静的湖面，蓝色晨雾压低了远景。'],
@@ -39,12 +40,17 @@ const state = {
   mode: 'image', editFocus: 1, selectedEdits: new Set([1, 2, 3]),
   trainerPath: managedTrainer, trainerRecognized: false, trainerDiagnostic: '',
   model: 'qwen', taskName: '风景摄影 · 光线与色彩', gpu: '1', rank: 32, steps: 1200,
-  rate: '0.0001', interval: 400, resolution: 1024, preset: 'standard', task: null, checkpoint: '1200', split: 50,
+  rate: '0.0001', interval: 400, resolution: 1024, preset: 'standard', task: null, inspectedRun: 1, resultRun: 1,
   gradientCheckpoint: true, cpuOffload: false,
-  tested: false, published: '', allowEmpty: false, ranCheck: false, advanced: false, verifiedEnvironment: false,
+  allowEmpty: false, ranCheck: false, advanced: false, verifiedEnvironment: false,
 }
 let messageTimer
 let nextMediaId = 20
+let nextRunId = 3
+const runs = [
+  { id: 1, name: '山湖晨雾', modelName: 'MOSS-Image-Base', family: 'moss', mode: 'image', gpu: '0', percent: 100, steps: 1200, checkpoint: '1200', split: 50 },
+  { id: 2, name: '光线试验', modelName: 'Qwen-Image-2.1', family: 'qwen2.1', mode: 'image', gpu: '1', percent: 40, steps: 300, cancelled: true },
+]
 
 function escape(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
@@ -52,11 +58,11 @@ function escape(value) {
 
 function button(action, label, options = {}) {
   const { kind = '', value, disabled = false, pressed } = options
-  return `<button type="button" class="${kind}" data-action="${action}"${value === undefined ? '' : ` data-value="${escape(value)}"`}${disabled ? ' disabled' : ''}${pressed === undefined ? '' : ` aria-pressed="${pressed}"`}>${label}</button>`
+  return `<button type="button" class="${kind}" data-action="${action}"${value === undefined ? '' : ` data-value="${escape(value)}"`}${disabled ? ' disabled' : ''}${pressed === undefined ? '' : ` aria-pressed="${pressed}"`}>${label.replace(/ [→↗]$/, '')}</button>`
 }
 
 function heading(title, description, actions = '') {
-  return `<header class="heading"><div><h1 tabindex="-1">${title}</h1><p>${description}</p></div><div class="actions wrap">${actions}</div></header>`
+  return `<header class="heading"><div><h2 tabindex="-1">${title}</h2><p>${description}</p></div><div class="actions wrap">${actions}</div></header>`
 }
 
 function chip(label, variant = '') {
@@ -72,8 +78,10 @@ function tell(message) {
 
 function navigate(tab) {
   state.tab = tab
+  if (dialog.open) dialog.close()
   render()
-  document.querySelector('h1').focus({ preventScroll: true })
+  nav.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  main.querySelector('.heading h2')?.focus({ preventScroll: true })
   window.scrollTo(0, 0)
 }
 
@@ -230,15 +238,37 @@ function modelsPage() {
     </div></section>`
 }
 
-function taskProgress() {
-  const task = state.task
-  if (!task) return ''
+function taskStatus(task) {
+  if (task.cancelled) return '已取消'
+  if (task.percent === 100) return '已完成'
+  return task.percent < 10 ? '准备数据' : '训练中'
+}
+
+function resultTask() {
+  return runs.find((run) => run.id === state.resultRun)
+}
+
+function runsPage() {
+  const task = runs.find((run) => run.id === state.inspectedRun)
+  return heading('训练记录', '查看运行进度、日志与可用产物。', button('navigate', '发起新训练', { kind: 'primary', value: 'training' })) + `
+    <div class="workspace run-layout">
+      <section class="panel">
+        <header class="panel-head row between"><h2>任务列表</h2><small>${runs.length} 条</small></header>
+        <div class="section-block stack">${runs.map((run) => button('select-run',
+          `<strong>${escape(run.name)}</strong><small>${escape(run.modelName)} · ${taskStatus(run)}</small>`,
+          { kind: 'task-button', pressed: run.id === state.inspectedRun, value: run.id })).join('')}</div>
+      </section>
+      ${taskProgress(task)}
+    </div>`
+}
+
+function taskProgress(task) {
   const percent = task.percent
   const done = percent === 100
-  return `<section class="panel gap-section" aria-label="训练记录">
-    <header class="panel-head row between wrap"><div class="stack"><h2>训练记录</h2><small>${escape(task.name)} · ${escape(task.modelName)} · GPU ${task.gpu}</small></div>${chip(done ? '已完成' : task.cancelled ? '已取消' : percent < 10 ? '准备数据' : '训练中', done ? 'ok' : '')}</header>
+  return `<section class="panel run-detail" aria-label="任务详情">
+    <header class="panel-head row between wrap"><div class="stack"><h2>${escape(task.name)}</h2><small>${escape(task.modelName)} · ${modeNames[task.mode]} · GPU ${task.gpu}</small></div>${chip(taskStatus(task), done ? 'ok' : '')}</header>
     <div class="section-block stack"><div class="row between"><small>步骤 ${Math.floor(percent * task.steps / 100)} / ${task.steps}</small><b>${percent}%</b></div><progress value="${percent}" max="100" aria-label="训练进度"></progress><pre class="logs">${done ? '✓ Checkpoint 与样图已写入\n✓ 可进入结果页试载' : task.cancelled ? '任务已取消。可返回配置重新提交。' : '✓ 训练环境、数据集和模型校验通过\n→ DiffSynth 正在处理示例训练任务'}</pre>
-    ${done ? button('navigate', '查看训练结果 →', { kind: 'primary', value: 'results' }) : task.cancelled ? '' : button('cancel-training', '取消训练', { kind: 'quiet' })}</div></section>`
+    ${done ? button('view-run-result', '查看训练结果', { kind: 'primary', value: task.id }) : task.cancelled ? '' : button('cancel-training', '取消训练', { kind: 'quiet', value: task.id })}</div></section>`
 }
 
 function selectedEditSamples() {
@@ -312,26 +342,25 @@ function trainingPage() {
           ${preview.slice(0, 8).map((item) => editing ? editTiles(item) : `<img src="${escape(item.src)}" alt="${escape(item.name)}">`).join('') || '<p class="muted">暂无所选素材。</p>'}
         </div>
       </aside>
-    </div>
-    ${taskProgress()}`
+    </div>`
 }
 
 function resultsPage() {
-  const task = state.task
+  const task = resultTask()
   if (!task || task.cancelled || task.percent < 100) {
-    return heading('结果与发布', '选择训练产物，在同一提示词与种子下对比后发布。') + `<section class="panel section-block stack"><h2>等待训练结果</h2><p class="muted">训练完成后，样图与 checkpoint 会在这里出现。</p><div>${button('navigate', '查看训练任务', { value: 'training' })}</div></section>`
+    return heading('效果预览', '选择训练产物，在同一提示词与种子下对比后发布。') + `<section class="panel section-block stack"><h2>等待训练结果</h2><p class="muted">训练完成后，样图与 checkpoint 会在这里出现。</p><div>${button('navigate', '查看训练记录', { value: 'runs' })}</div></section>`
   }
-  const grade = state.checkpoint === '1200' ? 'contrast(1.13) saturate(1.2)' : state.checkpoint === '800' ? 'contrast(1.08) saturate(1.13)' : 'contrast(1.04) saturate(1.07)'
-  return heading('结果与发布', `${escape(task.name)} · ${escape(task.modelName)} · 已完成`, button('navigate', '返回训练记录', { kind: 'quiet', value: 'training' })) + `
+  const grade = task.checkpoint === '1200' ? 'contrast(1.13) saturate(1.2)' : task.checkpoint === '800' ? 'contrast(1.08) saturate(1.13)' : 'contrast(1.04) saturate(1.07)'
+  return heading('效果预览', `${escape(task.name)} · ${escape(task.modelName)} · 已完成`, button('back-to-run', '返回训练记录', { kind: 'quiet', value: task.id })) + `
     <div class="workspace">
       <section class="panel">
-        <header class="panel-head row between wrap"><h2>样图对比</h2><div class="filters">${['400','800','1200'].map((checkpoint) => button('checkpoint', 'Step ' + Math.round(task.steps * Number(checkpoint) / 1200), { value: checkpoint, pressed: state.checkpoint === checkpoint })).join('')}</div></header>
+        <header class="panel-head row between wrap"><h2>样图对比</h2><div class="filters">${['400','800','1200'].map((checkpoint) => button('checkpoint', 'Step ' + Math.round(task.steps * Number(checkpoint) / 1200), { value: checkpoint, pressed: task.checkpoint === checkpoint })).join('')}</div></header>
         <div class="section-block stack">
-          <div class="compare" style="--split:${state.split}%;--grade:${grade}">
+          <div class="compare" style="--split:${task.split}%;--grade:${grade}">
             <img src="photo-1.webp" alt="示例基础模型样图"><img src="photo-1.webp" alt="示例 checkpoint 样图" class="after">
             <span class="compare-label">基础模型</span><span class="compare-label right">训练样图</span>
             <span class="compare-line"><span class="compare-handle" aria-hidden="true">↔</span></span>
-            <input class="compare-control" type="range" min="0" max="100" value="${state.split}" aria-label="对比滑块">
+            <input class="compare-control" type="range" min="0" max="100" value="${task.split}" aria-label="对比滑块">
           </div>
           <div class="row between wrap"><small>同一提示词 · 山湖、冷色晨雾</small><small class="mono">Seed 18472 · 1024 × 768</small></div>
           <div><h3>训练 Loss</h3><div class="loss-chart" role="img" aria-label="示例训练 Loss 趋势下降">${[93,81,88,66,74,61,62,48,52,43,42,37,39,32,29,28].map((value) => `<i style="height:${value}%"></i>`).join('')}</div></div>
@@ -341,18 +370,22 @@ function resultsPage() {
         <header class="panel-head"><h2>发布到 LoRA 目录</h2></header>
         <div class="section-block stack">
           <div class="kv"><span>目标家族</span><b>${task.family}</b></div>
-          <div class="kv"><span>ComfyUI 试载</span>${chip(state.tested ? '验证通过' : '待试载', state.tested ? 'ok' : '')}</div>
+          <div class="kv"><span>ComfyUI 试载</span>${chip(task.tested ? '验证通过' : '待试载', task.tested ? 'ok' : '')}</div>
           ${button('test-lora', '试载此 checkpoint')}
-          ${button('publish-dialog', '发布 LoRA →', { kind: 'primary', disabled: !state.tested })}
-          ${state.published ? `<div class="notice">已发布并同步 · ${escape(state.published)}</div>` : ''}
+          ${button('publish-dialog', '发布 LoRA →', { kind: 'primary', disabled: !task.tested })}
+          ${task.published ? `<div class="notice">已发布并同步 · ${escape(task.published)}</div>` : ''}
         </div>
       </aside>
     </div>`
 }
 
 function render() {
-  nav.innerHTML = tabs.map(([id, label]) => `<button type="button" data-action="navigate" data-value="${id}" ${id === state.tab ? 'aria-current="page"' : ''}>${label}<span aria-hidden="true">${id === state.tab ? '›' : ''}</span></button>`).join('')
-  const pages = { dataset: datasetPage, models: modelsPage, training: trainingPage, results: resultsPage }
+  nav.innerHTML = tabs.map(([id, label]) => `<button type="button" data-action="navigate" data-value="${id}" ${id === state.tab ? 'aria-current="page"' : ''}>${label}</button>`).join('')
+  const task = state.tab === 'runs' ? runs.find((run) => run.id === state.inspectedRun) : state.tab === 'results' ? resultTask() : null
+  document.querySelector('#studio-context').textContent = task
+    ? [task.name, task.modelName, modeNames[task.mode]].join(' · ')
+    : ['风景摄影', modeNames[state.mode], model().name].join(' · ')
+  const pages = { dataset: datasetPage, models: modelsPage, training: trainingPage, runs: runsPage, results: resultsPage }
   main.innerHTML = pages[state.tab]()
   document.querySelector('#advanced')?.addEventListener('toggle', (event) => { state.advanced = event.target.open })
 }
@@ -365,32 +398,29 @@ function runTraining() {
     return
   }
   const task = {
+    id: nextRunId++, checkpoint: '1200', split: 50,
     name: state.taskName.trim(), gpu: state.gpu, steps: Number(state.steps),
     modelName: activeModel.name, family: activeModel.family, percent: 0,
     mode: state.mode, gradientCheckpoint: state.gradientCheckpoint, cpuOffload: state.cpuOffload,
     dataset: state.mode === 'edit' ? selectedEditSamples().map((item) => ({ ...item, refs: [...item.refs] })) : state.added.filter((item) => state.selected.has(item.id)).map(({ id, caption }) => ({ id, caption })),
   }
   state.task = task
-  state.checkpoint = '1200'
-  state.split = 50
-  state.tested = false
-  state.published = ''
+  runs.unshift(task)
+  state.inspectedRun = task.id
   state.ranCheck = true
-  render()
-  document.querySelector('[aria-label="训练记录"]').scrollIntoView({ block: 'nearest' })
+  navigate('runs')
   const timer = setInterval(() => {
     if (task.cancelled) {
       clearInterval(timer)
       return
     }
     task.percent = Math.min(100, task.percent + 10)
-    if (state.tab === 'training') {
-      const previous = document.querySelector('[aria-label="训练记录"]')
-      if (previous) previous.outerHTML = taskProgress()
+    if (state.tab === 'runs' && state.inspectedRun === task.id) {
+      document.querySelector('[aria-label="任务详情"]').outerHTML = taskProgress(task)
     }
     if (task.percent === 100) {
       clearInterval(timer)
-      render()
+      if (state.tab === 'runs') render()
       tell('示例训练完成，可查看样图与 checkpoint。')
     }
   }, 310)
@@ -424,9 +454,21 @@ document.addEventListener('click', (event) => {
   if (!target) return
   const { action, value } = target.dataset
   const entry = models.find((item) => item.id === value)
+  const task = resultTask()
 
   switch (action) {
     case 'navigate': navigate(value); return
+    case 'select-run': state.inspectedRun = Number(value); break
+    case 'back-to-run': state.inspectedRun = Number(value); navigate('runs'); return
+    case 'view-run-result': state.resultRun = Number(value); navigate('results'); return
+    case 'gpu-queue': {
+      const active = state.task && !state.task.cancelled && state.task.percent < 100
+      showDialog('GPU 与队列', `<div class="kv"><span>训练状态</span><b>${active ? '1 个运行中' : '当前空闲'}</b></div>
+        <div class="kv"><span>RTX PRO 5000</span><b>48 GiB 可用</b></div>
+        <div class="kv"><span>RTX PRO 6000</span><b>54 GiB 可用</b></div>
+        ${button('navigate', '查看训练记录', { value: 'runs' })}`)
+      return
+    }
     case 'close-dialog': dialog.close(); return
     case 'environment': environmentDialog(); return
     case 'use-managed-trainer':
@@ -560,12 +602,12 @@ document.addEventListener('click', (event) => {
       return
     case 'preflight': state.ranCheck = true; break
     case 'start-training': runTraining(); return
-    case 'cancel-training': state.task.cancelled = true; tell('任务已取消。'); break
-    case 'checkpoint': state.checkpoint = value; state.tested = false; break
-    case 'test-lora': state.tested = true; tell('示例 checkpoint 试载通过。'); break
+    case 'cancel-training': runs.find((run) => run.id === Number(value)).cancelled = true; tell('任务已取消。'); break
+    case 'checkpoint': task.checkpoint = value; task.tested = false; break
+    case 'test-lora': task.tested = true; tell('示例 checkpoint 试载通过。'); break
     case 'publish-dialog':
       showDialog('发布 LoRA', `<label class="field">文件名<input id="weight-name" value="landscape-light.safetensors"></label>
-        <div class="kv"><span>目标目录</span><b class="mono">ComfyUI / models / loras / ${state.task.family}</b></div>
+        <div class="kv"><span>目标目录</span><b class="mono">ComfyUI / models / loras / ${task.family}</b></div>
         ${button('publish', '确认发布并同步', { kind: 'primary' })}`)
       return
     case 'publish': {
@@ -574,12 +616,12 @@ document.addEventListener('click', (event) => {
         tell('请输入有效的 .safetensors 文件名。')
         return
       }
-      const path = state.task.family + '/' + name
-      if (state.published === path) {
+      const path = task.family + '/' + name
+      if (task.published === path) {
         showDialog('文件已存在', '<p>请修改名称后重新发布。</p>' + button('publish-dialog', '修改文件名', { kind: 'primary' }))
         return
       }
-      state.published = path
+      task.published = path
       dialog.close()
       tell('LoRA 已发布并同步（示例）。')
       break
@@ -620,8 +662,9 @@ upload.addEventListener('change', () => {
 main.addEventListener('input', (event) => {
   const input = event.target
   if (input.matches('.compare-control')) {
-    state.split = Number(input.value)
-    input.closest('.compare').style.setProperty('--split', state.split + '%')
+    const task = resultTask()
+    task.split = Number(input.value)
+    input.closest('.compare').style.setProperty('--split', task.split + '%')
     return
   }
   if (input.dataset.field === 'query') {

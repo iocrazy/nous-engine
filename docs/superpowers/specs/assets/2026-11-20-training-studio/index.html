@@ -10,22 +10,37 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">N</span> nous<span class="brand-engine">engine</span></div>
-    <div class="top-right"><span class="demo">交互原型 · 示例数据</span><button class="resource quiet" data-action="environment"><span class="dot"></span>训练环境 <span aria-hidden="true">↗</span></button></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>nous</div>
+    <div class="top-right">
+      <span class="demo">原型 · 示例数据</span>
+      <button class="resource quiet" type="button" data-action="gpu-queue"><span class="dot" aria-hidden="true"></span>GPU 与队列</button>
+      <button class="resource quiet" type="button" data-action="environment">引擎与环境</button>
+    </div>
   </header>
   <div class="shell">
-    <aside class="rail">
-      <div class="rail-title">训练工坊</div>
-      <nav aria-label="训练工坊" id="nav"></nav>
-      <section class="rail-resource">
-        <header>训练 GPU <span class="dot"></span></header>
-        <div>RTX PRO 5000 <span>24 / 72 GiB</span></div>
-        <progress value="24" max="72" aria-label="GPU 0 已用显存"></progress>
-        <div>RTX PRO 6000 <span>42 / 96 GiB</span></div>
-        <progress value="42" max="96" aria-label="GPU 1 已用显存"></progress>
-      </section>
+    <aside class="rail" aria-label="Nous Engine 导航示意">
+      <div class="rail-title"><span aria-hidden="true">N</span>nous-engine</div>
+      <div class="rail-group">
+        <span class="rail-link"><span aria-hidden="true">⌘</span>概览</span>
+        <span class="rail-link"><span aria-hidden="true">∿</span>服务</span>
+        <span class="rail-link"><span aria-hidden="true">⑂</span>工作流</span>
+      </div>
+      <div class="rail-group">
+        <span class="rail-link"><span aria-hidden="true">◇</span>引擎库</span>
+        <span class="rail-link"><span aria-hidden="true">▧</span>图库</span>
+        <span class="rail-link rail-active" aria-current="page"><span aria-hidden="true">⚗</span>训练工坊</span>
+      </div>
     </aside>
-    <main id="main"></main>
+    <div class="studio-content">
+      <header class="studio-header">
+        <div class="studio-title">
+          <h1>训练工坊</h1>
+          <p id="studio-context"></p>
+        </div>
+        <nav aria-label="训练工坊" id="nav"></nav>
+      </header>
+      <main id="main"></main>
+    </div>
   </div>
   <dialog id="dialog"></dialog>
   <input type="file" id="upload" accept="image/*" multiple hidden>
