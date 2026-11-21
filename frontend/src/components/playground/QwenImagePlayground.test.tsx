@@ -104,11 +104,11 @@ it('OLDX 提示姿势与场景参考，人物资产卡沿用固定版式', () =>
 
 it('明确显示优化模型并统一将高清放大放在尺寸参数之后', () => {
   const modes: ExposedParam[] = [
-    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'moss_text',
-      constraints: { widget: 'radio', enum: ['moss_text', 'reference'] } },
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'text',
+      constraints: { widget: 'radio', enum: ['text', 'reference'] } },
     { node_id: 'bridge', key: 'enable_upscale', type: 'boolean', default: false, label: '处理后高清放大' },
     { node_id: 'bridge', key: 'enable_optimization', type: 'boolean', default: true, label: '优化提示词',
-      constraints: { visible_when: { input_mode: 'moss_text' } } },
+      constraints: { visible_when: { input_mode: 'text' } } },
     { node_id: 'bridge', key: 'use_deepseek', type: 'boolean', default: false },
     { node_id: 'bridge', key: 'moss_megapixels', type: 'number', label: 'MOSS 像素', default: 2 },
   ]
@@ -327,37 +327,41 @@ it('本地拖放到指定槽位，再从图库将原图添加到另一个槽位'
   }
 })
 
-it('用一个模型下拉切换文生图，反推保持独立选项并同步预览标注', () => {
+it('文生图和反推共用模型入参，模型变化同步显示参数和预览名称', () => {
   const onRun = vi.fn()
   render(<QwenImagePlayground inputs={[
-    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'moss_text',
-      constraints: { enum: ['moss_text', 'text', 'reference', 'oldx', 'character_card'] } },
-    { node_id: 'bridge', key: 'reference_engine', type: 'string', default: 'qwen',
-      constraints: { visible_when: { input_mode: 'reference' }, option_meta: [
-        { value: 'qwen', label: 'Qwen Image 2.1' }, { value: 'moss', label: 'MOSS Image' },
-      ] } },
+    { node_id: 'bridge', key: 'input_mode', type: 'string', default: 'text',
+      constraints: { enum: ['text', 'reference', 'oldx', 'character_card'] } },
+    { node_id: 'bridge', key: 'model', type: 'string', default: 'moss-image',
+      constraints: { visible_when: { input_mode: ['text', 'reference'] }, enum: ['qwen-image-2.1-turbo', 'moss-image'] } },
+    { node_id: 'bridge', key: 'moss_megapixels', type: 'number', default: 2, label: 'MOSS 生成像素',
+      constraints: { visible_when: { model: 'moss-image', input_mode: ['text', 'reference'] } } },
   ]} running={false} onRun={onRun} />)
   const preview = within(screen.getByRole('region', { name: '图片预览' }))
   expect(preview.getByLabelText('当前模型 MOSS Image')).toBeVisible()
-  const model = screen.getByRole('combobox', { name: '模型' })
-  expect(model).toHaveTextContent('MOSS Image')
+  expect(screen.getByText('MOSS 生成像素')).toBeVisible()
+  const model = screen.getByRole('combobox', { name: '生图模型' })
   fireEvent.click(model)
   fireEvent.click(screen.getByRole('option', { name: 'Qwen Image 2.1 Turbo' }))
   expect(preview.getByLabelText('当前模型 Qwen Image 2.1 Turbo')).toBeVisible()
+  expect(screen.queryByText('MOSS 生成像素')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '生成图片' }))
-  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'text' })
+  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'text', model: 'qwen-image-2.1-turbo' })
 
   fireEvent.click(screen.getByRole('radio', { name: '图片反推' }))
-  const reference = screen.getByRole('combobox', { name: '反推后使用的生图模型' })
+  const reference = screen.getByRole('combobox', { name: '生图模型' })
   expect(reference).toHaveTextContent('Qwen Image 2.1 Turbo')
   fireEvent.click(reference)
   fireEvent.click(screen.getByRole('option', { name: 'MOSS Image' }))
   expect(preview.getByLabelText('当前模型 MOSS Image')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: '反推并生图' }))
-  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'reference', reference_engine: 'moss' })
+  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'reference', model: 'moss-image', moss_megapixels: 2 })
 
   fireEvent.click(screen.getByRole('radio', { name: '文字生图' }))
-  expect(screen.getByRole('combobox', { name: '模型' })).toHaveTextContent('Qwen Image 2.1 Turbo')
+  expect(screen.getByRole('combobox', { name: '生图模型' })).toHaveTextContent('MOSS Image')
   fireEvent.click(screen.getByRole('button', { name: '人物工具' }))
-  expect(preview.getByLabelText('当前模型 Qwen Image 2.1（基础版）')).toBeVisible()
+  expect(preview.getByLabelText('当前模型 Qwen Image 2.1')).toBeVisible()
+  expect(screen.queryByRole('combobox', { name: '生图模型' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '替换人物' }))
+  expect(onRun).toHaveBeenLastCalledWith({ input_mode: 'oldx' })
 })

@@ -13,6 +13,7 @@ import {
 } from '../../api/comfyTemplates'
 import { paramKey, type ExposedParam } from '../../api/services'
 import { Field } from '../playground/SchemaDrivenForm'
+import { MOSS_IMAGE_ID } from '../playground/imageWorkflowModels'
 import LoRAListField from '../playground/LoRAListField'
 import { defaultFor, isFieldRequired, isFieldVisible, loraDirectory } from '../playground/fieldKind'
 import {
@@ -37,6 +38,7 @@ export interface ComfyTemplateEditorProps {
    *  useService 的 queryKey ['service', id])。 */
   serviceId?: string | number
   currentMode?: string
+  currentModel?: string
 }
 
 interface RawInputRow {
@@ -121,7 +123,7 @@ function isSeedLike(inputName: string, type: string): boolean {
 
 const EMPTY_WORKFLOW: ComfyWorkflow = {}
 const QWEN_MODE_NODES: Record<string, string> = {
-  moss_text: '404', text: '9', reference: '344', edit: '125', oldx: '534', character_card: '534',
+  text: '9', reference: '344', edit: '125', oldx: '534', character_card: '534',
   outpaint: '179', remove: '282', upscale: '387',
 }
 
@@ -135,7 +137,7 @@ function loadPositions(id: string): ComfyNodePositions {
   }
 }
 
-export default function ComfyTemplateEditor({ templateId, serviceId, currentMode: runMode }: ComfyTemplateEditorProps) {
+export default function ComfyTemplateEditor({ templateId, serviceId, currentMode: runMode, currentModel: runModel }: ComfyTemplateEditorProps) {
   const idStr = String(templateId)
   const qc = useQueryClient()
   const [detail, setDetail] = useState<ComfyTemplateDetail | null>(null)
@@ -210,14 +212,18 @@ export default function ComfyTemplateEditor({ templateId, serviceId, currentMode
   const defaultMode = typeof modeField?.default === 'string' ? modeField.default : ''
   const currentMode = mode === 'all' ? '' : mode || runMode || defaultMode
   const modeNodeId = modeField?.comfy_node_id
+  const modelField = exposedParams.find(field => field.key === 'model')
+  const modelId = runModel ?? (typeof modelField?.default === 'string' ? modelField.default : undefined)
+  const modelNodeId = modelField?.comfy_node_id
   const visibleWorkflow = useMemo(() => currentMode && modeNodeId
-    ? filterComfyBranch(workflow, modeNodeId, currentMode) : workflow, [workflow, modeNodeId, currentMode])
+    ? filterComfyBranch(workflow, modeNodeId, currentMode, modelNodeId && modelId ? { [modelNodeId]: modelId } : undefined)
+    : workflow, [workflow, modeNodeId, currentMode, modelNodeId, modelId])
   const layout = useMemo(() => layoutComfyGraph(visibleWorkflow), [visibleWorkflow])
   const canvas = useMemo(() => grouped && nativeCanvas
     ? groupComfyNodes(layout.nodes, nativeCanvas, positions) : { nodes: layout.nodes, groups: undefined },
   [grouped, layout.nodes, nativeCanvas, positions])
   const defaultNode = detail?.service_name === 'nous-qwen21-all-in-one' && currentMode
-    ? QWEN_MODE_NODES[currentMode] : undefined
+    ? (currentMode === 'text' && modelId === MOSS_IMAGE_ID ? '404' : QWEN_MODE_NODES[currentMode]) : undefined
   const graphFocus = useMemo(() => focus ?? (grouped && defaultNode && visibleWorkflow[defaultNode]
     ? { node: defaultNode } : undefined), [focus, grouped, defaultNode, visibleWorkflow])
   const query = search.trim().toLowerCase()
@@ -435,7 +441,7 @@ export default function ComfyTemplateEditor({ templateId, serviceId, currentMode
                 </button>)}
               </div>}
               <div className="comfy-editor-canvas">
-                <ComfyTemplateGraph key={`${arrangement}:${currentMode}`}
+                <ComfyTemplateGraph key={`${arrangement}:${currentMode}:${modelId ?? ''}`}
                   nodes={graphNodes} edges={layout.edges} groups={canvas.groups} focus={graphFocus}
                   activeNodeId={activeNodeId} onNodeClick={setActiveNodeId} onMove={grouped ? moveNode : undefined} />
               </div>

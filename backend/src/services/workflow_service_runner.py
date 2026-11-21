@@ -131,12 +131,18 @@ async def run_published_workflow(
     from src.services.quota_gate import NoActiveGrant, consume_for_request
     from src.services.comfy.lora_options import LORA_LIST_TYPE, validate_lora_inputs
     from src.services.resource_pack import QuotaExhausted
+    from src.services.service_schema import build_published_service_io_schema, strict_service_inputs, validate_service_input
     from src.services.workflow_executor import ExecutionError, WorkflowExecutor
 
     if svc.status == "retired":
         raise HTTPException(410, detail=f"Service '{svc.name}' is retired")
     if svc.status == "paused":
         raise HTTPException(403, detail=f"Service '{svc.name}' is paused")
+    if strict_service_inputs(svc):
+        schema = build_published_service_io_schema(svc)["input_schema"]
+        errors = validate_service_input(schema, inputs)
+        if errors:
+            raise HTTPException(422, detail={"message": "input validation failed", "errors": errors})
     lora_keys = [p["key"] for p in svc.exposed_inputs or [] if p.get("type") == LORA_LIST_TYPE]
     lora_errors = validate_lora_inputs(lora_keys, inputs)
     if lora_errors:

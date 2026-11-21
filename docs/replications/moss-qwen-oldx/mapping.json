@@ -10,12 +10,8 @@
       "default": "text",
       "options": [
         {
-          "value": "moss_text",
-          "label": "MOSS 文生图"
-        },
-        {
           "value": "text",
-          "label": "Qwen 文生图"
+          "label": "文字生图"
         },
         {
           "value": "reference",
@@ -61,7 +57,6 @@
           "reference",
           "edit",
           "outpaint",
-          "moss_text",
           "remove",
           "oldx",
           "character_card"
@@ -70,8 +65,7 @@
       "required_when": {
         "input_mode": [
           "text",
-          "edit",
-          "moss_text"
+          "edit"
         ]
       },
       "default": ""
@@ -192,8 +186,7 @@
           "text",
           "edit",
           "oldx",
-          "character_card",
-          "moss_text"
+          "character_card"
         ]
       },
       "default": true
@@ -210,7 +203,6 @@
           "edit",
           "text",
           "reference",
-          "moss_text",
           "oldx",
           "character_card"
         ]
@@ -228,7 +220,8 @@
         "input_mode": [
           "text",
           "reference"
-        ]
+        ],
+        "model": "qwen-image-2.1-turbo"
       },
       "default": "原始比例",
       "options": [
@@ -257,7 +250,8 @@
         "input_mode": [
           "text",
           "reference"
-        ]
+        ],
+        "model": "qwen-image-2.1-turbo"
       },
       "default": 2,
       "min": 0.2,
@@ -386,7 +380,6 @@
       "required": false,
       "visible_when": {
         "input_mode": [
-          "moss_text",
           "text",
           "reference",
           "edit",
@@ -422,7 +415,6 @@
       "required": false,
       "visible_when": {
         "input_mode": [
-          "moss_text",
           "text",
           "reference",
           "edit",
@@ -451,25 +443,28 @@
       "step": 1
     },
     {
-      "key": "reference_engine",
-      "label": "反推后使用的生图模型",
+      "key": "model",
+      "label": "生图模型",
       "type": "string",
       "comfy_node_id": "704",
       "comfy_input": "value",
       "required": false,
-      "default": "qwen",
+      "default": "qwen-image-2.1-turbo",
       "options": [
         {
-          "value": "qwen",
+          "value": "qwen-image-2.1-turbo",
           "label": "Qwen Image 2.1 Turbo"
         },
         {
-          "value": "moss",
+          "value": "moss-image",
           "label": "MOSS Image"
         }
       ],
       "visible_when": {
-        "input_mode": "reference"
+        "input_mode": [
+          "text",
+          "reference"
+        ]
       }
     },
     {
@@ -492,9 +487,10 @@
       ],
       "visible_when": {
         "input_mode": [
-          "moss_text",
+          "text",
           "reference"
-        ]
+        ],
+        "model": "moss-image"
       }
     },
     {
@@ -510,9 +506,10 @@
       "step": 0.25,
       "visible_when": {
         "input_mode": [
-          "moss_text",
+          "text",
           "reference"
-        ]
+        ],
+        "model": "moss-image"
       }
     },
     {
@@ -527,7 +524,8 @@
       "max": 60,
       "step": 1,
       "visible_when": {
-        "input_mode": "moss_text"
+        "input_mode": "text",
+        "model": "moss-image"
       }
     },
     {
@@ -542,7 +540,8 @@
       "max": 10,
       "step": 0.1,
       "visible_when": {
-        "input_mode": "moss_text"
+        "input_mode": "text",
+        "model": "moss-image"
       }
     },
     {
@@ -624,7 +623,8 @@
         "input_mode": [
           "text",
           "reference"
-        ]
+        ],
+        "model": "qwen-image-2.1-turbo"
       }
     },
     {
@@ -653,9 +653,10 @@
       ],
       "visible_when": {
         "input_mode": [
-          "moss_text",
+          "text",
           "reference"
-        ]
+        ],
+        "model": "moss-image"
       }
     },
     {

@@ -1,22 +1,24 @@
 # MOSS Image、Qwen Image 2.1 与 OLDX
 
-来源为 ComfyUI 画布 `nous-MossImage_QwenImage2.1_含OLDX.json`，现名 `nous-MossImage_QwenImage2.1_all_in_one.json`。在原服务 `nous-qwen21-all-in-one` 上更新模板和映射，原有服务 ID、API 路径和授权继续使用。Playground 默认打开 MOSS 文生图，API 缺省和显式 `text` 均走 Qwen。
+来源为 ComfyUI 画布 `nous-MossImage_QwenImage2.1_含OLDX.json`，现名 `nous-MossImage_QwenImage2.1_all_in_one.json`。在原服务 `nous-qwen21-all-in-one` 上更新模板和映射，原有服务 ID、API 路径和授权继续使用。Playground 默认选择 MOSS Image。API 默认功能是 `text`，默认模型是 `qwen-image-2.1-turbo`。
 
-| 模式 | 行为 |
-| --- | --- |
-| `moss_text` | MOSS 文生图，可调画幅、像素、采样和风格 LoRA。默认依次为观澜 1.0、FeverDream 0.5、TJFilmMossV2 0.7（关闭） |
-| `text` | Qwen Turbo 文生图 |
-| `reference` | 根据参考图反推，可选择用 MOSS 或 Qwen 重新生图 |
-| `edit` | Qwen Turbo 编辑，最多上传六张参考图 |
-| `oldx` | 人物源图提供身份，姿势与场景参考提供构图、姿势和光线 |
-| `character_card` | 上传人物源图，使用 ComfyUI 中固定的资产卡作为版式参考 |
-| `outpaint` | 按四边扩展原图，可选提示词 |
-| `remove` | 白色遮罩标记要移除的区域，可附加提示词 |
-| `upscale` | SeedVR2 直接放大原图 |
+| `input_mode` | 模型 | 行为 |
+| --- | --- | --- |
+| `text` + `model: "moss-image"` | MOSS Image | 可调画幅、像素、采样和风格 LoRA，默认依次为观澜 1.0、FeverDream 0.5、TJFilmMossV2 0.7（关闭） |
+| `text` + `model: "qwen-image-2.1-turbo"` | Qwen Image 2.1 Turbo | 文生图 |
+| `reference` | Qwen Image 2.1 Turbo 或 MOSS Image | 根据参考图反推。用 `model: "qwen-image-2.1-turbo"`（默认）或 `"moss-image"` 选择再生图模型 |
+| `edit` | Qwen Image 2.1 Turbo | 最多上传六张参考图 |
+| `oldx` | Qwen Image 2.1 | 人物源图提供身份，姿势与场景参考提供构图、姿势和光线 |
+| `character_card` | Qwen Image 2.1 | 上传人物源图，使用 ComfyUI 中固定的资产卡作为版式参考 |
+| `outpaint` | Qwen Image 2.1 Turbo | 按四边扩展原图，可选提示词 |
+| `remove` | Qwen Image 2.1 Turbo | 白色遮罩标记要移除的区域，可附加提示词 |
+| `upscale` | SeedVR2 | 直接放大原图 |
 
-最终输出仍是 `image_url`。处理模式可选用 SeedVR2 放大结果。额外参考图留空时由桥剪掉各自的预处理支路。
+文生图和图片反推共用 `model`。其余功能由 `input_mode` 决定运行模型。最终输出字段为 `image_url`。处理模式可选用 SeedVR2 放大结果。额外参考图留空时由桥剪掉各自的预处理支路。
 
 ## 原位更新
+
+对已注册的 MOSS/Qwen/OLDX 模板，可用 `./upgrade.sh --preview-model` 检查模型路由更新，再用 `./upgrade.sh --apply-model` 应用。操作使用模板版本号并保留当前模板和映射的快照。
 
 已有服务可用 `./upgrade.sh --preview-loras` 预览迁移，再用
 `./upgrade.sh --apply-loras` 更新当前工作流和映射。迁移沿用当前连线和默认值，将

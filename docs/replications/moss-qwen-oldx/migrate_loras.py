@@ -5,11 +5,13 @@ import re
 import sys
 from copy import deepcopy
 
+from migrate_model_input import model_conditions
+
 POWER = "Power Lora Loader (rgthree)"
 STACK = "Lora Loader Stack (rgthree)"
 BRANCHES = (
     ("qwen_loras", "Qwen 生图 LoRA", "773", "774", ["text", "reference"]),
-    ("moss_loras", "MOSS 风格 LoRA", "397", "775", ["moss_text", "reference"]),
+    ("moss_loras", "MOSS 风格 LoRA", "397", "775", ["text", "reference"]),
     ("edit_loras", "Qwen 编辑 LoRA", "166", "776", "edit"),
     ("oldx_loras", "OLDX 人物替换 LoRA", "514", "777", ["oldx", "character_card"]),
 )
@@ -79,6 +81,7 @@ def migrate_loras(workflow, params, canvas=None):
             "comfy_node_id": base, "comfy_input": "loras", "required": False,
             "default": rows, "visible_when": {"input_mode": modes},
         })
+        model_conditions(fields[-1])
 
     if layout:
         layout.pop("source", None)

@@ -206,6 +206,20 @@ def build_service_io_schema(exposed_inputs, exposed_outputs, snapshot) -> dict:
     return {"input_schema": input_schema, "output_schema": output_schema}
 
 
+def strict_service_inputs(service) -> bool:
+    return (
+        service.source_type == "comfy_template" and service.name == "nous-qwen21-all-in-one"
+        and any(_input_key(item) == "model" for item in (service.exposed_inputs or []))
+    )
+
+
+def build_published_service_io_schema(service) -> dict:
+    schema = build_service_io_schema(service.exposed_inputs, service.exposed_outputs, service.workflow_snapshot)
+    if strict_service_inputs(service):
+        schema["input_schema"]["additionalProperties"] = False
+    return schema
+
+
 def _enum_hint(values: list) -> str:
     """错误信息里的允许值清单 —— 动态清单可能有几百项,截断到前 20。"""
     if len(values) <= 20:
@@ -252,9 +266,17 @@ def validate_service_input(
         if (conditions and (value is None or isinstance(value, str) and not value.strip())
                 and matches_input_conditions(conditions, condition_values)):
             errors.append(f"missing required input: {key}")
+    strict = input_schema.get("additionalProperties") is False
     for k, v in payload.items():
         spec = props.get(k)
-        if spec is None or v is None:
+        if spec is None:
+            if strict:
+                errors.append(f"unknown input: {k}")
+            continue
+        if v is None:
+            continue
+        if strict and k == "model" and not matches_input_conditions(spec.get("x-visible-when") or {}, condition_values):
+            errors.append("model: only available for text and reference")
             continue
         t = spec.get("type")
         if t == "string" and not isinstance(v, str):

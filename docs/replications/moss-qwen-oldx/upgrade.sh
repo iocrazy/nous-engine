@@ -8,8 +8,8 @@ name=nous-qwen21-all-in-one
 : "${ADMIN_TOKEN:?需要 Nous Engine 管理令牌}"
 
 case ${1:---preview} in
-  --preview|--apply|--preview-loras|--apply-loras) action=${1:---preview} ;;
-  *) printf 'usage: %s [--preview|--apply|--preview-loras|--apply-loras]\n' "$0" >&2; exit 2 ;;
+  --preview|--apply|--preview-loras|--apply-loras|--preview-model|--apply-model) action=${1:---preview} ;;
+  *) printf 'usage: %s [--preview|--apply|--preview-loras|--apply-loras|--preview-model|--apply-model]\n' "$0" >&2; exit 2 ;;
 esac
 
 engine() {
@@ -22,7 +22,9 @@ id=$(engine "$base/api/v1/comfy-templates" | jq -er --arg name "$name" \
   '[.[] | select(.service_name == $name)] | select(length == 1) | .[0].id')
 url="$base/api/v1/comfy-templates/$id"
 current=$(engine "$url")
-if [[ "$action" == *-loras ]]; then
+if [[ "$action" == *-model ]]; then
+  payload=$(python3 migrate_model_input.py <<< "$current")
+elif [[ "$action" == *-loras ]]; then
   payload=$(python3 migrate_loras.py <<< "$current")
 else
   : "${CHARACTER_ASSET:?需要 ComfyUI input 目录中的人物资产卡文件名}"
@@ -50,6 +52,7 @@ engine --request PUT "$url" --data-binary @- <<< "$payload"
 curl --noproxy '*' --fail -sS --max-time 10 "$base/v1/services/$name/schema" \
   | jq -e '.input_schema.properties
            | select([.qwen_loras, .moss_loras, .edit_loras, .oldx_loras] | all(.type == "array"))
-           | .input_mode
-           | select(.default == "text" and (.enum | index("moss_text") and index("oldx") and index("character_card")))
-           | {default, modes:.enum}'
+           | select(.input_mode.default == "text" and (.input_mode.enum | index("oldx") and index("character_card")))
+           | select((.input_mode.enum | index("moss_text")) == null and .reference_engine == null)
+           | select(.model.enum == ["qwen-image-2.1-turbo", "moss-image"])
+           | {modes:.input_mode.enum, models:.model.enum}'
