@@ -5,7 +5,6 @@ import { getTask, useDeleteGalleryTasks, useGalleryModels, useImageTasks, type G
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { useLightboxStore, type LightboxItem } from '../../stores/lightbox'
-import { usePanelStore } from '../../stores/panel'
 import { useToastStore } from '../../stores/toast'
 import { NodeSelectPopover } from '../nodes/NodeSelectPopover'
 import { galleryPreviewUrl, isLocalGalleryMedia } from '../../utils/galleryMedia'
@@ -51,8 +50,7 @@ function keyParameters(task: GalleryTask) {
   return settings
 }
 
-export default function HistoryOverlay() {
-  const setOverlay = usePanelStore(s => s.setOverlay)
+export default function GalleryPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tag = searchParams.get('tag')?.slice(0, 32) ?? ''
@@ -106,7 +104,6 @@ export default function HistoryOverlay() {
     try {
       const detail = await getTask(task.id)
       useLightboxStore.getState().close()
-      setOverlay(null)
       navigate(`/services/${service.id}`, { state: { rerunInputs: detail.input_json } })
     } catch {
       useToastStore.getState().add('读取任务参数失败，请重试', 'error')
@@ -169,7 +166,6 @@ export default function HistoryOverlay() {
         sourceLabel: service ? '打开服务' : '打开工作流',
         onOpenSource: source ? () => {
           useLightboxStore.getState().close()
-          setOverlay(null)
           navigate(source)
         } : undefined,
         onTagSearch: (tag: string) => {
@@ -220,15 +216,12 @@ export default function HistoryOverlay() {
   }
 
   return (
-    <div className="history-gallery absolute inset-0 z-30 flex flex-col">
+    <main className="history-gallery flex min-h-0 flex-1 flex-col">
       <header className="history-header">
         <h1 className="console-title">图库</h1>
         <button type="button" className="history-manage" aria-pressed={selecting}
           onClick={() => { setSelecting(!selecting); clearSelection() }}>
           <ListChecks size={16} />{selecting ? '退出批量管理' : '批量管理'}
-        </button>
-        <button type="button" className="history-icon" aria-label="关闭图库" onClick={() => setOverlay(null)}>
-          <X size={18} />
         </button>
       </header>
       <div className="history-filters">
@@ -317,7 +310,7 @@ export default function HistoryOverlay() {
           </button>
         </div>}
       </div>
-    </div>
+    </main>
   )
 }
 

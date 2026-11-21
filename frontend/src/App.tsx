@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Routes, Route, useLocation, useParams } from 'react-router-dom'
 import GlobalTopbar from './components/layout/GlobalTopbar'
 import StartupBanner from './components/layout/StartupBanner'
@@ -6,6 +6,7 @@ import IconRail from './components/layout/IconRail'
 import WorkflowCanvasToolbar from './components/layout/WorkflowCanvasToolbar'
 import TaskDetailModal from './components/layout/TaskDetailModal'
 import NodeEditor from './components/nodes/NodeEditor'
+import Lightbox from './components/nodes/Lightbox'
 import ToastContainer from './components/common/ToastContainer'
 import ConfirmHost from './components/common/ConfirmHost'
 import { usePanelStore, overlayForPath } from './stores/panel'
@@ -17,6 +18,8 @@ import { useAdminMe } from './api/admin'
 import Login from './pages/Login'
 import { loadPluginDefinitions } from './models/nodeRegistry'
 import { useTaskCompletionNotifier } from './hooks/useTaskCompletionNotifier'
+
+const GalleryPage = lazy(() => import('./components/overlays/HistoryOverlay'))
 
 /** Syncs the current URL to the panel store's activeOverlay */
 function RouteSync() {
@@ -57,7 +60,8 @@ function WorkflowRouteLoader() {
 
 function MainLayout({ workflowRoute }: { workflowRoute?: boolean }) {
   const activeOverlay = usePanelStore((s) => s.activeOverlay)
-  const isWorkflowView = !activeOverlay
+  const galleryRoute = overlayForPath(useLocation().pathname) === 'history'
+  const isWorkflowView = !galleryRoute && !activeOverlay
   // 全局监听任务终态翻转，发完成/失败通知（spec §6.3 DD6）。
   useTaskCompletionNotifier()
 
@@ -76,9 +80,14 @@ function MainLayout({ workflowRoute }: { workflowRoute?: boolean }) {
         <IconRail />
         <div className="flex-1 flex flex-col overflow-hidden relative">
           {isWorkflowView && <WorkflowCanvasToolbar />}
-          <NodeEditor />
+          {galleryRoute ? (
+            <Suspense fallback={null}>
+              <GalleryPage />
+            </Suspense>
+          ) : <NodeEditor />}
         </div>
       </div>
+      <Lightbox />
       <ToastContainer />
       <ConfirmHost />
       <TaskDetailModal />
