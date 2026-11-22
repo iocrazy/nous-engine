@@ -14,7 +14,7 @@ import { useVLLMMetrics, type VLLMInstance } from '../../api/vllm'
 import { useRunners, type RunnerInfo } from '../../api/runners'
 import { useHealth } from '../../api/health'
 import { useStatus, useStatusConnections, type ComponentStatus } from '../../api/status'
-import { useComfyHealth, useFreeComfyCache, useRestartComfy } from '../../api/comfyTemplates'
+import { useComfyHealth, useComfyMaintenance, useRestartComfy } from '../../api/comfyTemplates'
 import { useServices } from '../../api/services'
 import { confirmDialog } from '../../stores/confirm'
 import { sortProcesses, formatRate, type ProcSortKey, type ProcSortDir } from './processSort'
@@ -40,7 +40,7 @@ const MODEL_STATUS: Record<ModelStatus, { label: string; color: string; order: n
 
 export default function DashboardOverlay() {
   const restart = useRestartComfy()
-  const clear = useFreeComfyCache()
+  const maintenance = useComfyMaintenance()
   const [tab, setTab] = useState<DashboardTab>('overview')
   const [statusFilter, setStatusFilter] = useState<ModelStatus | ''>('')
   const [modelSearch, setModelSearch] = useState('')
@@ -110,7 +110,7 @@ export default function DashboardOverlay() {
             />
           )}
           {tab === 'system' && <SystemStatus />}
-          {tab === 'comfy' && <ComfyManagement restart={restart} clear={clear} />}
+          {tab === 'comfy' && <ComfyManagement restart={restart} maintenance={maintenance} />}
           {tab === 'processes' && <SystemProcesses />}
           {tab === 'usage' && <DashboardUsage />}
         </section>
@@ -453,9 +453,9 @@ function SystemConnections() {
   )
 }
 
-function ComfyManagement({ restart, clear }: {
+function ComfyManagement({ restart, maintenance }: {
   restart: ReturnType<typeof useRestartComfy>
-  clear: ReturnType<typeof useFreeComfyCache>
+  maintenance: ReturnType<typeof useComfyMaintenance>
 }) {
   const health = useComfyHealth()
   const connections = useStatusConnections()
@@ -468,32 +468,34 @@ function ComfyManagement({ restart, clear }: {
   const restartCount = checks?.comfy_unit.restart_count
   const render = bridge?.running_render
   const busy = !!render || (bridge?.queue_depth ?? 0) > 0
-  const locked = confirming || restart.isPending || clear.isPending
+  const locked = confirming || restart.isPending || maintenance.isPending
   const tailscale = checks?.tailscale?.find((probe) => probe.key === 'comfy')
   const rss = bridge?.process_rss_bytes
   const vram = bridge?.devices?.reduce((total, device) => total + device.comfy_used, 0)
-  const freed = clear.data?.freed_bytes ?? 0
+  const freed = maintenance.data?.freed_bytes ?? 0
 
-  const requestAction = async (action: 'restart' | 'clear') => {
-    if (locked || busy || (action === 'clear' && !bridge?.online)) return
+  const requestAction = async (action: 'restart' | 'clear' | 'release') => {
+    if (locked || busy || (action !== 'restart' && !bridge?.online)) return
     setConfirming(true)
     const restarting = action === 'restart'
-    const label = restarting ? '重启 ComfyUI' : '清理缓存并释放显存'
+    const label = restarting ? '重启 ComfyUI' : action === 'release' ? '释放显存' : '清理缓存'
     try {
       if (!await confirmDialog({
         title: label,
         message: restarting
           ? 'ComfyUI 会短暂断开。有任务执行或排队时，系统会拒绝重启。'
-          : '将卸载 ComfyUI 缓存模型并清理节点执行缓存。下次生成可能需要重新加载模型。',
+          : action === 'release'
+            ? '将卸载 ComfyUI 已加载的模型。下次生成可能需要重新加载模型。'
+            : '将清理 ComfyUI 节点执行缓存，保留已加载的模型。',
         confirmText: label,
         danger: restarting,
       })) return
       if (restarting) {
-        clear.reset()
+        maintenance.reset()
         restart.mutate()
       } else {
         restart.reset()
-        clear.mutate()
+        maintenance.mutate(action)
       }
     } finally {
       setConfirming(false)
@@ -531,22 +533,26 @@ function ComfyManagement({ restart, clear }: {
         </dl>
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className="rounded border border-[var(--border-strong)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={locked || busy || !bridge?.online}
-            onClick={() => void requestAction('clear')}>清理缓存并释放显存</button>
+            onClick={() => void requestAction('clear')}>清理缓存</button>
+          <button type="button" className="rounded border border-[var(--border-strong)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={locked || busy || !bridge?.online}
+            onClick={() => void requestAction('release')}>释放显存</button>
           <button type="button" className="rounded border border-[var(--border-strong)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={locked || busy}
             onClick={() => void requestAction('restart')}>重启 ComfyUI</button>
         </div>
         {busy && <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>任务结束后可执行维护。</p>}
         {!bridge?.online && !restart.isPending &&
-          <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>ComfyUI 在线时可清理缓存。</p>}
-        {clear.isPending && <p role="status" className="mt-2 text-sm">正在清理缓存…</p>}
-        {clear.isSuccess && <p role="status" className="mt-2 text-sm">{freed > 0
-          ? `已释放 ${(freed / 1024 ** 3).toFixed(1)} GiB 显存。`
-          : '已提交清理请求，暂未观察到显存下降。'}</p>}
+          <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>ComfyUI 在线时可清理缓存或释放显存。</p>}
+        {maintenance.isPending && <p role="status" className="mt-2 text-sm">{maintenance.variables === 'release' ? '正在释放显存…' : '正在清理缓存…'}</p>}
+        {maintenance.isSuccess && <p role="status" className="mt-2 text-sm">{maintenance.variables === 'clear'
+          ? '已提交缓存清理请求。'
+          : freed > 0
+            ? `已释放 ${(freed / 1024 ** 3).toFixed(1)} GiB 显存。`
+            : '已提交释放请求，暂未观察到显存下降。'}</p>}
         {restart.isPending && <p role="status" className="mt-2 text-sm">正在重启 ComfyUI，等待服务恢复…</p>}
         {restart.isSuccess && <p role="status" className="mt-2 text-sm" style={{ color: restart.data ? 'var(--ok)' : 'var(--warn)' }}>
           {restart.data ? 'ComfyUI 重启成功，服务已重新上线。' : '重启请求已接收，暂未确认服务恢复。'}
         </p>}
-        {clear.isError && <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--err)' }}>{clear.error.message}</p>}
+        {maintenance.isError && <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--err)' }}>{maintenance.error.message}</p>}
         {restart.isError && <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--err)' }}>{restart.error.message}</p>}
       </Panel>
       <Panel icon={<Activity size={14} />} title="访问入口">

@@ -166,6 +166,19 @@ class ComfyClient:
         if r.status_code != 200:
             raise ComfyError(f"释放显存失败(HTTP {r.status_code})")
 
+    async def clear_execution_cache(self) -> None:
+        response = await self._client.post(
+            "/nous/clear-execution-cache",
+            headers={"X-Nous-Action": "clear-execution-cache"},
+            timeout=5,
+        )
+        if response.status_code == 404:
+            raise ComfyError("ComfyUI 尚未安装 Nous 的节点缓存清理扩展", status_code=503)
+        if response.status_code == 409:
+            raise ComfyError("ComfyUI 有任务或显存释放正在处理", status_code=409)
+        if response.status_code != 202:
+            raise ComfyError(f"提交缓存清理失败(HTTP {response.status_code})")
+
     async def upload_image(self, filename: str, content: bytes, mime: str = "image/png") -> str:
         r = await self._client.post(
             "/upload/image", files={"image": (filename, content, mime)}, timeout=60)

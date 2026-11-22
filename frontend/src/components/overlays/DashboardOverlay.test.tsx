@@ -95,7 +95,7 @@ vi.mock('../../api/status', () => ({
 }))
 vi.mock('../../stores/confirm', () => ({ confirmDialog: box.confirmDialog }))
 vi.mock('../../api/comfyTemplates', () => ({
-  useFreeComfyCache: () => ({ mutate: box.clearCache, reset: vi.fn() }),
+  useComfyMaintenance: () => ({ mutate: box.clearCache, reset: vi.fn() }),
   useRestartComfy: () => ({ mutate: box.restartComfy, reset: vi.fn(),
     isPending: box.restartPending, isSuccess: box.restartResult !== undefined, data: box.restartResult }),
   useComfyHealth: () => ({
@@ -180,10 +180,11 @@ describe('DashboardOverlay tabs', () => {
     let confirm!: (value: boolean) => void
     box.confirmDialog.mockReturnValue(new Promise<boolean>((resolve) => { confirm = resolve }))
     renderComfyPanel()
-    fireEvent.click(screen.getByRole('button', { name: '清理缓存并释放显存' }))
+    fireEvent.click(screen.getByRole('button', { name: '清理缓存' }))
     expect(screen.getByRole('button', { name: '重启 ComfyUI' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '释放显存' })).toBeDisabled()
     confirm(true)
-    await waitFor(() => expect(box.clearCache).toHaveBeenCalledOnce())
+    await waitFor(() => expect(box.clearCache).toHaveBeenCalledWith('clear'))
   })
 
   it.each([
@@ -201,9 +202,17 @@ describe('DashboardOverlay tabs', () => {
     box.confirmDialog.mockResolvedValue(true)
     renderComfyPanel()
     expect(screen.getByText('4.0 GiB')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '清理缓存并释放显存' }))
-    await waitFor(() => expect(box.clearCache).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: '清理缓存' }))
+    await waitFor(() => expect(box.clearCache).toHaveBeenCalledWith('clear'))
     expect(box.confirmDialog).toHaveBeenCalledOnce()
+  })
+
+  it('submits a separate operation when releasing VRAM', async () => {
+    box.confirmDialog.mockResolvedValue(true)
+    renderComfyPanel()
+    fireEvent.click(screen.getByRole('button', { name: '释放显存' }))
+    await waitFor(() => expect(box.clearCache).toHaveBeenCalledWith('release'))
+    expect(box.clearCache).toHaveBeenCalledOnce()
   })
 
   it.each([{ queue: 1, online: true }, { queue: 0, online: false }])(
@@ -212,7 +221,7 @@ describe('DashboardOverlay tabs', () => {
       box.comfyQueue = queue
       box.comfyOnline = online
       renderComfyPanel()
-      const button = screen.getByRole<HTMLButtonElement>('button', { name: '清理缓存并释放显存' })
+      const button = screen.getByRole<HTMLButtonElement>('button', { name: '清理缓存' })
       expect(button.disabled).toBe(true)
       fireEvent.click(button)
       expect(box.confirmDialog).not.toHaveBeenCalled()
@@ -259,7 +268,7 @@ describe('DashboardOverlay tabs', () => {
     expect(resources.nextElementSibling).toBe(connections)
     expect(screen.getByText('HTTP 200')).toBeTruthy()
     expect(screen.queryByText('http://127.0.0.1:8888')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '清理缓存并释放显存' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '清理缓存' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'ComfyUI' }))
     expect(screen.getByText('队列任务')).toBeVisible()
     expect(screen.getByText('http://127.0.0.1:8888')).toBeVisible()

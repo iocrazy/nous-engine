@@ -34,7 +34,7 @@ from src.api.response_cache import invalidate
 from src.models.comfy_template import ComfyTemplate
 from src.models.database import get_async_session
 from src.models.service_instance import ServiceInstance
-from src.services.comfy.client import ComfyError
+from src.services.comfy.client import ComfyClient, ComfyError
 from src.services.comfy.client import get_comfy_client as get_client
 from src.services.comfy.lora_options import LORA_LIST, LORA_LIST_TYPE, POWER_LORA_LOADER, lora_files
 from src.services.comfy.upload_inputs import UPLOAD_TYPES
@@ -825,9 +825,32 @@ _FREE_POLL_INTERVAL = 0.5
 _FREE_NOOP_THRESHOLD = 1_000_000_000
 
 
+async def _require_comfy_idle(client: ComfyClient) -> None:
+    from src.services.nodes import comfy_bridge
+
+    health = await client.health()
+    if not health.get("online") or health.get("queue_depth") is None:
+        raise HTTPException(503, detail="暂时无法确认 ComfyUI 队列状态")
+    if health["queue_depth"] > 0 or comfy_bridge.get_running_render() is not None:
+        raise HTTPException(409, detail="ComfyUI 有任务正在执行或排队")
+
+
+@health_router.post("/cache/clear", status_code=202, dependencies=[Depends(require_admin)])
+async def comfy_clear_execution_cache():
+    client = get_client()
+    try:
+        await _require_comfy_idle(client)
+        await client.clear_execution_cache()
+    except ComfyError as exc:
+        raise HTTPException(exc.status_code, detail=exc.message) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, detail="ComfyUI sidecar 不可达") from exc
+    return {"accepted": True}
+
+
 @health_router.post("/free", dependencies=[Depends(require_admin)])
-async def comfy_free(idle_only: bool = False):
-    """释放 ComfyUI 侧缓存模型占用的显存(POST /free,unload_models+free_memory)。
+async def comfy_free(idle_only: bool = False, vram_only: bool = False):
+    """卸载 ComfyUI 模型并按需清理节点执行缓存。
 
     ComfyUI 的 /free **是异步的**:server.py 只 `prompt_queue.set_flag(...)`,真正的
     `unload_all_models()` 要等 main.py 的 worker 被 `not_empty.notify()` 唤醒后才跑
@@ -839,14 +862,11 @@ async def comfy_free(idle_only: bool = False):
     try:
         before = _used_of(_devices_from_stats(await client.system_stats()))
         if idle_only:
-            from src.services.nodes import comfy_bridge
-
-            health = await client.health()
-            if not health.get("online") or health.get("queue_depth") is None:
-                raise HTTPException(503, detail="暂时无法确认 ComfyUI 队列状态")
-            if health["queue_depth"] > 0 or comfy_bridge.get_running_render() is not None:
-                raise HTTPException(409, detail="ComfyUI 有任务正在执行或排队")
-        await client.free()
+            await _require_comfy_idle(client)
+        if vram_only:
+            await client.free(free_memory=False)
+        else:
+            await client.free()
     except ComfyError as e:
         raise HTTPException(e.status_code, detail=e.message)
     except httpx.HTTPError as e:
