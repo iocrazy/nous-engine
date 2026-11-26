@@ -4,6 +4,7 @@ import io
 import json
 import sys
 from contextlib import suppress
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src.api.routes import training
 from src.services import training_models as models
 from src.services import training_studio as studio
+from src.services.training_preview import validate_lora_targets
 
 
 def png() -> bytes:
@@ -244,3 +246,22 @@ def test_recipe_requires_all_components_under_model_root(tmp_path):
     shard = models.WEIGHTS[0][0]
     (model / shard).unlink()
     assert studio.model_components(tmp_path) == (None, [shard])
+
+
+def test_preview_rejects_empty_unknown_or_misshapen_lora_weights():
+    layer = "transformer_blocks.0.attn.to_q"
+    module = SimpleNamespace(named_modules=lambda: [
+        (layer, SimpleNamespace(weight=SimpleNamespace(shape=(8, 4)))),
+    ])
+    down = layer + ".lora_A.weight"
+    up = layer + ".lora_B.weight"
+    weights = {down: SimpleNamespace(shape=(2, 4)), up: SimpleNamespace(shape=(8, 2))}
+    assert validate_lora_targets(module, weights) == 1
+    with pytest.raises(ValueError, match="未包含可试载"):
+        validate_lora_targets(module, {})
+    with pytest.raises(ValueError, match="与底模不匹配"):
+        validate_lora_targets(module, {up: weights[up]})
+    with pytest.raises(ValueError, match="与底模不匹配"):
+        validate_lora_targets(SimpleNamespace(named_modules=lambda: []), weights)
+    with pytest.raises(ValueError, match="尺寸"):
+        validate_lora_targets(module, {**weights, up: SimpleNamespace(shape=(4, 2))})
