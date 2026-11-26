@@ -13,6 +13,7 @@ import {
   LogOut,
   Images,
   HeartPulse,
+  FlaskConical,
 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { overlayForPath, type OverlayId } from '../../stores/panel'
@@ -22,6 +23,7 @@ import { useAdminLogout, useAdminMe } from '../../api/admin'
 
 const OVERLAY_ROUTES: Record<OverlayId, string> = {
   dashboard: '/dashboard',
+  training: '/training',
   models: '/models',
   services: '/services',
   apps: '/apps',
@@ -40,6 +42,7 @@ const OVERLAY_ROUTES: Record<OverlayId, string> = {
 const TOP_NAVS: { id: OverlayId; icon: typeof LayoutDashboard; label: string }[] = [
   { id: 'dashboard', icon: LayoutDashboard, label: '概览' },
   { id: 'services', icon: Activity, label: '服务' },
+  { id: 'training', icon: FlaskConical, label: '训练工坊' },
 ]
 
 const MID_NAVS: { id: OverlayId; icon: typeof Layers; label: string }[] = [

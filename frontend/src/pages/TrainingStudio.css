@@ -1,0 +1,39 @@
+.training-studio { flex: 1; min-height: 0; overflow: auto; padding: clamp(12px, 3vw, 32px); }
+.training-tabs, .training-toolbar, .training-toolbar form { display: flex; align-items: end; flex-wrap: wrap; gap: .65rem; }
+.training-tabs { margin: 1rem 0; padding-bottom: .65rem; border-bottom: 1px solid var(--border); }
+.training-studio button { border: 1px solid var(--border); border-radius: 6px; padding: .45rem .7rem; }
+.training-studio button:disabled { opacity: .45; }
+.training-studio button[aria-current], .training-studio button[aria-pressed="true"] { color: var(--accent); background: var(--accent-subtle); }
+.training-primary { background: var(--accent); color: var(--on-accent); }
+.training-studio label { display: grid; gap: .35rem; font-size: .85rem; }
+.training-studio :is(input:not([type="checkbox"]), select, textarea) { width: 100%; }
+.training-studio .training-check, .training-card label { display: flex; align-items: center; gap: .5rem; }
+.training-panel, .training-card { padding: .85rem; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.training-panel, .training-card { display: grid; gap: .65rem; align-content: start; }
+.training-panel { margin-top: .75rem; }
+.training-panel :is(h2, h3) { font-weight: 600; }
+.training-panel button { justify-self: start; }
+.training-split, .training-jobs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 28%); gap: .8rem; }
+.training-jobs { grid-template-columns: minmax(12rem, 24%) minmax(0, 1fr); }
+.training-grid, .training-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: .65rem; margin-top: .75rem; }
+.training-card { padding: .5rem; min-width: 0; overflow-wrap: anywhere; }
+.training-card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; }
+.training-card button { padding: 0; border: 0; }
+.training-card small, .training-facts dt { color: var(--muted); }
+.training-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .75rem; }
+.training-facts dd { overflow-wrap: anywhere; }
+.training-message { white-space: pre-wrap; }
+.training-error { color: var(--err, #ef6464); }
+.training-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 20rem; font-size: .8rem; }
+.training-panel a { color: var(--accent); }
+.training-panel progress { width: 100%; }
+@media (max-width: 680px) {
+  .training-split, .training-jobs { grid-template-columns: minmax(0, 1fr); }
+}
+.training-compare { position: relative; width: min(100%, 650px); overflow: hidden; border-radius: 6px; }
+.training-compare img { display: block; width: 100%; height: auto; }
+.training-compare img + img { position: absolute; inset: 0; }
+.training-compare span { position: absolute; inset-block: 0; width: 2px; background: var(--accent); }
+.training-loss { min-width: 0; }
+.training-selected { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .35rem; }
+.training-selected img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; }

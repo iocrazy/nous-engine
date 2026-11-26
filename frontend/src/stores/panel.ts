@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 export type OverlayId =
   | 'dashboard'
+  | 'training'
   | 'models'           // 引擎库
   | 'settings'
   | 'api-keys-list'    // m10 v3 API Key 列表
@@ -23,6 +24,7 @@ const ROUTE_TO_OVERLAY: Record<string, OverlayId> = {
   '/agents': 'agents',
   '/settings': 'settings',
   '/dashboard': 'dashboard',
+  '/training': 'training',
   '/api-keys': 'api-keys-list',
   '/logs': 'logs',
   '/node-packages': 'node-packages',

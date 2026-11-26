@@ -26,6 +26,7 @@ import src.models.api_gateway  # noqa: F401,E402
 import src.models.comfy_template  # noqa: F401,E402
 import src.models.context_cache  # noqa: F401,E402
 import src.models.execution_task  # noqa: F401,E402
+import src.models.training  # noqa: F401,E402
 import src.models.file  # noqa: F401,E402
 import src.models.instance_api_key  # noqa: F401,E402
 import src.models.llm_usage  # noqa: F401,E402
