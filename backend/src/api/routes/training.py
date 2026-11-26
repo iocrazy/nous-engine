@@ -214,9 +214,11 @@ async def upload_sample(
         "id": sample_id, "file": f"{sample_id}.{suffix}", "name": Path(file.filename or "image").name[:255],
         "caption": caption.strip(), "origin": origin, "type": media_type, "width": width, "height": height,
     }
-    target = studio.settings().data / "datasets" / dataset_id / entry["file"]
+    data_root = studio.settings().data
+    target = data_root / "datasets" / dataset_id / entry["file"]
 
     def save_image():
+        data_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
 

@@ -261,7 +261,10 @@ export default function TrainingStudio() {
       setStatus(result.comfy_listed
         ? `已发布到 ${result.path}，ComfyUI 已列出该 LoRA。`
         : `已写入 ${result.path}，可在 Playground 同步 LoRA 目录。`)
-      await client.invalidateQueries({ queryKey: ['training', 'run', jobId] })
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['training', 'run', jobId] }),
+        client.invalidateQueries({ queryKey: ['comfy', 'loras'] }),
+      ])
     },
   })
 

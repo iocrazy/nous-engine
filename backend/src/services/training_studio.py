@@ -288,7 +288,7 @@ async def _execute(config: TrainingConfig, run: TrainingRun, lease: int) -> None
 
 
 async def training_worker(config: TrainingConfig) -> None:
-    config.data.mkdir(parents=True, exist_ok=True)
+    config.data.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (config.data / ".worker").open("a") as lock:
         acquired = False
         while True:
