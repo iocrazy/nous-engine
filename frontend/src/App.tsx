@@ -24,6 +24,7 @@ const ServiceDetail = lazy(() => import('./pages/ServiceDetailRoute'))
 const Usage = lazy(() => import('./pages/UsagePage'))
 const ApiKeysList = lazy(() => import('./pages/ApiKeysList'))
 const ApiKeyDetail = lazy(() => import('./pages/ApiKeyDetail'))
+const Training = lazy(() => import('./pages/TrainingStudio'))
 const Gallery = lazy(() => import('./components/overlays/HistoryOverlay'))
 
 function MainLayout() {
@@ -84,6 +85,7 @@ export default function App() {
             <Route path="/logs" element={<Logs />} />
             <Route path="/node-packages" element={<NodePackages />} />
             <Route path="/usage" element={<Usage />} />
+            <Route path="/training" element={<Training />} />
             <Route path="/gallery" element={<Gallery />} />
             <Route path="/status" element={<Status />} />
             <Route path="/history" element={<Navigate to="/gallery" replace />} />
