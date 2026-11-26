@@ -128,16 +128,15 @@ async def test_health_offline_devices_empty(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_free_calls_client_and_returns_snapshot(client, monkeypatch):
-    calls = {"n": 0}
-    class Counting(FakeClient):
-        async def free(self):
-            calls["n"] += 1
-    monkeypatch.setattr(ct_mod, "get_client", lambda: Counting())
+@pytest.mark.parametrize(("query", "free_memory"), [("", True), ("?vram_only=true", False)])
+async def test_free_calls_client_and_returns_snapshot(client, monkeypatch, query, free_memory):
+    release = AsyncMock()
+    monkeypatch.setattr(FakeClient, "free", release)
+    monkeypatch.setattr(ct_mod, "get_client", FakeClient)
     monkeypatch.setattr(ct_mod, "_FREE_POLL_INTERVAL", 0)  # 显存不降时别空等 6s
-    r = await client.post("/api/v1/comfy/free")
+    r = await client.post(f"/api/v1/comfy/free{query}")
     assert r.status_code == 200
-    assert calls["n"] == 1
+    release.assert_awaited_once_with(**({} if free_memory else {"free_memory": False}))
     body = r.json()
     assert body["ok"] is True
     assert body["devices"][0]["vram_used"] == 102_000_000_000 - 37_700_000_000
@@ -202,30 +201,42 @@ async def test_health_reports_comfy_main_process_memory(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["free", "cache/clear"])
 @pytest.mark.parametrize(("online", "depth", "render", "status"), [
     (True, 0, None, 200),
     (True, 1, None, 409),
     (True, 0, {"task_id": "123", "held_seconds": 4}, 409),
     (False, 0, None, 503),
 ])
-async def test_idle_only_free_checks_queue_and_active_render(client, monkeypatch, online, depth, render, status):
-
-    released = []
-
+async def test_comfy_maintenance_checks_idle_queue(client, monkeypatch, online, depth, render, status, operation):
     class Sidecar(FakeClient):
         async def health(self):
             return {"online": online, "queue_depth": depth}
 
-        async def free(self):
-            released.append(True)
-
-    monkeypatch.setattr(ct_mod, "get_client", Sidecar)
+    sidecar = Sidecar()
+    sidecar.free = AsyncMock()
+    sidecar.clear_execution_cache = AsyncMock()
+    monkeypatch.setattr(ct_mod, "get_client", lambda: sidecar)
     monkeypatch.setattr(ct_mod, "_FREE_POLL_INTERVAL", 0)
     monkeypatch.setattr(comfy_bridge, "get_running_render", lambda: render)
 
-    response = await client.post("/api/v1/comfy/free?idle_only=true")
-    assert response.status_code == status
-    assert bool(released) == (status == 200)
+    if operation == "free":
+        response = await client.post("/api/v1/comfy/free?idle_only=true&vram_only=true")
+        assert response.status_code == status
+        sidecar.clear_execution_cache.assert_not_awaited()
+        if status == 200:
+            sidecar.free.assert_awaited_once_with(free_memory=False)
+        else:
+            sidecar.free.assert_not_awaited()
+    else:
+        response = await client.post("/api/v1/comfy/cache/clear")
+        assert response.status_code == (202 if status == 200 else status)
+        sidecar.free.assert_not_awaited()
+        if status == 200:
+            sidecar.clear_execution_cache.assert_awaited_once_with()
+            assert response.json() == {"accepted": True}
+        else:
+            sidecar.clear_execution_cache.assert_not_awaited()
 
 
 @pytest.mark.asyncio

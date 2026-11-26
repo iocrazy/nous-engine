@@ -227,16 +227,22 @@ export function getComfyLoras(): Promise<string[]> {
   return apiFetch<string[]>('/api/v1/comfy/loras', { cache: 'no-store' })
 }
 
-export function freeComfyVram(options?: { idleOnly: boolean }): Promise<FreeComfyVramResult> {
-  const query = options?.idleOnly ? '?idle_only=true' : ''
+export function freeComfyVram(options?: { idleOnly?: boolean; vramOnly?: boolean }): Promise<FreeComfyVramResult> {
+  const params = new URLSearchParams()
+  if (options?.idleOnly) params.set('idle_only', 'true')
+  if (options?.vramOnly) params.set('vram_only', 'true')
+  const query = params.size ? `?${params}` : ''
   return apiFetch<FreeComfyVramResult>(`/api/v1/comfy/free${query}`, { method: 'POST' })
 }
 
 
-export function useFreeComfyCache() {
+export function useComfyMaintenance() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => freeComfyVram({ idleOnly: true }),
+    mutationFn: (action: 'clear' | 'release'): Promise<FreeComfyVramResult | null> =>
+      action === 'release'
+        ? freeComfyVram({ idleOnly: true, vramOnly: true })
+        : apiFetch('/api/v1/comfy/cache/clear', { method: 'POST' }).then(() => null),
     onSettled: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: ['comfy-health'] }),
       queryClient.invalidateQueries({ queryKey: ['monitor', 'stats'] }),
