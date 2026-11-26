@@ -265,3 +265,30 @@ def test_preview_rejects_empty_unknown_or_misshapen_lora_weights():
         validate_lora_targets(SimpleNamespace(named_modules=lambda: []), weights)
     with pytest.raises(ValueError, match="尺寸"):
         validate_lora_targets(module, {**weights, up: SimpleNamespace(shape=(4, 2))})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("free", "ready"), [(96444, True), (94700, False), (36000, False)])
+async def test_preflight_allows_idle_cuda_overhead_only(tmp_path, monkeypatch, free, ready):
+    trainer = tmp_path / "trainer"
+    python = trainer / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    script = trainer / studio.TRAINER_SCRIPT
+    script.parent.mkdir(parents=True)
+    script.touch()
+    model = tmp_path / "model"
+    gpu = "GPU-d24ed424-5712-55e9-9b95-77d997ac80dc"
+    monkeypatch.setattr(studio, "model_components", lambda _root: (model, []))
+
+    async def command(*args, **_kwargs):
+        if args[0] == "git":
+            return studio.TRAINER_REVISION
+        assert args[0] == "nvidia-smi"
+        return f"{gpu}, RTX PRO 6000, {free}, 97887"
+
+    monkeypatch.setattr(studio, "_read_command", command)
+    status = await studio.preflight(studio.TrainingConfig(tmp_path, trainer, model, gpu))
+    assert status["can_queue"]
+    assert status["ready"] is ready
+    assert status["gpu_busy"] is not ready

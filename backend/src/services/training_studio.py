@@ -29,6 +29,7 @@ ACTIVE = ("preparing", "running", "cancelling")
 ARTIFACT = re.compile(r"(?:step|epoch)-[0-9]+\.safetensors")
 GPU_UUID = re.compile(r"GPU-[0-9a-fA-F-]{36}")
 MIN_FREE_MIB = 40 * 1024
+IDLE_VRAM_OVERHEAD_MIB = 2 * 1024
 
 
 @dataclass(frozen=True)
@@ -113,7 +114,9 @@ async def preflight(config: TrainingConfig, *, probe_trainer: bool = False) -> d
             if uuid != config.gpu:
                 raise ValueError("GPU UUID mismatch")
             gpu_info = {"uuid": uuid, "name": name, "free_mib": int(free), "total_mib": int(total)}
-            gpu_busy = int(total) >= MIN_FREE_MIB and (int(free) < MIN_FREE_MIB or int(total) - int(free) > 1024)
+            gpu_busy = int(total) >= MIN_FREE_MIB and (
+                int(free) < MIN_FREE_MIB or int(total) - int(free) > IDLE_VRAM_OVERHEAD_MIB
+            )
             if int(total) < MIN_FREE_MIB:
                 gpu_error = "训练配方要求至少 40 GiB 显存"
             elif gpu_busy:
